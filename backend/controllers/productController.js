@@ -54,7 +54,7 @@ const createProduct = async (req, res) => {
     } catch (diagErr) {
       console.warn('Could not read Product schema year options:', diagErr);
     }
-    const { name, description, price, stock, imageUrl, forCourse, branch, years, year, remarks, isSet, setItems, lowStockThreshold, semesters } = req.body;
+    const { name, description, price, stock, imageUrl, forCourse, branch, years, year, remarks, isSet, setItems, lowStockThreshold, semesters, collegeId } = req.body;
     // Handle years array - if years is provided, use it; otherwise fallback to year for backward compatibility
     let parsedYears = [];
     if (years && Array.isArray(years)) {
