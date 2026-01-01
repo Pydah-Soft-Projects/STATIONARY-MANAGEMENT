@@ -54,6 +54,7 @@ const normalizeStudentRow = (row) => {
   const semesterValue = deriveValue(row, ['semester', 'current_semester', 'semester_no', 'sem', 'sem_no'], null);
   const branch = deriveValue(row, ['branch', 'department', 'dept', 'department_name'], 'N/A');
   const status = deriveValue(row, ['status', 'admission_status', 'admissionStatus', 'student_status', 'studentStatus', 'admission_state'], null);
+  const phoneNumber = deriveValue(row, ['student_mobile', 'parent_mobile1', 'parent_mobile2', 'mobile', 'phone', 'contact'], '');
 
   return {
     id: id ?? preferredId ?? `${name}-${course}`,
@@ -66,6 +67,7 @@ const normalizeStudentRow = (row) => {
     semester: semesterValue !== null && semesterValue !== undefined ? Number(semesterValue) || semesterValue : null,
     branch,
     status: status || null,
+    phoneNumber: phoneNumber || '',
     _sourceRow: row,
   };
 };
@@ -77,28 +79,89 @@ const getSqlStudents = asyncHandler(async (req, res) => {
     throw new Error('MySQL pool is not configured. Check environment variables.');
   }
 
-  // Check for forceRefresh query parameter or body parameter
-  const forceRefresh = req.query.forceRefresh === 'true' || req.body?.forceRefresh === true || req.body?.noCache === true;
+  const {
+    page = 1,
+    limit = 50,
+    search = '',
+    course = '',
+    branch = '',
+    year = '',
+    forceRefresh = false,
+  } = req.query;
+
+  const pageNum = Math.max(1, parseInt(page, 10));
+  const limitNum = Math.max(1, parseInt(limit, 10));
+  const offset = (pageNum - 1) * limitNum;
 
   const tableName = process.env.DB_STUDENTS_TABLE || DEFAULT_STUDENT_TABLE;
-  // Use SQL_NO_CACHE hint to bypass MySQL query cache when forceRefresh is true
-  const sql = forceRefresh 
-    ? `SELECT SQL_NO_CACHE * FROM \`${tableName}\``
-    : `SELECT * FROM \`${tableName}\``;
+
+  // Build WHERE clause
+  const conditions = [];
+  const params = [];
+
+  if (search) {
+    const searchPattern = `%${search}%`;
+    conditions.push(`(student_name LIKE ? OR admission_number LIKE ? OR student_mobile LIKE ?)`);
+    params.push(searchPattern, searchPattern, searchPattern);
+  }
+
+  if (course && course !== 'all') {
+    conditions.push(`LOWER(course) = LOWER(?)`);
+    params.push(course);
+  }
+
+  if (branch && branch !== 'all') {
+    conditions.push(`LOWER(branch) = LOWER(?)`);
+    params.push(branch);
+  }
+
+  if (year && year !== 'all') {
+    conditions.push(`CAST(current_year AS CHAR) = ?`);
+    params.push(String(year));
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  // Count total records for pagination
+  const countSql = `SELECT COUNT(*) as total FROM \`${tableName}\` ${whereClause}`;
+  
+  // Fetch paginated records
+  const dataSql = forceRefresh
+    ? `SELECT SQL_NO_CACHE * FROM \`${tableName}\` ${whereClause} ORDER BY admission_number DESC LIMIT ? OFFSET ?`
+    : `SELECT * FROM \`${tableName}\` ${whereClause} ORDER BY admission_number DESC LIMIT ? OFFSET ?`;
 
   try {
-    const [rows] = await pool.query(sql);
+    // Get total count
+    const [countRows] = await pool.query(countSql, params);
+    const total = countRows[0]?.total || 0;
 
-    if (!Array.isArray(rows)) {
-      res.status(200).json([]);
-      return;
-    }
+    // Get paginated data
+    // Append Limit and Offset to params
+    const queryParams = [...params, limitNum, offset];
+    const [rows] = await pool.query(dataSql, queryParams);
 
-    const normalized = rows.map(normalizeStudentRow);
+    // Normalize rows
+    const normalized = Array.isArray(rows) ? rows.map(normalizeStudentRow) : [];
+
+    // Also fetch available courses and years for the filter UI
+    const [courseRows] = await pool.query(`SELECT DISTINCT course FROM \`${tableName}\` WHERE course IS NOT NULL AND course != ''`);
+    const [yearRows] = await pool.query(`SELECT DISTINCT current_year FROM \`${tableName}\` WHERE current_year IS NOT NULL`);
+
+    const availableCourses = courseRows.map(r => String(r.course).toLowerCase().trim()).filter(Boolean);
+    const availableYears = yearRows.map(r => String(r.current_year)).filter(Boolean).sort();
+
     res.json({
-      count: normalized.length,
-      table: tableName,
       rows: normalized,
+      count: total,
+      table: tableName,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum),
+        total,
+      },
+      availableCourses: Array.from(new Set(availableCourses)).sort(),
+      availableYears: Array.from(new Set(availableYears)),
     });
   } catch (error) {
     console.error('[MySQL] Failed to fetch student records:', error);
@@ -367,6 +430,13 @@ const syncSqlStudents = asyncHandler(async (req, res) => {
     const existingUsers = await User.find({ studentId: { $in: Array.from(uniqueIds).filter(Boolean) } });
     const userMap = new Map(existingUsers.map((user) => [ensureString(user.studentId), user]));
 
+    // Filter valid students and separate into existing vs new
+    const bulkOps = [];
+    const newStudents = [];
+    
+    // Pre-fetch all emails for new potential users to optimize uniqueness check
+    // We'll do this after identifying which students are actually new
+
     for (const student of normalized) {
       const name = ensureString(student.name);
       const preferredId = ensureString(student.pin) || ensureString(student.studentId);
@@ -411,106 +481,176 @@ const syncSqlStudents = asyncHandler(async (req, res) => {
       const semesterNumber = rawSemester !== null ? Number.parseInt(rawSemester, 10) : null;
       const semester = semesterNumber && semesterNumber > 0 ? semesterNumber : null;
 
-      try {
-        let existing = userMap.get(studentId);
-        if (!existing && fallbackId) {
-          existing = userMap.get(fallbackId);
+      let existing = userMap.get(studentId);
+      if (!existing && fallbackId) {
+        existing = userMap.get(fallbackId);
+      }
+
+      if (existing) {
+        // UPDATE LOGIC
+        let changed = false;
+        const updates = {};
+        const changes = [];
+
+        if (existing.name !== name) {
+          updates.name = name;
+          changed = true;
         }
-        if (existing) {
-          let changed = false;
-          if (existing.name !== name) {
-            existing.name = name;
-            changed = true;
-          }
-          if (course && existing.course !== course) {
-            existing.course = course;
-            changed = true;
-          }
-          if (existing.year !== year) {
-            existing.year = year;
-            changed = true;
-          }
-          if (existing.branch !== branch) {
-            existing.branch = branch;
-            changed = true;
-          }
-          if (semester !== null && existing.semester !== semester) {
-            existing.semester = semester;
-            changed = true;
-          }
-          if (preferredId && existing.studentId !== preferredId) {
-            existing.studentId = preferredId;
-            changed = true;
-          }
+        if (course && existing.course !== course) {
+          updates.course = course;
+          changes.push(`Course: ${existing.course} -> ${course}`);
+          changed = true;
+        }
+        if (existing.year !== year) {
+          updates.year = year;
+          changes.push(`Year: ${existing.year} -> ${year}`);
+          changed = true;
+        }
+        if (existing.branch !== branch) {
+          updates.branch = branch;
+          changes.push(`Branch: ${existing.branch} -> ${branch}`);
+          changed = true;
+        }
+        if (semester !== null && existing.semester !== semester) {
+          updates.semester = semester;
+          changes.push(`Semester: ${existing.semester} -> ${semester}`);
+          changed = true;
+        }
+        if (preferredId && existing.studentId !== preferredId) {
+          updates.studentId = preferredId;
+          changes.push(`Id: ${existing.studentId} -> ${preferredId}`);
+          changed = true;
+        }
+        if (student.phoneNumber !== undefined && existing.phoneNumber !== student.phoneNumber) {
+          updates.phoneNumber = student.phoneNumber;
+          changes.push(`Phone: ${existing.phoneNumber || 'N/A'} -> ${student.phoneNumber}`);
+          changed = true;
+        }
 
-          if (changed) {
-            await existing.save();
-            userMap.set(ensureString(existing.studentId), existing);
-            summary.updated += 1;
-            summary.updatedDetails.push({
-              studentId,
-              name,
-              course,
-              year,
-              branch,
-              semester: semester || null,
-              previousCourse: existing.course,
-              previousYear: existing.year,
-              previousBranch: existing.branch,
-              previousSemester: existing.semester || null,
-            });
-          } else {
-            summary.skipped += 1;
-            summary.skippedDetails.push({
-              studentId,
-              name,
-              course,
-              year,
-              branch,
-              reason: 'No changes detected',
-            });
-          }
-        } else {
-          const emailDomain = getEmailDomain();
-          let email = `${studentId}@${emailDomain}`.toLowerCase();
-
-          // Ensure generated email is unique to prevent duplicate key errors
-          let emailCounter = 1;
-          // eslint-disable-next-line no-await-in-loop
-          while (await User.findOne({ email })) {
-            email = `${studentId}+${emailCounter}@${emailDomain}`.toLowerCase();
-            emailCounter += 1;
-          }
-
-          const newUser = new User({
-            name,
-            studentId,
-            course,
-            year,
-            semester,
-            branch,
-            email,
-            password: getDefaultPassword(),
+        if (changed) {
+          bulkOps.push({
+            updateOne: {
+              filter: { _id: existing._id },
+              update: { $set: updates },
+            },
           });
-
-          await newUser.save();
-          userMap.set(studentId, newUser);
-          summary.inserted += 1;
-          summary.insertedDetails.push({
+          summary.updated += 1;
+          summary.updatedDetails.push({
             studentId,
             name,
             course,
             year,
             branch,
             semester: semester || null,
+            previousCourse: existing.course,
+            previousYear: existing.year,
+            previousBranch: existing.branch,
+            previousSemester: existing.semester || null,
+            previousPhoneNumber: existing.phoneNumber || '',
+          });
+          // Update the map wrapper so subsequent checks in same sync work (unlikely needed but good practice)
+          Object.assign(existing, updates); 
+        } else {
+          summary.skipped += 1;
+          summary.skippedDetails.push({
+            studentId,
+            name,
+            course,
+            year,
+            branch,
+            reason: 'No changes detected',
+          });
+        }
+      } else {
+        // NEW STUDENT - Queue for bulk insert processing
+        newStudents.push({
+          name,
+          studentId,
+          course,
+          year,
+          branch,
+          semester,
+          phoneNumber: student.phoneNumber || '',
+        });
+      }
+    }
+
+    // PROCESS NEW STUDENTS
+    if (newStudents.length > 0) {
+      const emailDomain = getEmailDomain();
+      const defaultPassword = getDefaultPassword();
+      const studentIds = newStudents.map(s => s.studentId);
+      const potentialEmails = studentIds.map(id => `${id}@${emailDomain}`.toLowerCase());
+      
+      // Find which default emails are already taken
+      const takenUsers = await User.find({ email: { $in: potentialEmails } }).select('email');
+      const takenEmails = new Set(takenUsers.map(u => u.email));
+
+      for (const student of newStudents) {
+        let email = `${student.studentId}@${emailDomain}`.toLowerCase();
+        
+        // If default email is taken, fallback to sequential search (slower but safe)
+        if (takenEmails.has(email)) {
+          let emailCounter = 1;
+          while (await User.findOne({ email })) {
+            email = `${student.studentId}+${emailCounter}@${emailDomain}`.toLowerCase();
+            emailCounter += 1;
+          }
+        }
+
+        bulkOps.push({
+          insertOne: {
+            document: {
+              name: student.name,
+              studentId: student.studentId,
+              course: student.course,
+              year: student.year,
+              semester: student.semester,
+              branch: student.branch,
+              email: email,
+              phoneNumber: student.phoneNumber,
+              password: defaultPassword,
+              role: 'Student', // Ensure role is set
+            },
+          },
+        });
+        
+        summary.inserted += 1;
+        summary.insertedDetails.push({
+          studentId: student.studentId,
+          name: student.name,
+          course: student.course,
+          year: student.year,
+          branch: student.branch,
+          semester: student.semester || null,
+        });
+      }
+    }
+
+    // EXECUTE ALL OPERATIONS
+    if (bulkOps.length > 0) {
+      try {
+        const result = await User.bulkWrite(bulkOps, { ordered: false });
+        if (result.hasWriteErrors()) {
+          result.getWriteErrors().forEach((err) => {
+            summary.errors.push({
+              message: `Bulk write error: ${err.errmsg}`,
+              index: err.index,
+            });
+            // Adjust counts if necessary, though bulkWrite result usually gives success counts
           });
         }
       } catch (error) {
-        console.error(`[MySQL Sync] Failed to sync student ${studentId}:`, error);
-        summary.errors.push({
-          studentId,
-          message: error.message || 'Unknown error',
-        });
+         if (error.writeErrors) {
+          error.writeErrors.forEach((err) => {
+             summary.errors.push({
+              message: `Bulk write error (partial): ${err.errmsg}`,
+            });
+          });
+        } else {
+          console.error('[MySQL Sync] Bulk write failed:', error);
+          summary.errors.push({ message: `Critical bulk write failure: ${error.message}` });
+        }
       }
     }
 

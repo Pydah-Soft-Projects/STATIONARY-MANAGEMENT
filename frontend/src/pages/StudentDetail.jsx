@@ -715,6 +715,12 @@ const StudentDetail = ({
                     <p className="text-sm font-medium text-gray-500">{student.branch}</p>
                   </div>
                 )}
+                {student.phoneNumber && (
+                  <div className="space-y-1">
+                    <p className=" uppercase tracking-wide">Phone Number</p>
+                    <p className="text-sm font-medium text-gray-500">{student.phoneNumber}</p>
+                  </div>
+                )}
               </div>
             </div>
           </aside>

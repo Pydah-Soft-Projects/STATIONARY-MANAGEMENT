@@ -7,7 +7,7 @@ const asyncHandler = require('express-async-handler');
  * @access  Public
  */
 const registerUser = asyncHandler(async (req, res) => {
-  const { name, email, password, studentId, course, year, branch, semester } = req.body;
+  const { name, email, password, studentId, course, year, branch, semester, phoneNumber } = req.body;
 
   if (!course) {
     res.status(400);
@@ -40,6 +40,7 @@ const registerUser = asyncHandler(async (req, res) => {
       year,
       branch,
       semester,
+      phoneNumber,
     });
 
   if (user) {
@@ -53,6 +54,7 @@ const registerUser = asyncHandler(async (req, res) => {
       year: user.year,
       branch: user.branch,
       semester: user.semester,
+      phoneNumber: user.phoneNumber,
       items: user.items,
       paid: user.paid,
     }});
@@ -114,7 +116,7 @@ const getAllUsers = asyncHandler(async (req, res) => {
  */
 const updateUser = asyncHandler(async (req, res) => {
   const { course, id } = req.params;
-  const { items, paid, name, studentId, year, branch, semester } = req.body;
+  const { items, paid, name, studentId, year, branch, semester, phoneNumber } = req.body;
   
   if (!course) {
     res.status(400);
@@ -136,6 +138,7 @@ const updateUser = asyncHandler(async (req, res) => {
   if (year !== undefined) user.year = year;
   if (branch !== undefined) user.branch = branch;
   if (semester !== undefined) user.semester = semester;
+  if (phoneNumber !== undefined) user.phoneNumber = phoneNumber;
 
   const updated = await user.save();
   res.json({ 
@@ -146,6 +149,7 @@ const updateUser = asyncHandler(async (req, res) => {
     year: updated.year, 
     branch: updated.branch, 
     semester: updated.semester,
+    phoneNumber: updated.phoneNumber,
     items: updated.items, 
     paid: updated.paid 
   });
@@ -209,6 +213,7 @@ const importUsers = asyncHandler(async (req, res) => {
     const studentId = row.studentId || row.StudentId || row['student id'] || row['Student ID'] || '';
     const year = row.year || row.Year || '';
     const branch = row.branch || row.Branch || '';
+    const phoneNumber = row.phoneNumber || row.PhoneNumber || row.phone || row.Phone || row.mobile || row.Mobile || '';
 
     if (!name || !studentId) {
       // skip rows without required data
@@ -222,6 +227,7 @@ const importUsers = asyncHandler(async (req, res) => {
       existing.name = name || existing.name;
       if (year) existing.year = Number(year) || existing.year;
       if (branch) existing.branch = branch;
+      if (phoneNumber) existing.phoneNumber = phoneNumber;
       await existing.save();
       imported.push({ _id: existing._id, name: existing.name, studentId: existing.studentId, course: existing.course, year: existing.year, branch: existing.branch });
       continue;
@@ -234,6 +240,7 @@ const importUsers = asyncHandler(async (req, res) => {
       course: course, 
       year: year ? Number(year) : undefined, 
       branch: branch || '',
+      phoneNumber: phoneNumber || '',
       email: `${studentId}@student.com`, // Generate a placeholder email
       password: 'temp123' // Temporary password
     };

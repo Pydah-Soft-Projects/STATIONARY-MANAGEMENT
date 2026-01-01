@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Upload, Search, Users, Edit2, Trash2, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Filter, RefreshCw } from 'lucide-react';
+import { Upload, Search, Users, Edit2, Trash2, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Filter, RefreshCw, Plus } from 'lucide-react';
 import { apiUrl } from '../utils/api';
 import { loadJSON, saveJSON, removeStoredItem } from '../utils/storage';
 import { hasFullAccess } from '../utils/permissions';
@@ -63,6 +63,14 @@ const StudentRow = ({
           />
         </td>
         <td className="px-6 py-4 whitespace-nowrap">
+          <input
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            placeholder="Phone Number"
+            value={editFields.phoneNumber}
+            onChange={e => setEditFields(prev => ({ ...prev, phoneNumber: e.target.value }))}
+          />
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap">
           <div className="flex gap-2">
             <button
               className="px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
@@ -115,6 +123,9 @@ const StudentRow = ({
       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
         {student.branch || 'N/A'}
       </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+        {student.phoneNumber || 'N/A'}
+      </td>
       <td className="px-6 py-4 whitespace-nowrap">
         {isSqlMode ? (
           <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-lg">
@@ -153,11 +164,7 @@ const VIEW_MODES = {
 };
 
 const StudentManagement = ({ students = [], setStudents, addStudent, refreshStudents, currentUser }) => {
-  // SQL cache keys & TTL (2 minutes)
-  const SQL_CACHE_KEY = 'sql_students_rows';
-  const SQL_META_KEY = 'sql_students_meta';
-  const SQL_CACHE_TIMESTAMP_KEY = 'sql_students_timestamp';
-  const SQL_CACHE_TTL = 2 * 60 * 1000;
+  // SQL cache keys REMOVED - Using server-side pagination now
 
   // Check access level
   const isSuperAdmin = currentUser?.role === 'Administrator';
@@ -169,6 +176,7 @@ const StudentManagement = ({ students = [], setStudents, addStudent, refreshStud
   const [course, setCourse] = useState('');
   const [year, setYear] = useState('1');
   const [branch, setBranch] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [config, setConfig] = useState(null);
   const [message, setMessage] = useState('');
   const [editingId, setEditingId] = useState(null);
@@ -190,6 +198,8 @@ const StudentManagement = ({ students = [], setStudents, addStudent, refreshStud
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [showSyncModal, setShowSyncModal] = useState(false);
+  const [syncPreviewCount, setSyncPreviewCount] = useState(0);
+  const [isSyncPreviewLoading, setIsSyncPreviewLoading] = useState(false);
   const [syncFilters, setSyncFilters] = useState({
     course: '',
     branch: '',
@@ -203,11 +213,37 @@ const StudentManagement = ({ students = [], setStudents, addStudent, refreshStud
   const dataSource = isSqlActive ? sqlStudents : students;
   const isSqlMode = isSqlActive;
 
-  const isSqlCacheValid = useCallback(() => {
-    const timestamp = loadJSON(SQL_CACHE_TIMESTAMP_KEY, null);
-    if (!timestamp) return false;
-    return Date.now() - timestamp < SQL_CACHE_TTL;
-  }, []);
+
+  useEffect(() => {
+    if (!showSyncModal) return;
+
+    const fetchPreviewCount = async () => {
+      setIsSyncPreviewLoading(true);
+      try {
+        const params = new URLSearchParams({
+          page: '1',
+          limit: '1', // We only need the count from metadata
+          course: syncFilters.course,
+          branch: syncFilters.branch,
+          year: syncFilters.year,
+        });
+
+        const url = apiUrl(`/api/sql/students?${params.toString()}`);
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          setSyncPreviewCount(data?.pagination?.total || data?.count || 0);
+        }
+      } catch (error) {
+        console.error('Failed to fetch sync preview count:', error);
+      } finally {
+        setIsSyncPreviewLoading(false);
+      }
+    };
+
+    const timer = setTimeout(fetchPreviewCount, 300);
+    return () => clearTimeout(timer);
+  }, [showSyncModal, syncFilters]);
 
   useEffect(() => {
     if (currentUser?.assignedCollege) {
@@ -258,17 +294,12 @@ const StudentManagement = ({ students = [], setStudents, addStudent, refreshStud
     })();
   }, [currentUser]);
 
-  // Load SQL students from cache on mount (if available)
+  // Load SQL students on mount if in SQL mode
   useEffect(() => {
-    const cachedRows = loadJSON(SQL_CACHE_KEY, null);
-    const cachedMeta = loadJSON(SQL_META_KEY, null);
-
-    if (Array.isArray(cachedRows) && cachedRows.length > 0) {
-      setSqlStudents(cachedRows);
-      setSqlMeta(cachedMeta || null);
-      setSqlLoaded(true);
+    if (viewMode === VIEW_MODES.sql) {
+      fetchSqlStudents();
     }
-  }, []);
+  }, [viewMode]);
 
   useEffect(() => {
     cancelSqlFetchRef.current = false;
@@ -278,47 +309,49 @@ const StudentManagement = ({ students = [], setStudents, addStudent, refreshStud
   }, []);
 
   const fetchSqlStudents = useCallback(
-    async ({ forceRefresh = false } = {}) => {
-      if (sqlLoading) return;
-
-      // If we already have fresh cached data, don't refetch
-      if (!forceRefresh && isSqlCacheValid() && (sqlStudents?.length || 0) > 0) {
-        setSqlLoaded(true);
-        return;
-      }
+    async ({ forceRefresh = false, page = 1, limit = 25 } = {}) => {
       setSqlLoading(true);
       setSqlError('');
-      try {
-        // Add forceRefresh query parameter when forceRefresh is true
-        const url = forceRefresh
-          ? apiUrl(`/api/sql/students?forceRefresh=true`)
-          : apiUrl('/api/sql/students');
 
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(limit),
+        search: searchTerm,
+        course: courseFilter !== 'all' ? courseFilter : '',
+        year: yearFilter !== 'all' ? yearFilter : '',
+        forceRefresh: forceRefresh ? 'true' : 'false',
+      });
+
+      try {
+        const url = apiUrl(`/api/sql/students?${params.toString()}`);
         const res = await fetch(url);
+
         if (!res.ok) {
           const errorText = await res.text();
           throw new Error(errorText || `Failed with status ${res.status}`);
         }
+
         const data = await res.json();
         if (!cancelSqlFetchRef.current) {
           const rows = Array.isArray(data?.rows) ? data.rows : [];
-          const meta = { table: data?.table, count: data?.count };
-
           setSqlStudents(rows);
-          setSqlMeta(meta);
+          // Set meta with server-side count
+          setSqlMeta({
+            table: data?.table,
+            count: data?.pagination?.total || data?.count || 0,
+            page: data?.pagination?.page || 1,
+            totalPages: data?.pagination?.totalPages || 1,
+            availableCourses: data?.availableCourses || [],
+            availableYears: data?.availableYears || [],
+          });
           setSqlLoaded(true);
-
-          // Always persist to local storage cache after fetching (even with forceRefresh)
-          // This ensures the cache is updated with the latest live data
-          saveJSON(SQL_CACHE_KEY, rows);
-          saveJSON(SQL_META_KEY, meta);
-          saveJSON(SQL_CACHE_TIMESTAMP_KEY, Date.now());
         }
       } catch (error) {
         if (!cancelSqlFetchRef.current) {
           console.error('Failed to fetch MySQL students:', error);
           setSqlError(error.message || 'Unable to load external students.');
           setSqlLoaded(false);
+          setSqlStudents([]);
         }
       } finally {
         if (!cancelSqlFetchRef.current) {
@@ -326,8 +359,19 @@ const StudentManagement = ({ students = [], setStudents, addStudent, refreshStud
         }
       }
     },
-    [sqlLoading, sqlStudents?.length, isSqlCacheValid],
+    [searchTerm, courseFilter, yearFilter]
   );
+
+  // Trigger fetch when filters or page change in SQL mode
+  useEffect(() => {
+    if (viewMode === VIEW_MODES.sql) {
+      // Debounce search slightly to avoid too many requests
+      const timer = setTimeout(() => {
+        fetchSqlStudents({ page: currentPage, limit: pageSize });
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [fetchSqlStudents, currentPage, pageSize, viewMode]);
 
   const handleSyncToMongo = async () => {
     if (syncing) return;
@@ -400,10 +444,7 @@ const StudentManagement = ({ students = [], setStudents, addStudent, refreshStud
       // Close modal after successful sync
       setShowSyncModal(false);
 
-      // Clear SQL cache to ensure fresh data on next view
-      removeStoredItem(SQL_CACHE_KEY);
-      removeStoredItem(SQL_META_KEY);
-      removeStoredItem(SQL_CACHE_TIMESTAMP_KEY);
+      // Clear local SQL cache removed
 
       if (typeof refreshStudents === 'function') {
         await refreshStudents();
@@ -449,22 +490,28 @@ const StudentManagement = ({ students = [], setStudents, addStudent, refreshStud
         const idMatch = String(student.studentId || '').toLowerCase().includes(term);
         if (!nameMatch && !idMatch) return false;
       }
-      if (courseFilter !== 'all' && String(student.course) !== String(courseFilter)) return false;
+      if (courseFilter !== 'all' && (student.course || '').toLowerCase().trim() !== (courseFilter || '').toLowerCase().trim()) return false;
       if (yearFilter !== 'all' && String(student.year) !== String(yearFilter)) return false;
       return true;
     });
-  }, [dataSource, searchTerm, courseFilter, yearFilter, selectedCollege, colleges]);
+  }, [dataSource, searchTerm, courseFilter, yearFilter, selectedCollege, colleges, viewMode]);
 
   useEffect(() => {
+    // Reset to page 1 when filters or view mode changes
     setCurrentPage(1);
-  }, [searchTerm, courseFilter, yearFilter, viewMode, dataSource.length]);
+  }, [searchTerm, courseFilter, yearFilter, viewMode]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredStudents.length / pageSize));
+  const totalPages = viewMode === VIEW_MODES.sql
+    ? (sqlMeta?.totalPages || 1)
+    : Math.max(1, Math.ceil(filteredStudents.length / pageSize));
+
   const safeCurrentPage = Math.min(currentPage, totalPages);
+
   const paginatedStudents = useMemo(() => {
+    if (viewMode === VIEW_MODES.sql) return sqlStudents; // Already paginated from server
     const startIndex = (safeCurrentPage - 1) * pageSize;
     return filteredStudents.slice(startIndex, startIndex + pageSize);
-  }, [filteredStudents, safeCurrentPage, pageSize]);
+  }, [filteredStudents, safeCurrentPage, pageSize, viewMode, sqlStudents]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -477,18 +524,18 @@ const StudentManagement = ({ students = [], setStudents, addStudent, refreshStud
       return;
     }
 
-    const newStudent = { name, studentId, course, year: Number(year), branch };
+    const newStudent = { name, studentId, course, year: Number(year), branch, phoneNumber };
     const result = await addStudent(newStudent);
     if (result.success) {
       setMessage('Student added successfully!');
-      setName(''); setStudentId(''); setYear('1'); setBranch('CSE'); setCourse('b.tech');
+      setName(''); setStudentId(''); setYear('1'); setBranch('CSE'); setCourse('b.tech'); setPhoneNumber('');
     } else setMessage(result.message || 'Add failed');
   };
 
   const startEdit = (s) => {
     if (isSqlMode) return;
     setEditingId(s.id);
-    setEditFields({ name: s.name, studentId: s.studentId, course: s.course, year: s.year, branch: s.branch });
+    setEditFields({ name: s.name, studentId: s.studentId, course: s.course, year: s.year, branch: s.branch, phoneNumber: s.phoneNumber || '' });
   };
 
   const cancelEdit = () => {
@@ -509,6 +556,7 @@ const StudentManagement = ({ students = [], setStudents, addStudent, refreshStud
           studentId: editFields.studentId,
           year: Number(editFields.year),
           branch: editFields.branch,
+          phoneNumber: editFields.phoneNumber,
         }),
       });
       if (!res.ok) throw new Error('Update failed');
@@ -599,16 +647,24 @@ const StudentManagement = ({ students = [], setStudents, addStudent, refreshStud
             </button>
           </div>
 
-          {isSqlMode ? (
+          {!isSqlActive ? (
             <button
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-md hover:shadow-lg whitespace-nowrap"
+              onClick={() => setShowAddModal(true)}
+            >
+              <Plus size={18} />
+              Add Student
+            </button>
+          ) : (
+            <button
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed shadow-md hover:shadow-lg whitespace-nowrap"
               onClick={() => setShowSyncModal(true)}
               disabled={syncing || sqlLoading}
             >
-              <Upload size={16} />
+              <Upload size={18} />
               Sync to Stationery DB
             </button>
-          ) : null}
+          )}
         </div>
       </div>
 
@@ -899,9 +955,14 @@ const StudentManagement = ({ students = [], setStudents, addStudent, refreshStud
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               <option value="all">All Courses</option>
-              {Array.from(new Set((dataSource || []).map(s => s.course).filter(Boolean))).map(c => (
-                <option key={c} value={c}>{c.toUpperCase()}</option>
-              ))}
+              {(() => {
+                const mongoCourses = (students || []).map(s => (s.course || '').toLowerCase().trim()).filter(Boolean);
+                const sqlCourses = isSqlActive ? (sqlMeta?.availableCourses || []) : [];
+                const allCourses = Array.from(new Set([...mongoCourses, ...sqlCourses])).sort();
+                return allCourses.map(c => (
+                  <option key={c} value={c}>{c.toUpperCase()}</option>
+                ));
+              })()}
             </select>
             <select
               value={yearFilter}
@@ -909,9 +970,14 @@ const StudentManagement = ({ students = [], setStudents, addStudent, refreshStud
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               <option value="all">All Years</option>
-              {Array.from(new Set((dataSource || []).map(s => String(s.year)).filter(Boolean))).sort().map(y => (
-                <option key={y} value={y}>Year {y}</option>
-              ))}
+              {(() => {
+                const mongoYears = (students || []).map(s => String(s.year)).filter(y => y && y !== 'N/A');
+                const sqlYears = isSqlActive ? (sqlMeta?.availableYears || []) : [];
+                const allYears = Array.from(new Set([...mongoYears, ...sqlYears])).sort((a, b) => Number(a) - Number(b));
+                return allYears.map(y => (
+                  <option key={y} value={y}>Year {y}</option>
+                ));
+              })()}
             </select>
           </div>
         </div>
@@ -963,6 +1029,7 @@ const StudentManagement = ({ students = [], setStudents, addStudent, refreshStud
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Year</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Semester</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Branch</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone Number</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
@@ -1046,6 +1113,15 @@ const StudentManagement = ({ students = [], setStudents, addStudent, refreshStud
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   value={studentId}
                   onChange={e => setStudentId(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                <input
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Enter student mobile number"
+                  value={phoneNumber}
+                  onChange={e => setPhoneNumber(e.target.value)}
                 />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1154,137 +1230,148 @@ const StudentManagement = ({ students = [], setStudents, addStudent, refreshStud
                 </div>
               )}
 
-              {/* Course Filter */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Course
-                </label>
-                <p className="text-xs text-gray-500 mb-2">Select a course to filter, or leave empty to sync all</p>
-                <div className="relative">
-                  <select
-                    value={syncFilters.course}
-                    onChange={(e) => {
-                      const selectedCourse = e.target.value;
-                      setSyncFilters(prev => ({
-                        ...prev,
-                        course: selectedCourse,
-                        branch: '', // Reset branch when course changes
-                        year: '', // Reset year when course changes
-                      }));
-                    }}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none bg-white pr-10 cursor-pointer hover:border-gray-400 transition-colors text-sm disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-500"
-                    disabled={syncing}
-                  >
-                    <option value="">All Courses</option>
-                    {Array.from(new Set((sqlStudents || []).map(s => s.course).filter(Boolean)))
-                      .sort()
-                      .map(course => (
-                        <option key={course} value={course}>
-                          {course.toUpperCase()}
-                        </option>
-                      ))}
-                  </select>
-                  <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                    <ChevronDown className="w-5 h-5 text-gray-400" />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Course Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Course
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={syncFilters.course}
+                      onChange={(e) => {
+                        const selectedCourse = e.target.value;
+                        setSyncFilters(prev => ({
+                          ...prev,
+                          course: selectedCourse,
+                          branch: '', // Reset branch when course changes
+                          year: '', // Reset year when course changes
+                        }));
+                      }}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none bg-white pr-10 cursor-pointer hover:border-gray-400 transition-colors text-sm disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-500"
+                      disabled={syncing}
+                    >
+                      <option value="">All Courses</option>
+                      {(() => {
+                        const mongoCourses = (students || []).map(s => (s.course || '').toLowerCase().trim()).filter(Boolean);
+                        const sqlCourses = sqlMeta?.availableCourses || [];
+                        const allCourses = Array.from(new Set([...mongoCourses, ...sqlCourses])).sort();
+                        return allCourses.map(course => (
+                          <option key={course} value={course}>
+                            {course.toUpperCase()}
+                          </option>
+                        ));
+                      })()}
+                    </select>
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                      <ChevronDown className="w-5 h-5 text-gray-400" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Branch Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Branch
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={syncFilters.branch}
+                      onChange={(e) => {
+                        setSyncFilters(prev => ({
+                          ...prev,
+                          branch: e.target.value,
+                          year: '', // Reset year when branch changes
+                        }));
+                      }}
+                      disabled={!syncFilters.course || syncing}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none bg-white pr-10 cursor-pointer hover:border-gray-400 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-500 text-sm"
+                    >
+                      <option value="">
+                        {syncFilters.course ? 'All Branches' : 'Select a course first'}
+                      </option>
+                      {(() => {
+                        const normalizedSyncCourse = (syncFilters.course || '').toLowerCase().trim();
+                        const filteredByCourse = normalizedSyncCourse
+                          ? students.filter(s => (s.course || '').toLowerCase().trim() === normalizedSyncCourse)
+                          : students;
+                        const availableBranches = Array.from(new Set(filteredByCourse.map(s => (s.branch || '').toLowerCase().trim()).filter(Boolean))).sort();
+
+                        return availableBranches.map(branch => (
+                          <option key={branch} value={branch}>
+                            {branch.toUpperCase()}
+                          </option>
+                        ));
+                      })()}
+                    </select>
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                      <ChevronDown className="w-5 h-5 text-gray-400" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Year Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Year
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={syncFilters.year}
+                      onChange={(e) => {
+                        setSyncFilters(prev => ({
+                          ...prev,
+                          year: e.target.value,
+                        }));
+                      }}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none bg-white pr-10 cursor-pointer hover:border-gray-400 transition-colors text-sm disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-500"
+                      disabled={syncing}
+                    >
+                      <option value="">All Years</option>
+                      {(() => {
+                        let filtered = students;
+                        const normalizedSyncCourse = (syncFilters.course || '').toLowerCase().trim();
+                        const normalizedSyncBranch = (syncFilters.branch || '').toLowerCase().trim();
+
+                        if (normalizedSyncCourse) {
+                          filtered = filtered.filter(s => (s.course || '').toLowerCase().trim() === normalizedSyncCourse);
+                        }
+                        if (normalizedSyncBranch) {
+                          filtered = filtered.filter(s => (s.branch || '').toLowerCase().trim() === normalizedSyncBranch);
+                        }
+                        const availableYears = Array.from(new Set(filtered.map(s => s.year).filter(y => y && y !== 'N/A')))
+                          .sort((a, b) => Number(a) - Number(b));
+
+                        return availableYears.map(year => (
+                          <option key={year} value={String(year)}>
+                            Year {year}
+                          </option>
+                        ));
+                      })()}
+                    </select>
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                      <ChevronDown className="w-5 h-5 text-gray-400" />
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Branch Filter */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Branch
-                </label>
-                <p className="text-xs text-gray-500 mb-2">Select a branch to filter, or leave empty to sync all</p>
-                <div className="relative">
-                  <select
-                    value={syncFilters.branch}
-                    onChange={(e) => {
-                      setSyncFilters(prev => ({
-                        ...prev,
-                        branch: e.target.value,
-                        year: '', // Reset year when branch changes
-                      }));
-                    }}
-                    disabled={!syncFilters.course || syncing}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none bg-white pr-10 cursor-pointer hover:border-gray-400 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-500 text-sm"
-                  >
-                    <option value="">
-                      {syncFilters.course ? 'All Branches' : 'Select a course first'}
-                    </option>
-                    {(() => {
-                      // Get branches based on selected course, or all if no course selected
-                      const filteredByCourse = syncFilters.course
-                        ? sqlStudents.filter(s => s.course === syncFilters.course)
-                        : sqlStudents;
-                      const availableBranches = Array.from(new Set(filteredByCourse.map(s => s.branch).filter(Boolean))).sort();
-
-                      return availableBranches.map(branch => (
-                        <option key={branch} value={branch}>
-                          {branch}
-                        </option>
-                      ));
-                    })()}
-                  </select>
-                  <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                    <ChevronDown className="w-5 h-5 text-gray-400" />
+              {/* Summary & Count Preview */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium text-blue-900">Sync Summary</p>
+                  <div className="flex items-center gap-2">
+                    {isSyncPreviewLoading ? (
+                      <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                    ) : (
+                      <span className="text-sm font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full border border-blue-200">
+                        {syncPreviewCount} Students
+                      </span>
+                    )}
                   </div>
                 </div>
-                {syncFilters.course && (
-                  <p className="mt-1 text-xs text-gray-500">
-                    Showing branches for {syncFilters.course.toUpperCase()}
-                  </p>
-                )}
-              </div>
 
-              {/* Year Filter */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Year
-                </label>
-                <p className="text-xs text-gray-500 mb-2">Select a year to filter, or leave empty to sync all</p>
-                <div className="relative">
-                  <select
-                    value={syncFilters.year}
-                    onChange={(e) => {
-                      setSyncFilters(prev => ({
-                        ...prev,
-                        year: e.target.value,
-                      }));
-                    }}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none bg-white pr-10 cursor-pointer hover:border-gray-400 transition-colors text-sm disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-500"
-                    disabled={syncing}
-                  >
-                    <option value="">All Years</option>
-                    {(() => {
-                      // Get years based on selected course/branch, or all if none selected
-                      let filtered = sqlStudents;
-                      if (syncFilters.course) {
-                        filtered = filtered.filter(s => s.course === syncFilters.course);
-                      }
-                      if (syncFilters.branch) {
-                        filtered = filtered.filter(s => s.branch === syncFilters.branch);
-                      }
-                      const availableYears = Array.from(new Set(filtered.map(s => s.year).filter(y => y && y !== 'N/A')))
-                        .sort((a, b) => Number(a) - Number(b));
-
-                      return availableYears.map(year => (
-                        <option key={year} value={String(year)}>
-                          Year {year}
-                        </option>
-                      ));
-                    })()}
-                  </select>
-                  <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                    <ChevronDown className="w-5 h-5 text-gray-400" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Summary */}
-              {(syncFilters.course || syncFilters.branch || syncFilters.year) && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <p className="text-sm font-medium text-blue-900 mb-2">Selected Filters:</p>
+                {(syncFilters.course || syncFilters.branch || syncFilters.year) ? (
                   <div className="text-xs text-blue-800 space-y-1">
                     {syncFilters.course && (
                       <p>• <strong>Course:</strong> {syncFilters.course.toUpperCase()}</p>
@@ -1295,20 +1382,16 @@ const StudentManagement = ({ students = [], setStudents, addStudent, refreshStud
                     {syncFilters.year && (
                       <p>• <strong>Year:</strong> Year {syncFilters.year}</p>
                     )}
-                    <p className="mt-2 text-blue-700">
-                      Only students matching all selected filters will be synced.
+                    <p className="mt-2 text-blue-700 font-medium">
+                      Ready to sync {syncPreviewCount} matching students.
                     </p>
                   </div>
-                </div>
-              )}
-
-              {(!syncFilters.course && !syncFilters.branch && !syncFilters.year) && (
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                  <p className="text-xs sm:text-sm text-yellow-800">
-                    <strong>No filters selected:</strong> All students from the MySQL table will be synced (excluding cancelled admissions).
+                ) : (
+                  <p className="text-xs text-blue-800">
+                    <strong>All students</strong> from MySQL will be synced ({syncPreviewCount} total).
                   </p>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
             <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex flex-col sm:flex-row justify-end gap-3">

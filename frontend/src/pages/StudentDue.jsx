@@ -561,12 +561,14 @@ const StudentDue = () => {
         pdf.rect(20, yPos - 3, 170, 6, 'F');
 
         // Define column positions
-        const colName = 25;
-        const colRoll = 100;
-        const colRemarks = 150;
+        const colName = 22;
+        const colRoll = 85;
+        const colPhone = 120;
+        const colRemarks = 155;
 
         pdf.text('Student Name', colName, yPos + 1);
         pdf.text('Roll Number', colRoll, yPos + 1);
+        pdf.text('Mobile', colPhone, yPos + 1);
         pdf.text('Remarks', colRemarks, yPos + 1);
         yPos += 8;
 
@@ -574,6 +576,7 @@ const StudentDue = () => {
         pdf.setFontSize(9);
 
         filteredForReport.forEach((record, index) => {
+          console.log('PDF Record:', record.student.name, record.student.phoneNumber);
           // Check if we need a new page
           if (yPos > 270) {
             pdf.addPage();
@@ -585,6 +588,7 @@ const StudentDue = () => {
             pdf.rect(20, yPos - 3, 170, 6, 'F');
             pdf.text('Student Name', colName, yPos + 1);
             pdf.text('Roll Number', colRoll, yPos + 1);
+            pdf.text('Mobile', colPhone, yPos + 1);
             pdf.text('Remarks', colRemarks, yPos + 1);
             yPos += 8;
             pdf.setFont(undefined, 'normal');
@@ -594,6 +598,8 @@ const StudentDue = () => {
           const student = record.student;
           const studentName = (student.name || 'N/A').substring(0, 40);
           const studentId = (student.studentId || 'N/A');
+          // Ensure phone number is treated as string
+          const phone = student.phoneNumber ? String(student.phoneNumber) : 'N/A';
 
           // Alternate row background
           if (index % 2 === 0) {
@@ -603,6 +609,7 @@ const StudentDue = () => {
 
           pdf.text(studentName, colName, yPos + 2);
           pdf.text(studentId, colRoll, yPos + 2);
+          pdf.text(phone, colPhone, yPos + 2);
           // Remarks column is empty space
 
           yPos += 8;
@@ -859,6 +866,9 @@ const StudentDue = () => {
                             <div className="flex flex-col">
                               <span className="text-sm font-medium text-gray-900">{student.name}</span>
                               <span className="text-xs text-gray-500">{student.studentId}</span>
+                              {student.phoneNumber && (
+                                <span className="text-xs text-gray-400 mt-0.5">{student.phoneNumber}</span>
+                              )}
                             </div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">

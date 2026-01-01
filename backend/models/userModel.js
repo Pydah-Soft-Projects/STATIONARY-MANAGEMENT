@@ -51,6 +51,11 @@ const userSchema = new mongoose.Schema(
       type: Object,
       default: {},
     },
+    phoneNumber: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     // Whether the student has paid or not
     paid: {
       type: Boolean,
