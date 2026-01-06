@@ -799,6 +799,120 @@ const deleteTransaction = asyncHandler(async (req, res) => {
 });
 
 /**
+ * @desc    Get student dues report (identifies missing items based on student mapping)
+ * @route   GET /api/transactions/reports/dues
+ * @access  Public
+ */
+const getStudentDuesReport = asyncHandler(async (req, res) => {
+  const { course, year, branch, semester, kitId } = req.query;
+
+  if (!course) {
+    res.status(400);
+    throw new Error('Course is required for dues report');
+  }
+
+  // 1. Fetch Students
+  const studentFilter = { course: course.trim() };
+  if (year && year !== '0') studentFilter.year = Number(year);
+  if (branch && branch !== '') studentFilter.branch = branch;
+  if (semester && semester !== '0') studentFilter.semester = Number(semester);
+  
+  const students = await User.find(studentFilter).lean();
+
+  // 2. Fetch All Products for this course
+  const products = await Product.find({ forCourse: course.trim() }).lean();
+
+  // 3. Helper for keys (mirroring frontend)
+  const getItemKey = (name) => name ? name.toLowerCase().trim().replace(/\s+/g, '_') : '';
+
+  // 4. Precompute product metadata
+  const processedProducts = products.map(p => ({
+    ...p,
+    _key: getItemKey(p.name),
+    _years: Array.isArray(p.years) ? p.years : (p.year && p.year !== 0 ? [p.year] : []),
+    _normalizedBranches: (p.branch || []).map(b => b.toLowerCase().trim()),
+    _semesters: p.semesters || []
+  }));
+
+  // 5. Calculate Dues for each student
+  const duesReport = students.map(student => {
+    const studentYear = Number(student.year);
+    const studentBranch = student.branch?.toLowerCase().trim() || '';
+    const studentSemester = Number(student.semester);
+    const itemsMap = student.items || {};
+
+    // Determine applicable products
+    const applicableProducts = processedProducts.filter(p => {
+      // Logic same as frontend StudentDue.jsx
+      if (p._years.length > 0 && !p._years.includes(studentYear)) return false;
+      if (p._normalizedBranches.length > 0 && studentBranch && !p._normalizedBranches.includes(studentBranch)) return false;
+      if (p._semesters.length > 0 && studentSemester && !p._semesters.includes(studentSemester)) return false;
+      return true;
+    });
+
+    // Identify pending items
+    const pendingItems = applicableProducts.filter(p => !itemsMap[p._key]);
+
+    // Calculate values
+    const pendingValue = pendingItems.reduce((sum, p) => sum + (p.price || 0), 0);
+    const issuedCount = applicableProducts.length - pendingItems.length;
+    const issuedValue = applicableProducts
+      .filter(p => itemsMap[p._key])
+      .reduce((sum, p) => sum + (p.price || 0), 0);
+
+    return {
+      student: {
+        _id: student._id,
+        name: student.name,
+        studentId: student.studentId,
+        course: student.course,
+        year: student.year,
+        branch: student.branch,
+        semester: student.semester,
+        phoneNumber: student.phoneNumber,
+        items: itemsMap // For kit filtering below
+      },
+      mappedProducts: applicableProducts.map(p => ({ _id: p._id, name: p.name, price: p.price, isSet: p.isSet })),
+      pendingItems: pendingItems.map(p => ({ _id: p._id, name: p.name, price: p.price, isSet: p.isSet, _key: p._key })),
+      pendingCount: pendingItems.length,
+      issuedCount,
+      pendingValue,
+      issuedValue,
+      completion: applicableProducts.length > 0 
+        ? Math.round((issuedCount / applicableProducts.length) * 100) 
+        : 0
+    };
+  });
+
+  // 6. Apply Kit/Set filter if requested
+  let filteredReport = duesReport;
+  if (kitId) {
+    const kit = processedProducts.find(p => p._id.toString() === kitId);
+    if (!kit) {
+      res.status(404);
+      throw new Error('Kit not found');
+    }
+
+    const kitComponentsKeys = kit.isSet
+      ? (kit.setItems || []).map(si => getItemKey(si.productNameSnapshot || ''))
+      : [kit._key];
+
+    filteredReport = duesReport.filter(record => {
+      // Student must have at least one item from this kit pending
+      return kitComponentsKeys.some(key => !record.student.items[key]);
+    });
+  }
+
+  // Remove full items map from response to save bandwidth
+  const cleanedReport = filteredReport.map(r => {
+    const { items, ...studentInfo } = r.student;
+    return { ...r, student: studentInfo };
+  });
+
+  res.status(200).json(cleanedReport.filter(r => r.pendingCount > 0));
+});
+
+/**
  * @desc    Get transactions by student ID
  * @route   GET /api/transactions/student/:studentId
  * @access  Public
@@ -825,4 +939,5 @@ module.exports = {
   updateTransaction,
   deleteTransaction,
   getTransactionsByStudent,
+  getStudentDuesReport,
 };

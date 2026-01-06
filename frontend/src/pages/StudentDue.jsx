@@ -40,7 +40,7 @@ const StudentDue = () => {
   const [productsError, setProductsError] = useState('');
   const [studentsError, setStudentsError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const [dueFilters, setDueFilters] = useState({ search: '', course: '', year: '', branch: '', semester: '' });
+  const [dueFilters, setDueFilters] = useState({ search: '', course: '', year: '', branch: '', semester: '', kit: '' });
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(25);
   const [showReportModal, setShowReportModal] = useState(false);
@@ -49,6 +49,7 @@ const StudentDue = () => {
     year: '',
     branch: '',
     semester: '',
+    kit: '',
     includeSummary: true,
     includeItemDetails: false,
   });
@@ -199,6 +200,7 @@ const StudentDue = () => {
     return Array.from(branches).sort((a, b) => a.localeCompare(b));
   }, [students, dueFilters.course]);
 
+
   // Pre-normalize and precompute product data for performance
   const normalizedProducts = useMemo(() => {
     return products.map(product => ({
@@ -212,6 +214,55 @@ const StudentDue = () => {
       _key: getItemKey(product.name),
     }));
   }, [products]);
+
+  const kitOptions = useMemo(() => {
+    // If filters are selected, show kits that match those filters
+    const selectedCourse = normalizeValue(dueFilters.course);
+    const selectedYear = Number(dueFilters.year);
+    const selectedBranch = dueFilters.branch ? normalizeValue(dueFilters.branch) : null;
+    const selectedSemester = dueFilters.semester ? Number(dueFilters.semester) : null;
+
+    return normalizedProducts
+      .filter(p => {
+        if (!p.isSet) return false;
+
+        // Course filter
+        if (selectedCourse && p._normalizedCourse && p._normalizedCourse !== selectedCourse) return false;
+
+        // Year filter
+        if (!Number.isNaN(selectedYear) && selectedYear > 0 && p._years.length > 0 && !p._years.includes(selectedYear)) return false;
+
+        // Branch filter
+        if (selectedBranch && p._normalizedBranches.length > 0 && !p._normalizedBranches.includes(selectedBranch)) return false;
+
+        // Semester filter
+        if (selectedSemester !== null && !Number.isNaN(selectedSemester) && selectedSemester > 0 && p._semesters.length > 0 && !p._semesters.includes(selectedSemester)) return false;
+
+        return true;
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [normalizedProducts, dueFilters.course, dueFilters.year, dueFilters.branch, dueFilters.semester]);
+
+  const reportKitOptions = useMemo(() => {
+    // Replicate same logic for report filters
+    const selectedCourse = normalizeValue(reportFilters.course);
+    const selectedYear = Number(reportFilters.year);
+    const selectedBranch = reportFilters.branch ? normalizeValue(reportFilters.branch) : null;
+    const selectedSemester = reportFilters.semester ? Number(reportFilters.semester) : null;
+
+    return normalizedProducts
+      .filter(p => {
+        if (!p.isSet) return false;
+
+        if (selectedCourse && p._normalizedCourse && p._normalizedCourse !== selectedCourse) return false;
+        if (!Number.isNaN(selectedYear) && selectedYear > 0 && p._years.length > 0 && !p._years.includes(selectedYear)) return false;
+        if (selectedBranch && p._normalizedBranches.length > 0 && !p._normalizedBranches.includes(selectedBranch)) return false;
+        if (selectedSemester !== null && !Number.isNaN(selectedSemester) && selectedSemester > 0 && p._semesters.length > 0 && !p._semesters.includes(selectedSemester)) return false;
+
+        return true;
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [normalizedProducts, reportFilters.course, reportFilters.year, reportFilters.branch, reportFilters.semester]);
 
   // Pre-normalize student data
   const normalizedStudents = useMemo(() => {
@@ -331,15 +382,34 @@ const StudentDue = () => {
     const selectedYear = Number(dueFilters.year);
     const selectedBranch = dueFilters.branch ? normalizeValue(dueFilters.branch) : null;
     const selectedSemester = dueFilters.semester ? Number(dueFilters.semester) : null;
+    const selectedKitId = dueFilters.kit;
+
+    // Kit specific filter logic: find if the kit is assigned to this student
+    const selectedKit = selectedKitId ? normalizedProducts.find(p => p._id === selectedKitId) : null;
+    const selectedKitKey = selectedKit ? selectedKit._key : null;
 
     return dueStudents.filter(record => {
-      const { student } = record;
+      const { student, pendingItems } = record;
       if (selectedCourse && normalizeValue(student.course) !== selectedCourse) return false;
       if (!Number.isNaN(selectedYear) && selectedYear > 0 && Number(student.year) !== selectedYear) return false;
       if (selectedBranch && normalizeValue(student.branch) !== selectedBranch) return false;
       if (selectedSemester !== null && !Number.isNaN(selectedSemester) && selectedSemester > 0) {
         const studentSemester = Number(student.semester);
         if (Number.isNaN(studentSemester) || studentSemester !== selectedSemester) return false;
+      }
+
+      // Kit filter logic: Student must have the kit mapped AND at least one item from the kit must be pending
+      if (selectedKitId) {
+        const isKitMapped = record.mappedProducts.some(p => p._id === selectedKitId);
+        if (!isKitMapped) return false;
+
+        // Check if ANY component of this kit is in pendingItems
+        const kitComponentsKeys = selectedKit.isSet
+          ? (selectedKit.setItems || []).map(si => getItemKey(si.product?.name || si.productNameSnapshot))
+          : [selectedKit._key];
+
+        const hasPendingKitItem = kitComponentsKeys.some(key => !student._itemsMap[key]);
+        if (!hasPendingKitItem) return false;
       }
 
       if (searchValue) {
@@ -404,6 +474,7 @@ const StudentDue = () => {
       year: dueFilters.year || '',
       branch: dueFilters.branch || '',
       semester: dueFilters.semester || '',
+      kit: dueFilters.kit || '',
       includeSummary: true,
       includeItemDetails: false,
     });
@@ -419,6 +490,7 @@ const StudentDue = () => {
         const selectedYear = Number(reportFilters.year);
         const selectedBranch = reportFilters.branch ? normalizeValue(reportFilters.branch) : null;
         const selectedSemester = reportFilters.semester ? Number(reportFilters.semester) : null;
+        const selectedKitId = reportFilters.kit;
 
         if (selectedCourse && normalizeValue(student.course) !== selectedCourse) return false;
         if (!Number.isNaN(selectedYear) && selectedYear > 0 && Number(student.year) !== selectedYear) return false;
@@ -427,6 +499,21 @@ const StudentDue = () => {
           const studentSemester = Number(student.semester);
           if (Number.isNaN(studentSemester) || studentSemester !== selectedSemester) return false;
         }
+
+        // Kit filter logic for report
+        if (selectedKitId) {
+          const isKitMapped = record.mappedProducts.some(p => p._id === selectedKitId);
+          if (!isKitMapped) return false;
+
+          const selectedKit = normalizedProducts.find(p => p._id === selectedKitId);
+          const kitComponentsKeys = selectedKit && selectedKit.isSet
+            ? (selectedKit.setItems || []).map(si => getItemKey(si.product?.name || si.productNameSnapshot))
+            : selectedKit ? [selectedKit._key] : [];
+
+          const hasPendingKitItem = kitComponentsKeys.some(key => !student._itemsMap[key]);
+          if (!hasPendingKitItem) return false;
+        }
+
         return true;
       });
 
@@ -478,9 +565,28 @@ const StudentDue = () => {
 
         if (applicableProds.length === 0) return; // Not applicable for this student
 
-        reportTotalStudents++;
+        // Kit specific counting logic
+        if (reportFilters.kit) {
+          const isKitMapped = applicableProds.some(p => p._id === reportFilters.kit);
+          if (!isKitMapped) return; // This student is not mapped to the selected kit
 
-        // Check availability
+          const selectedKit = normalizedProducts.find(p => p._id === reportFilters.kit);
+          const kitComponentsKeys = selectedKit && selectedKit.isSet
+            ? (selectedKit.setItems || []).map(si => getItemKey(si.product?.name || si.productNameSnapshot))
+            : selectedKit ? [selectedKit._key] : [];
+
+          reportTotalStudents++;
+          const hasPending = kitComponentsKeys.some(key => !student._itemsMap[key]);
+          if (hasPending) {
+            reportUnpaidCount++;
+          } else {
+            reportPaidCount++;
+          }
+          return;
+        }
+
+        // Default counting logic (all applicable products)
+        reportTotalStudents++;
         const hasPending = applicableProds.some(product => !student._itemsMap[product._key]);
         if (hasPending) {
           reportUnpaidCount++;
@@ -500,7 +606,13 @@ const StudentDue = () => {
       pdf.setFontSize(16);
       pdf.setTextColor(0, 0, 0);
       pdf.setFont(undefined, 'bold');
-      pdf.text('Stationary Pending Students List', 105, 15, { align: 'center' });
+
+      const selectedKit = reportFilters.kit ? normalizedProducts.find(p => p._id === reportFilters.kit) : null;
+      const reportTitle = selectedKit
+        ? `Stationary Pending List: ${selectedKit.name}`
+        : 'Stationary Pending Students List';
+
+      pdf.text(reportTitle, 105, 15, { align: 'center' });
 
       // Draw line under header
       pdf.setDrawColor(200, 200, 200);
@@ -517,6 +629,7 @@ const StudentDue = () => {
       if (reportFilters.year) filterParts.push(`Year: ${reportFilters.year}`);
       if (reportFilters.branch) filterParts.push(`Branch: ${reportFilters.branch}`);
       if (reportFilters.semester) filterParts.push(`Semester: ${reportFilters.semester}`);
+      if (selectedKit) filterParts.push(`Kit: ${selectedKit.name}`);
 
       // Just display filters without "Report Information" label
       if (filterParts.length > 0) {
@@ -569,7 +682,9 @@ const StudentDue = () => {
         pdf.text('Student Name', colName, yPos + 1);
         pdf.text('Roll Number', colRoll, yPos + 1);
         pdf.text('Mobile', colPhone, yPos + 1);
-        pdf.text('Remarks', colRemarks, yPos + 1);
+
+        const remarksLabel = reportFilters.includeItemDetails ? 'Pending Items' : 'Remarks';
+        pdf.text(remarksLabel, colRemarks, yPos + 1);
         yPos += 8;
 
         pdf.setFont(undefined, 'normal');
@@ -610,7 +725,27 @@ const StudentDue = () => {
           pdf.text(studentName, colName, yPos + 2);
           pdf.text(studentId, colRoll, yPos + 2);
           pdf.text(phone, colPhone, yPos + 2);
-          // Remarks column is empty space
+
+          if (reportFilters.includeItemDetails) {
+            // Show only items from the selected kit if a kit is filtered
+            let displayItems = record.pendingItems;
+            if (selectedKit) {
+              const kitComponentsKeys = selectedKit.isSet
+                ? (selectedKit.setItems || []).map(si => getItemKey(si.product?.name || si.productNameSnapshot))
+                : [selectedKit._key];
+              displayItems = record.pendingItems.filter(pi => kitComponentsKeys.includes(pi._key));
+            }
+
+            const itemNames = displayItems.map(pi => pi.name).join(', ');
+            const splitItems = pdf.splitTextToSize(itemNames, 40);
+            pdf.text(splitItems, colRemarks, yPos + 2);
+
+            // Adjust yPos if items wrap
+            const lines = splitItems.length;
+            if (lines > 1) {
+              yPos += (lines - 1) * 4;
+            }
+          }
 
           yPos += 8;
 
@@ -761,8 +896,18 @@ const StudentDue = () => {
                   <option key={semester} value={String(semester)}>{`Semester ${semester}`}</option>
                 ))}
               </select>
+              <select
+                value={dueFilters.kit}
+                onChange={(e) => setDueFilters({ ...dueFilters, kit: e.target.value })}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="">All Kits/Sets</option>
+                {kitOptions.map(kit => (
+                  <option key={kit._id} value={kit._id}>{kit.name}</option>
+                ))}
+              </select>
               <button
-                onClick={() => setDueFilters({ search: '', course: '', year: '', branch: '', semester: '' })}
+                onClick={() => setDueFilters({ search: '', course: '', year: '', branch: '', semester: '', kit: '' })}
                 className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors"
               >
                 Reset
@@ -1096,6 +1241,20 @@ const StudentDue = () => {
                     <option value="">All Semesters</option>
                     {semesterOptions.map(semester => (
                       <option key={semester} value={String(semester)}>{`Semester ${semester}`}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Kit/Set</label>
+                  <select
+                    value={reportFilters.kit}
+                    onChange={(e) => setReportFilters({ ...reportFilters, kit: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  >
+                    <option value="">All Kits/Sets</option>
+                    {reportKitOptions.map(kit => (
+                      <option key={kit._id} value={kit._id}>{kit.name}</option>
                     ))}
                   </select>
                 </div>
