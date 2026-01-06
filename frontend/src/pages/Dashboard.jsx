@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Users, GraduationCap, Package, ShoppingCart, DollarSign,
   TrendingUp, AlertCircle, Activity, Calendar, ArrowRight,
-  CreditCard, Wallet, TrendingDown, FileText, BarChart3, Lock, X, Building2
+  CreditCard, Wallet, TrendingDown, FileText, BarChart3, Lock, X, Building2, PackageSearch
 } from 'lucide-react';
 import { apiUrl } from '../utils/api';
 
@@ -27,11 +27,13 @@ const Dashboard = () => {
     totalVendors: 0,
     todayTransactions: 0,
     todayRevenue: 0,
+    zeroStockDuesStudents: 0,
   });
+  const [zeroStockDuesData, setZeroStockDuesData] = useState([]);
   const [recentTransactions, setRecentTransactions] = useState([]);
   const [products, setProducts] = useState([]);
   const [vendors, setVendors] = useState([]);
-  const [activeModal, setActiveModal] = useState(null); // 'products', 'stockValue', 'lowStock', 'vendors'
+  const [activeModal, setActiveModal] = useState(null); // 'products', 'stockValue', 'lowStock', 'vendors', 'zeroStock'
   const navigate = useNavigate();
 
   const [colleges, setColleges] = useState([]);
@@ -99,18 +101,24 @@ const Dashboard = () => {
         let totalStudents = 0;
         let paidStudents = 0;
         let unpaidStudents = 0;
-        if (studentsRes.ok) {
-          const allStudents = await studentsRes.json();
-          // Filter students if a college is selected (by course)
-          const students = activeCollegeCourses
-            ? allStudents.filter(s => s.course && activeCollegeCourses.has(s.course.toLowerCase().trim()))
-            : allStudents;
+        let studentsData = [];
+        const allStudentsMap = new Map();
 
-          totalStudents = students.length;
-          students.forEach(student => {
+        if (studentsRes.ok) {
+          studentsData = await studentsRes.json();
+          // Filter students if a college is selected (by course)
+          const studentsForProcessing = activeCollegeCourses
+            ? studentsData.filter(s => s.course && activeCollegeCourses.has(s.course.toLowerCase().trim()))
+            : studentsData;
+
+          totalStudents = studentsForProcessing.length;
+          studentsForProcessing.forEach(student => {
             if (student.paid) paidStudents += 1;
             else unpaidStudents += 1;
           });
+
+          // All students map for transaction analysis
+          studentsData.forEach(s => allStudentsMap.set(String(s._id), s));
         }
 
         // --- Process Transactions ---
@@ -119,7 +127,9 @@ const Dashboard = () => {
         let pendingRevenue = 0;
         let todayTransactions = 0;
         let todayRevenue = 0;
+        let zeroStockDuesStudents = 0;
         const recent = [];
+        const zeroStockMap = new Map(); // studentId -> { student, items: Set, transactionDate }
 
         if (transactionsRes.ok) {
           let allTransactions = await transactionsRes.json();
@@ -151,14 +161,52 @@ const Dashboard = () => {
           today.setHours(0, 0, 0, 0);
 
           filteredTransactions.forEach(transaction => {
-            // Exclude transfers from revenue calculations? 
-            // If viewing a College Dashboard, a Transfer IN might be relevant, but technically revenue comes from 'student' transactions.
-            // Branch/College transfers are internal movements.
             const isRevenueTransaction = transaction.transactionType === 'student';
 
             if (isRevenueTransaction) {
               if (transaction.isPaid) {
                 totalRevenue += transaction.totalAmount || 0;
+
+                // Track Zero-Stock Dues
+                let hasPartial = false;
+                const partialItems = [];
+
+                (transaction.items || []).forEach(item => {
+                  const key = (item.name || '').toLowerCase().replace(/\s+/g, '_');
+                  const studentId = String(transaction.student?.userId?._id || transaction.student?.userId);
+                  const studentRecord = allStudentsMap.get(studentId);
+
+                  if (item.status === 'partial') {
+                    // Check if student still owes it
+                    if (studentRecord && (!studentRecord.items || !studentRecord.items[key])) {
+                      hasPartial = true;
+                      partialItems.push(item.name);
+                    }
+                  } else if (item.isSet && Array.isArray(item.setComponents)) {
+                    // Check components for sets
+                    const missingComponents = item.setComponents.filter(c => !c.taken);
+                    if (missingComponents.length > 0) {
+                      if (studentRecord && (!studentRecord.items || !studentRecord.items[key])) {
+                        hasPartial = true;
+                        missingComponents.forEach(c => partialItems.push(c.name));
+                      }
+                    }
+                  }
+                });
+
+                if (hasPartial) {
+                  const sId = String(transaction.student?.userId?._id || transaction.student?.userId);
+                  if (!zeroStockMap.has(sId)) {
+                    zeroStockMap.set(sId, {
+                      student: transaction.student,
+                      items: new Set(partialItems),
+                      transactionDate: transaction.transactionDate
+                    });
+                  } else {
+                    partialItems.forEach(name => zeroStockMap.get(sId).items.add(name));
+                  }
+                }
+
               } else {
                 pendingRevenue += transaction.totalAmount || 0;
               }
@@ -180,6 +228,13 @@ const Dashboard = () => {
 
           recent.sort((a, b) => new Date(b.transactionDate) - new Date(a.transactionDate));
           setRecentTransactions(recent.slice(0, 5));
+
+          const zeroStockList = Array.from(zeroStockMap.values()).map(entry => ({
+            ...entry,
+            items: Array.from(entry.items)
+          }));
+          setZeroStockDuesData(zeroStockList);
+          zeroStockDuesStudents = zeroStockList.length;
         }
 
         // --- Process Products / Stock ---
@@ -211,7 +266,6 @@ const Dashboard = () => {
               stock: collegeStockMap.get(String(product._id)) || 0
             }));
           }
-          // If central, stock is already in product.stock (from allProducts)
 
           setProducts(productsData);
           totalProducts = productsData.length;
@@ -224,7 +278,6 @@ const Dashboard = () => {
             }
           });
         }
-
 
         // --- Process Vendors ---
         let totalVendors = 0;
@@ -247,6 +300,7 @@ const Dashboard = () => {
           totalVendors,
           todayTransactions,
           todayRevenue,
+          zeroStockDuesStudents,
         });
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
@@ -461,20 +515,20 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Total Vendors */}
+          {/* Zero-Stock Dues Card */}
           <div
-            onClick={() => setActiveModal('vendors')}
-            className="bg-white rounded-xl p-6 shadow-sm border border-gray-200 hover:shadow-md hover:border-purple-300 transition-all cursor-pointer"
+            onClick={() => setActiveModal('zeroStock')}
+            className="bg-white rounded-xl p-6 shadow-sm border border-gray-200 hover:shadow-md hover:border-orange-300 transition-all cursor-pointer"
           >
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                <GraduationCap size={24} className="text-purple-600" />
+              <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
+                <PackageSearch size={24} className="text-orange-600" />
               </div>
               <div className="flex-1">
                 <div className="text-2xl font-bold text-gray-900">
-                  {loading ? '...' : stats.totalVendors}
+                  {loading ? '...' : stats.zeroStockDuesStudents}
                 </div>
-                <div className="text-sm text-gray-600">Total Vendors</div>
+                <div className="text-sm text-gray-600">Zero-Stock Dues</div>
               </div>
               <ArrowRight size={20} className="text-gray-400" />
             </div>
@@ -685,6 +739,71 @@ const Dashboard = () => {
       </div>
 
       {/* Modals */}
+      {/* Zero-Stock Dues Modal */}
+      {activeModal === 'zeroStock' && (
+        <div className="fixed inset-0 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setActiveModal(null)}>
+          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
+                  <PackageSearch size={20} className="text-orange-600" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900">Zero-Stock Pending Dues</h2>
+                  <p className="text-sm text-gray-500">{zeroStockDuesData.length} students waiting for items</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveModal(null)}
+                className="w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center transition-colors"
+              >
+                <X size={18} className="text-gray-600" />
+              </button>
+            </div>
+            <div className="p-6">
+              {zeroStockDuesData.length === 0 ? (
+                <div className="text-center py-12">
+                  <PackageSearch className="w-16 h-16 text-green-300 mx-auto mb-4" />
+                  <p className="text-gray-500 font-medium">No pending dues due to zero stock!</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-4">
+                  {zeroStockDuesData.map((data, idx) => (
+                    <div
+                      key={idx}
+                      className="p-4 border border-gray-200 rounded-lg hover:border-orange-300 transition-colors cursor-pointer"
+                      onClick={() => navigate(`/student-detail/${data.student?.userId?._id || data.student?.userId}`)}
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <h3 className="font-bold text-gray-900">{data.student?.name}</h3>
+                          <p className="text-xs text-gray-500 uppercase tracking-wider">
+                            {data.student?.studentId} • {data.student?.course} {data.student?.branch ? `(${data.student.branch})` : ''}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-gray-400">Paid on {formatDate(data.transactionDate)}</p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {data.items.map((itemName, i) => (
+                          <span key={i} className="px-2 py-1 bg-orange-50 text-orange-700 text-xs font-semibold rounded border border-orange-100">
+                            {itemName}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="mt-3 flex items-center justify-end text-orange-600 text-xs font-bold gap-1">
+                        View Details <ArrowRight size={12} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Products Modal */}
       {activeModal === 'products' && (
         <div className="fixed inset-0 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setActiveModal(null)}>

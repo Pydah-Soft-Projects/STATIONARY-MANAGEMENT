@@ -349,9 +349,12 @@ const createTransaction = asyncHandler(async (req, res) => {
   // Update student's items map based on transaction items
   const updatedItems = { ...(student.items || {}) };
   validatedItems.forEach(item => {
-    const productName = item.name;
-    const key = productName.toLowerCase().replace(/\s+/g, '_');
-    updatedItems[key] = true;
+    // Only mark as received if the item is fully fulfilled
+    if (item.status !== 'partial') {
+      const productName = item.name;
+      const key = productName.toLowerCase().replace(/\s+/g, '_');
+      updatedItems[key] = true;
+    }
   });
 
   // Update student's paid status if transaction is paid
@@ -640,9 +643,12 @@ const updateTransaction = asyncHandler(async (req, res) => {
     if (student) {
       const updatedItems = { ...(student.items || {}) };
       validatedItems.forEach(item => {
-        const productName = item.name;
-        const key = productName.toLowerCase().replace(/\s+/g, '_');
-        updatedItems[key] = true;
+        // Only mark as received if the item is fully fulfilled
+        if (item.status !== 'partial') {
+          const productName = item.name;
+          const key = productName.toLowerCase().replace(/\s+/g, '_');
+          updatedItems[key] = true;
+        }
       });
       student.items = updatedItems;
       await student.save();
