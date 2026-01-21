@@ -196,14 +196,18 @@ const Dashboard = () => {
 
                 if (hasPartial) {
                   const sId = String(transaction.student?.userId?._id || transaction.student?.userId);
-                  if (!zeroStockMap.has(sId)) {
-                    zeroStockMap.set(sId, {
-                      student: transaction.student,
-                      items: new Set(partialItems),
-                      transactionDate: transaction.transactionDate
-                    });
-                  } else {
-                    partialItems.forEach(name => zeroStockMap.get(sId).items.add(name));
+
+                  if (sId && sId !== 'undefined' && sId !== 'null') {
+                    if (!zeroStockMap.has(sId)) {
+                      zeroStockMap.set(sId, {
+                        student: transaction.student,
+                        studentId: sId, // Explicitly store the ID
+                        items: new Set(partialItems),
+                        transactionDate: transaction.transactionDate
+                      });
+                    } else {
+                      partialItems.forEach(name => zeroStockMap.get(sId).items.add(name));
+                    }
                   }
                 }
 
@@ -772,7 +776,7 @@ const Dashboard = () => {
                     <div
                       key={idx}
                       className="p-4 border border-gray-200 rounded-lg hover:border-orange-300 transition-colors cursor-pointer"
-                      onClick={() => navigate(`/student-detail/${data.student?.userId?._id || data.student?.userId}`)}
+                      onClick={() => navigate(`/student/${data.studentId}`)}
                     >
                       <div className="flex items-start justify-between mb-3">
                         <div>

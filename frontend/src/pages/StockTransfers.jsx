@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Search, Filter, Package, ArrowRight, Calendar, CheckCircle, XCircle, Clock, Trash2, Plus, AlertCircle, Printer } from 'lucide-react';
+import { Search, Filter, Package, ArrowRight, Calendar, CheckCircle, XCircle, Clock, Trash2, Plus, AlertCircle, Printer, DollarSign } from 'lucide-react';
 import { apiUrl } from '../utils/api';
 import { hasFullAccess } from '../utils/permissions';
 
@@ -225,17 +225,16 @@ const StockTransfers = ({ currentUser }) => {
             <div class="grid">
               <div class="item">
                 <div class="label">From</div>
-                <div class="value">${
-                  transfer.fromCollege
-                    ? safe(transfer.fromCollege.name || 'College')
-                    : 'Central Warehouse'
-                }</div>
+                <div class="value">${transfer.fromCollege
+        ? safe(transfer.fromCollege.name || 'College')
+        : 'Central Warehouse'
+      }</div>
               </div>
               <div class="item">
                 <div class="label">To College</div>
                 <div class="value">${safe(
-                  transfer.toCollege?.name || transfer.toBranch?.name || 'N/A'
-                )}</div>
+        transfer.toCollege?.name || transfer.toBranch?.name || 'N/A'
+      )}</div>
               </div>
               <div class="item">
                 <div class="label">Transfer Date</div>
@@ -245,8 +244,8 @@ const StockTransfers = ({ currentUser }) => {
                 <div class="label">Status</div>
                 <div class="value">
                   <span class="badge badge-status">${safe(
-                    (transfer.status || 'pending').toUpperCase()
-                  )}</span>
+        (transfer.status || 'pending').toUpperCase()
+      )}</span>
                 </div>
               </div>
               <div class="item">
@@ -271,25 +270,24 @@ const StockTransfers = ({ currentUser }) => {
               </thead>
               <tbody>
                 ${items
-                  .map((item, index) => {
-                    const price = item.product?.price || 0;
-                    const subtotal = price * (item.quantity || 0);
-                    return `
+        .map((item, index) => {
+          const price = item.product?.price || 0;
+          const subtotal = price * (item.quantity || 0);
+          return `
                       <tr>
                         <td>${index + 1}</td>
                         <td>${safe(item.product?.name || 'N/A')}</td>
                         <td>${safe(item.quantity)}</td>
-                        ${
-                          hasTransaction
-                            ? `<td>₹${Number(price).toFixed(2)}</td><td>₹${Number(
-                                subtotal
-                              ).toFixed(2)}</td>`
-                            : '<td></td><td></td>'
-                        }
+                        ${hasTransaction
+              ? `<td>₹${Number(price).toFixed(2)}</td><td>₹${Number(
+                subtotal
+              ).toFixed(2)}</td>`
+              : '<td></td><td></td>'
+            }
                       </tr>
                     `;
-                  })
-                  .join('')}
+        })
+        .join('')}
               </tbody>
               <tfoot>
                 <tr>
@@ -301,9 +299,8 @@ const StockTransfers = ({ currentUser }) => {
               </tfoot>
             </table>
 
-            ${
-              hasTransaction
-                ? `
+            ${hasTransaction
+        ? `
             <div class="section-title">Transaction</div>
             <div class="grid">
               <div class="item">
@@ -316,17 +313,16 @@ const StockTransfers = ({ currentUser }) => {
               </div>
             </div>
             `
-                : ''
-            }
+        : ''
+      }
 
-            ${
-              transfer.remarks
-                ? `
+            ${transfer.remarks
+        ? `
             <div class="section-title">Remarks</div>
             <div class="remarks">${safe(transfer.remarks)}</div>
             `
-                : ''
-            }
+        : ''
+      }
           </div>
         </body>
       </html>
@@ -505,6 +501,35 @@ const StockTransfers = ({ currentUser }) => {
     } catch (error) {
       console.error('Error cancelling transfer:', error);
       alert('Error cancelling transfer');
+    }
+  };
+
+  const handleMarkAsPaid = async (transferId) => {
+    if (!window.confirm('Mark this transfer as PAID?')) {
+      return;
+    }
+
+    try {
+      const res = await fetch(apiUrl(`/api/stock-transfers/${transferId}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isPaid: true }),
+      });
+
+      if (res.ok) {
+        const updated = await res.json();
+        setStockTransfers(prev => prev.map(t => t._id === transferId ? updated : t));
+        if (selectedTransfer && selectedTransfer._id === transferId) {
+          setSelectedTransfer(updated);
+        }
+        setStatusMsg({ type: 'success', message: 'Transfer marked as Paid successfully' });
+        setTimeout(() => setStatusMsg({ type: '', message: '' }), 3000);
+      } else {
+        throw new Error('Failed to update payment status');
+      }
+    } catch (error) {
+      console.error('Error updating payment status:', error);
+      setStatusMsg({ type: 'error', message: 'Error updating payment status' });
     }
   };
 
@@ -717,7 +742,9 @@ const StockTransfers = ({ currentUser }) => {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Products</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">From</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">To College</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Amount</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment Status</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
@@ -725,55 +752,75 @@ const StockTransfers = ({ currentUser }) => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredTransfers.map(transfer => (
-                    <tr
-                      key={transfer._id}
-                      onClick={() => setSelectedTransfer(transfer)}
-                      className="hover:bg-gray-50 transition-colors cursor-pointer"
-                    >
-                      <td className="px-6 py-4">
-                        <span className="text-sm font-medium text-gray-900">
-                          {transfer.items?.length || 0} {transfer.items?.length === 1 ? 'Product' : 'Products'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <Package size={16} className="text-gray-400" />
-                          <span className="text-sm font-medium text-gray-900">{transfer.toCollege?.name || transfer.toBranch?.name || 'N/A'}</span>
-                          {(transfer.toCollege?.location || transfer.toBranch?.location) && (
-                            <span className="text-xs text-gray-500">({transfer.toCollege?.location || transfer.toBranch?.location})</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${transfer.isPaid
-                          ? 'bg-green-100 text-green-800 border border-green-200'
-                          : 'bg-red-100 text-red-800 border border-red-200'
-                          }`}>
-                          {transfer.isPaid ? 'Paid' : 'Unpaid'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm text-gray-500">{formatDate(transfer.transferDate)}</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {getStatusBadge(transfer.status)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handlePrintTransfer(transfer);
-                          }}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
-                          title="Print Transfer"
-                        >
-                          <Printer size={14} />
-                          Print
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {filteredTransfers.map(transfer => {
+                    // Calculate total amount if not available in transaction
+                    const totalAmount = transfer.transactionId?.totalAmount || transfer.items?.reduce((sum, item) => sum + ((item.quantity || 0) * (item.product?.price || 0)), 0) || 0;
+
+                    // Get college name from live data or historical snapshot
+                    const collegeName = transfer.toCollege?.name || transfer.transactionId?.collegeTransfer?.collegeName || transfer.transactionId?.branchTransfer?.branchName || transfer.toBranch?.name || 'N/A';
+                    const collegeLocation = transfer.toCollege?.location || transfer.transactionId?.collegeTransfer?.collegeLocation || transfer.transactionId?.branchTransfer?.branchLocation || transfer.toBranch?.location || '';
+
+                    // Get from college name
+                    const fromCollegeName = transfer.fromCollege?.name || 'Central Warehouse';
+
+                    return (
+                      <tr
+                        key={transfer._id}
+                        onClick={() => setSelectedTransfer(transfer)}
+                        className="hover:bg-gray-50 transition-colors cursor-pointer"
+                      >
+                        <td className="px-6 py-4">
+                          <span className="text-sm font-medium text-gray-900">
+                            {transfer.items?.length || 0} {transfer.items?.length === 1 ? 'Product' : 'Products'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="text-sm font-medium text-gray-900">{fromCollegeName}</span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <Package size={16} className="text-gray-400" />
+                            <span className="text-sm font-medium text-gray-900">{collegeName}</span>
+                            {collegeLocation && (
+                              <span className="text-xs text-gray-500">({collegeLocation})</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="text-sm font-semibold text-gray-900">
+                            {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(totalAmount)}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${transfer.isPaid
+                            ? 'bg-green-100 text-green-800 border border-green-200'
+                            : 'bg-red-100 text-red-800 border border-red-200'
+                            }`}>
+                            {transfer.isPaid ? 'Paid' : 'Unpaid'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="text-sm text-gray-500">{formatDate(transfer.transferDate)}</span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {getStatusBadge(transfer.status)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handlePrintTransfer(transfer);
+                            }}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
+                            title="Print Transfer"
+                          >
+                            <Printer size={14} />
+                            Print
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1229,6 +1276,20 @@ const StockTransfers = ({ currentUser }) => {
                             Cancel
                           </button>
                         </>
+                      )}
+
+                      {!selectedTransfer.isPaid && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleMarkAsPaid(selectedTransfer._id);
+                          }}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center gap-2"
+                          title="Mark as Paid"
+                        >
+                          <DollarSign size={16} />
+                          Mark Paid
+                        </button>
                       )}
                       <button
                         onClick={(e) => {

@@ -330,7 +330,7 @@ const getStockTransfers = asyncHandler(async (req, res) => {
   const stockTransfers = await StockTransfer.find(filter)
     .populate('items.product', 'name price stock category')
     .populate('toCollege', 'name location')
-    .populate('transactionId', 'transactionId totalAmount paymentMethod isPaid transactionType')
+    .populate('transactionId', 'transactionId totalAmount paymentMethod isPaid transactionType collegeTransfer branchTransfer')
     .sort({ createdAt: -1, transferDate: -1 });
 
   res.json(stockTransfers);
@@ -404,6 +404,14 @@ const updateStockTransfer = asyncHandler(async (req, res) => {
 
   if (isPaid !== undefined) {
     stockTransfer.isPaid = Boolean(isPaid);
+    
+    // Also update the associated transaction if it exists
+    if (stockTransfer.transactionId) {
+      await Transaction.findByIdAndUpdate(stockTransfer.transactionId, { 
+        isPaid: Boolean(isPaid),
+        paidAt: Boolean(isPaid) ? new Date() : null
+      });
+    }
   }
 
   if (deductFromCentral !== undefined) {
