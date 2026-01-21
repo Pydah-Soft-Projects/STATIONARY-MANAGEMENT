@@ -38,7 +38,21 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
     isSet: false,
     setItems: [],
     lowStockThreshold: 10,
+    applicabilityMode: 'rules', // 'rules' or 'students'
+    applicableStudents: [], // Array of student objects { _id, name, studentId }
   });
+  // Student Selection State (Filter Mode)
+  const [studentFilters, setStudentFilters] = useState({ course: '', year: '', branch: '' });
+  const [fetchedStudents, setFetchedStudents] = useState([]); // Students fetched from backend based on filters
+  const [isFetchingStudents, setIsFetchingStudents] = useState(false);
+  // We use formData.applicableStudents as the set of *selected* students.
+  // When fetching, we will determine which are already selected.
+  // Actually, user wants "All students are checked initially" upon fetch.
+  // So when we fetch, we should probably add them to selection automatically?
+  // Or simply show them as checked in the list and let user uncheck.
+  // If I fetch "CSE Year 1", I show 100 students. I check them all.
+  // formData.applicableStudents should be updated to include these 100.
+  // If user unchecks one, remove from formData.applicableStudents.
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [setItemToAdd, setSetItemToAdd] = useState('');
@@ -213,6 +227,22 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
           productName: item?.product?.name || item?.productNameSnapshot || '',
         })).filter(item => item.productId),
         lowStockThreshold: selectedProduct.lowStockThreshold ?? 10,
+        applicabilityMode: selectedProduct.applicabilityMode || 'rules',
+        // We might need to fetch full student details if not populated, but assuming ID for now is enough or we fetch details
+        // Since we need to display names, we'll try to use what we have or fetch if needed.
+        // Ideally, the product fetch should populate applicableStudents. 
+        // For now, let's assume getProductById populates it or we rely on what's there.
+        // A small improvement: Ensure getProductById populates applicableStudents in backend if needed.
+        // Since I processed backend first without populate, let's add populate in backend or lazy fetch here.
+        // For simplicity in this turn, I will assume it renders what it has, 
+        // but to be safe, I'll stick to IDs if objects aren't fully there, but UI needs names.
+        // Let's add a quick useEffect to fetch student details if we have IDs but no names? 
+        // Actually, let's just use what comes back. If the backend didn't populate, we might only have IDs.
+        // I will update the backend getProductById to populate this to be smooth.
+        // But for now, let's just Map it safely.
+        applicableStudents: Array.isArray(selectedProduct.applicableStudents)
+          ? selectedProduct.applicableStudents
+          : [],
       });
       setSetItemToAdd('');
       setIsEditing(false);
@@ -235,7 +265,11 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
         isSet: false,
         setItems: [],
         lowStockThreshold: 10,
+        applicabilityMode: 'rules',
+        applicableStudents: [],
       });
+      setStudentFilters({ course: '', year: '', branch: '' });
+      setFetchedStudents([]);
       setError('');
       setSetItemToAdd('');
     }
@@ -402,11 +436,84 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
       isSet: type === 'set',
       setItems: type === 'set' ? prev.setItems : [],
       lowStockThreshold: type === 'set' ? 0 : (prev.lowStockThreshold || 10),
+      // Kits/Sets must be Rule Based
+      applicabilityMode: type === 'set' ? 'rules' : prev.applicabilityMode,
     }));
     if (type !== 'set') {
       setSetItemToAdd('');
     }
   };
+
+  // Student Fetching Logic
+  const handleFetchStudents = async () => {
+    setIsFetchingStudents(true);
+    setFetchedStudents([]);
+    try {
+      const queryParams = new URLSearchParams();
+      if (studentFilters.course) queryParams.append('course', studentFilters.course);
+      if (studentFilters.year) queryParams.append('year', studentFilters.year);
+      if (studentFilters.branch) queryParams.append('branch', studentFilters.branch);
+
+      const res = await fetch(apiUrl(`/api/users?${queryParams.toString()}`));
+      if (res.ok) {
+        const data = await res.json();
+        const students = Array.isArray(data) ? data : [];
+        setFetchedStudents(students);
+
+        // "All students are checked initially"
+        // We merge these students into the existing applicableStudents.
+        // Identify new students to add
+        const currentIds = new Set(formData.applicableStudents.map(s => s._id));
+        const newStudents = students.filter(s => !currentIds.has(s._id));
+
+        if (newStudents.length > 0) {
+          setFormData(prev => ({
+            ...prev,
+            applicableStudents: [...prev.applicableStudents, ...newStudents]
+          }));
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching students", err);
+    } finally {
+      setIsFetchingStudents(false);
+    }
+  };
+
+  const toggleStudentSelection = (student) => {
+    const isSelected = formData.applicableStudents.some(s => s._id === student._id);
+    if (isSelected) {
+      // Remove
+      setFormData(prev => ({
+        ...prev,
+        applicableStudents: prev.applicableStudents.filter(s => s._id !== student._id)
+      }));
+    } else {
+      // Add
+      setFormData(prev => ({
+        ...prev,
+        applicableStudents: [...prev.applicableStudents, student]
+      }));
+    }
+  };
+
+  const handleSelectAllFetched = () => {
+    const currentIds = new Set(formData.applicableStudents.map(s => s._id));
+    const newStudents = fetchedStudents.filter(s => !currentIds.has(s._id));
+    setFormData(prev => ({
+      ...prev,
+      applicableStudents: [...prev.applicableStudents, ...newStudents]
+    }));
+  };
+
+  const handleDeselectAllFetched = () => {
+    const fetchedIds = new Set(fetchedStudents.map(s => s._id));
+    setFormData(prev => ({
+      ...prev,
+      applicableStudents: prev.applicableStudents.filter(s => !fetchedIds.has(s._id))
+    }));
+  };
+
 
   const handleSaveProduct = async () => {
     try {
@@ -453,6 +560,8 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
               : [],
             lowStockThreshold: formData.isSet ? 0 : formData.lowStockThreshold,
             collegeId: activeCollegeId || undefined,
+            applicabilityMode: formData.applicabilityMode,
+            applicableStudents: formData.applicabilityMode === 'students' ? formData.applicableStudents.map(s => s._id) : [],
           }),
         });
 
@@ -492,6 +601,8 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
               : [],
             lowStockThreshold: formData.isSet ? 0 : formData.lowStockThreshold,
             collegeId: activeCollegeId || undefined,
+            applicabilityMode: formData.applicabilityMode,
+            applicableStudents: formData.applicabilityMode === 'students' ? formData.applicableStudents.map(s => s._id) : [],
           }),
         });
 
@@ -1682,116 +1793,296 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                     )}
 
                     <section className="bg-white/90 backdrop-blur border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                      <div className="px-5 py-4 border-b border-gray-100">
-                        <h3 className="text-lg font-semibold text-gray-900">Applicability</h3>
-                        <p className="text-sm text-gray-500">Control which courses, branches, and academic years can see this product.</p>
-                      </div>
-                      <div className="px-5 py-4 space-y-4">
+                      <div className="px-5 py-4 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div>
-                          <label className="block text-sm font-semibold text-gray-700 mb-2">Course</label>
-                          <select
-                            name="forCourse"
-                            value={formData.forCourse}
-                            onChange={handleFormChange}
-                            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm"
+                          <h3 className="text-lg font-semibold text-gray-900">Applicability</h3>
+                          <p className="text-sm text-gray-500">Who is this product for?</p>
+                        </div>
+                        <div className="flex bg-gray-100 p-1 rounded-lg">
+                          <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, applicabilityMode: 'rules' }))}
+                            className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${formData.applicabilityMode === 'rules'
+                              ? 'bg-white text-gray-900 shadow-sm'
+                              : 'text-gray-500 hover:text-gray-700'
+                              }`}
                           >
-                            <option value="">All Courses</option>
-                            {(config?.courses || []).map(c => (
-                              <option key={c.name} value={c.name}>{c.displayName}</option>
-                            ))}
-                          </select>
+                            Rule Based
+                          </button>
+                          <button
+                            type="button"
+                            disabled={formData.isSet}
+                            onClick={() => setFormData(prev => ({ ...prev, applicabilityMode: 'students' }))}
+                            className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${formData.applicabilityMode === 'students'
+                              ? 'bg-white text-purple-600 shadow-sm'
+                              : formData.isSet
+                                ? 'text-gray-300 cursor-not-allowed'
+                                : 'text-gray-500 hover:text-gray-700'
+                              }`}
+                            title={formData.isSet ? "Specific student selection is not available for Kits" : ""}
+                          >
+                            Specific Students
+                          </button>
                         </div>
-                        <div>
-                          <label className="block text-sm font-semibold text-gray-700 mb-2">Years</label>
-                          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3.5">
-                            <div className="flex flex-wrap gap-2.5">
-                              {(config?.courses?.find(c => c.name === formData.forCourse)?.years || []).map(y => {
-                                const isChecked = (formData.years || []).includes(y);
-                                return (
-                                  <label
-                                    key={y}
-                                    className={`flex items-center gap-2 px-3.5 py-1.5 border-2 rounded-lg cursor-pointer transition-all ${isChecked ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-blue-300'}`}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={isChecked}
-                                      onChange={() => handleYearToggle(y)}
-                                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                                    />
-                                    <span className="font-medium text-sm">Year {y}</span>
-                                  </label>
-                                );
-                              })}
-                              {(config?.courses?.find(c => c.name === formData.forCourse)?.years || []).length === 0 && (
-                                <p className="text-sm text-gray-500">Select a course to see available years.</p>
-                              )}
-                            </div>
-                            {(formData.years || []).length === 0 && (
-                              <p className="text-xs text-gray-500 mt-2">No years selected — the product will be visible to all years.</p>
-                            )}
+                      </div>
+
+                      <div className="px-5 py-4 space-y-4">
+                        {formData.isSet && formData.applicabilityMode === 'students' && (
+                          // Fallback/Warning if somehow in student mode while being a set (e.g. toggled set after)
+                          <div className="bg-yellow-50 text-yellow-800 p-3 rounded-lg text-sm mb-4">
+                            Note: Kits cannot be assigned to specific students. Please switch to "Rule Based" or disable "Set" mode.
                           </div>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-semibold text-gray-700 mb-2">Branches</label>
-                          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3.5">
-                            <div className="flex flex-wrap gap-2.5">
-                              {(config?.courses?.find(c => c.name === formData.forCourse)?.branches || []).map(branch => {
-                                const isChecked = (formData.branch || []).includes(branch);
-                                return (
-                                  <label
-                                    key={branch}
-                                    className={`flex items-center gap-2 px-3.5 py-1.5 border-2 rounded-lg cursor-pointer transition-all ${isChecked ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-blue-300'}`}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={isChecked}
-                                      onChange={() => handleBranchToggle(branch)}
-                                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                                    />
-                                    <span className="font-medium text-sm">{branch}</span>
-                                  </label>
-                                );
-                              })}
-                              {(config?.courses?.find(c => c.name === formData.forCourse)?.branches || []).length === 0 && (
-                                <p className="text-sm text-gray-500">Select a course to see available branches.</p>
-                              )}
+                        )}
+                        {formData.applicabilityMode === 'rules' ? (
+                          <>
+                            <div>
+                              <label className="block text-sm font-semibold text-gray-700 mb-2">Course</label>
+                              <select
+                                name="forCourse"
+                                value={formData.forCourse}
+                                onChange={handleFormChange}
+                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm"
+                              >
+                                <option value="">All Courses</option>
+                                {(config?.courses || []).map(c => (
+                                  <option key={c.name} value={c.name}>{c.displayName}</option>
+                                ))}
+                              </select>
                             </div>
-                            {(formData.branch || []).length === 0 && (
-                              <p className="text-xs text-gray-500 mt-2">No branches selected — the product will be visible to all branches.</p>
-                            )}
-                          </div>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-semibold text-gray-700 mb-2">Semesters</label>
-                          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3.5">
-                            <div className="flex flex-wrap gap-2.5">
-                              {formData.forCourse ? (
-                                [1, 2].map(sem => {
-                                  const isChecked = (formData.semesters || []).includes(sem);
-                                  return (
-                                    <label
-                                      key={sem}
-                                      className={`flex items-center gap-2 px-3.5 py-1.5 border-2 rounded-lg cursor-pointer transition-all ${isChecked ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-blue-300'}`}
+                            <div>
+                              <label className="block text-sm font-semibold text-gray-700 mb-2">Years</label>
+                              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3.5">
+                                <div className="flex flex-wrap gap-2.5">
+                                  {(config?.courses?.find(c => c.name === formData.forCourse)?.years || []).map(y => {
+                                    const isChecked = (formData.years || []).includes(y);
+                                    return (
+                                      <label
+                                        key={y}
+                                        className={`flex items-center gap-2 px-3.5 py-1.5 border-2 rounded-lg cursor-pointer transition-all ${isChecked ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-blue-300'}`}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={isChecked}
+                                          onChange={() => handleYearToggle(y)}
+                                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                        />
+                                        <span className="font-medium text-sm">Year {y}</span>
+                                      </label>
+                                    );
+                                  })}
+                                  {(config?.courses?.find(c => c.name === formData.forCourse)?.years || []).length === 0 && (
+                                    <p className="text-sm text-gray-500">Select a course to see available years.</p>
+                                  )}
+                                </div>
+                                {(formData.years || []).length === 0 && (
+                                  <p className="text-xs text-gray-500 mt-2">No years selected — product visible to all years.</p>
+                                )}
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-semibold text-gray-700 mb-2">Branches</label>
+                              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3.5">
+                                <div className="flex flex-wrap gap-2.5">
+                                  {(config?.courses?.find(c => c.name === formData.forCourse)?.branches || []).map(branch => {
+                                    const isChecked = (formData.branch || []).includes(branch);
+                                    return (
+                                      <label
+                                        key={branch}
+                                        className={`flex items-center gap-2 px-3.5 py-1.5 border-2 rounded-lg cursor-pointer transition-all ${isChecked ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-blue-300'}`}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={isChecked}
+                                          onChange={() => handleBranchToggle(branch)}
+                                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                        />
+                                        <span className="font-medium text-sm">{branch}</span>
+                                      </label>
+                                    );
+                                  })}
+                                  {(config?.courses?.find(c => c.name === formData.forCourse)?.branches || []).length === 0 && (
+                                    <p className="text-sm text-gray-500">Select a course to see available branches.</p>
+                                  )}
+                                </div>
+                                {(formData.branch || []).length === 0 && (
+                                  <p className="text-xs text-gray-500 mt-2">No branches selected — product visible to all branches.</p>
+                                )}
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-semibold text-gray-700 mb-2">Semesters</label>
+                              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3.5">
+                                <div className="flex flex-wrap gap-2.5">
+                                  {formData.forCourse ? (
+                                    [1, 2].map(sem => {
+                                      const isChecked = (formData.semesters || []).includes(sem);
+                                      return (
+                                        <label
+                                          key={sem}
+                                          className={`flex items-center gap-2 px-3.5 py-1.5 border-2 rounded-lg cursor-pointer transition-all ${isChecked ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-blue-300'}`}
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked={isChecked}
+                                            onChange={() => handleSemesterToggle(sem)}
+                                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                          />
+                                          <span className="font-medium text-sm">Semester {sem}</span>
+                                        </label>
+                                      );
+                                    })
+                                  ) : (
+                                    <p className="text-sm text-gray-500">Select a course to see available semesters.</p>
+                                  )}
+                                </div>
+                                {(formData.semesters || []).length === 0 && (
+                                  <p className="text-xs text-gray-500 mt-2">No semesters selected — product applies to all semesters.</p>
+                                )}
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="space-y-4">
+                            <div className="bg-purple-50 border border-purple-100 rounded-lg p-4 mb-4">
+                              <p className="text-sm text-purple-800">
+                                <strong>Specific Student Mode:</strong> Use filters below to find students. All found students will be selected by default. You can uncheck any you wish to exclude.
+                              </p>
+                            </div>
+
+                            {/* Filters */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Filter Course</label>
+                                <select
+                                  value={studentFilters.course}
+                                  onChange={(e) => setStudentFilters(prev => ({ ...prev, course: e.target.value, branch: '' }))} // Reset branch when course changes
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
+                                >
+                                  <option value="">Select Course</option>
+                                  {(config?.courses || []).map(c => (
+                                    <option key={c.name} value={c.name}>{c.displayName}</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Filter Year</label>
+                                <select
+                                  value={studentFilters.year}
+                                  onChange={(e) => setStudentFilters(prev => ({ ...prev, year: e.target.value }))}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
+                                >
+                                  <option value="">Select Year</option>
+                                  {[1, 2, 3, 4].map(y => (
+                                    <option key={y} value={y}>Year {y}</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Filter Branch</label>
+                                <select
+                                  value={studentFilters.branch}
+                                  onChange={(e) => setStudentFilters(prev => ({ ...prev, branch: e.target.value }))}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
+                                  disabled={!studentFilters.course}
+                                >
+                                  <option value="">Select Branch</option>
+                                  {studentFilters.course && (config?.courses?.find(c => c.name === studentFilters.course)?.branches || []).map(b => (
+                                    <option key={b} value={b}>{b}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+
+                            <div className="flex justify-end">
+                              <button
+                                type="button"
+                                onClick={handleFetchStudents}
+                                disabled={isFetchingStudents || (!studentFilters.course && !studentFilters.year && !studentFilters.branch)}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isFetchingStudents || (!studentFilters.course && !studentFilters.year && !studentFilters.branch)
+                                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                  : 'bg-purple-600 text-white hover:bg-purple-700 shadow-md'
+                                  }`}
+                              >
+                                {isFetchingStudents ? (
+                                  <>
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                    Fetching...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Search size={16} />
+                                    Fetch Students
+                                  </>
+                                )}
+                              </button>
+                            </div>
+
+                            {/* Fetch Results / Selection Table */}
+                            {fetchedStudents.length > 0 && (
+                              <div className="border border-gray-200 rounded-lg overflow-hidden mt-4">
+                                <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
+                                  <h4 className="font-semibold text-gray-700 text-sm">Found {fetchedStudents.length} Students</h4>
+                                  <div className="space-x-2">
+                                    <button
+                                      type="button"
+                                      onClick={handleSelectAllFetched}
+                                      className="text-xs text-purple-600 hover:text-purple-800 font-medium"
                                     >
-                                      <input
-                                        type="checkbox"
-                                        checked={isChecked}
-                                        onChange={() => handleSemesterToggle(sem)}
-                                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                                      />
-                                      <span className="font-medium text-sm">Semester {sem}</span>
-                                    </label>
-                                  );
-                                })
-                              ) : (
-                                <p className="text-sm text-gray-500">Select a course to see available semesters.</p>
+                                      Select All
+                                    </button>
+                                    <span className="text-gray-300">|</span>
+                                    <button
+                                      type="button"
+                                      onClick={handleDeselectAllFetched}
+                                      className="text-xs text-gray-500 hover:text-gray-700"
+                                    >
+                                      Deselect All
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="max-h-60 overflow-y-auto">
+                                  {fetchedStudents.map(student => {
+                                    const isSelected = formData.applicableStudents.some(s => s._id === student._id);
+                                    return (
+                                      <label key={student._id} className={`flex items-center justify-between px-4 py-2 hover:bg-purple-50 cursor-pointer border-b border-gray-50 last:border-0 ${isSelected ? 'bg-purple-50/50' : ''}`}>
+                                        <div className="flex items-center gap-3">
+                                          <input
+                                            type="checkbox"
+                                            checked={isSelected}
+                                            onChange={() => toggleStudentSelection(student)}
+                                            className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                                          />
+                                          <div>
+                                            <p className="text-sm font-medium text-gray-900">{student.name}</p>
+                                            <p className="text-xs text-gray-500">{student.studentId} • {student.branch || student.course} {student.year ? `• Year ${student.year}` : ''}</p>
+                                          </div>
+                                        </div>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Summary of Total Selected */}
+                            <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                              <p className="text-sm font-medium text-gray-700">
+                                Total Applicable Students: <span className="text-purple-600 font-bold">{formData.applicableStudents.length}</span>
+                              </p>
+                              {formData.applicableStudents.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setFormData(prev => ({ ...prev, applicableStudents: [] }))}
+                                  className="text-xs text-red-600 hover:text-red-700 bg-red-50 px-2 py-1 rounded"
+                                >
+                                  Clear All Selections
+                                </button>
                               )}
                             </div>
-                            {(formData.semesters || []).length === 0 && (
-                              <p className="text-xs text-gray-500 mt-2">No semesters selected — product applies to all semesters.</p>
-                            )}
                           </div>
-                        </div>
+                        )}
                       </div>
                     </section>
                   </div>

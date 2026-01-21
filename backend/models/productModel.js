@@ -133,6 +133,20 @@ const productSchema = new mongoose.Schema(
       updatedAt: { type: Date, default: Date.now },
       updatedBy: { type: String, default: 'System' },
     }],
+    // Applicability Mode: 'rules' (Course/Year/Branch) or 'students' (Specific list)
+    applicabilityMode: {
+      type: String,
+      enum: ['rules', 'students'],
+      default: 'rules',
+    },
+    // List of specific students this product applies to (if mode is 'students')
+    applicableStudents: {
+      type: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      }],
+      default: [],
+    },
   },
   {
     // Automatically add 'createdAt' and 'updatedAt' fields

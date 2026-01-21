@@ -212,6 +212,8 @@ const StudentDue = () => {
       _years: getProductYears(product),
       _semesters: product.semesters || [],
       _key: getItemKey(product.name),
+      _applicabilityMode: product.applicabilityMode || 'rules',
+      _applicableStudents: new Set((product.applicableStudents || []).map(String)),
     }));
   }, [products]);
 
@@ -299,9 +301,19 @@ const StudentDue = () => {
       const courseProducts = productsByCourse.get(student._normalizedCourse) || [];
       if (!courseProducts.length) continue;
 
-      // Filter products matching student's year and branch
+      // Filter products matching student's year and branch OR specific assignment
       const mappedProducts = [];
       for (const product of courseProducts) {
+        // NEW: Check applicability mode
+        if (product._applicabilityMode === 'students') {
+          if (product._applicableStudents.has(String(student._id))) {
+            mappedProducts.push(product);
+          }
+          // If 'students' mode and not in list, SKIP
+          continue;
+        }
+
+        // Rule-Based Logic (Existing)
         // Year filter
         if (product._years.length > 0 && !product._years.includes(student._year)) {
           continue;

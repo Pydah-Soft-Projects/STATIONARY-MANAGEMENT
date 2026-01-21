@@ -105,7 +105,25 @@ const getUsersByCourse = asyncHandler(async (req, res) => {
  * @access  Private/Admin (Should be protected in a real app)
  */
 const getAllUsers = asyncHandler(async (req, res) => {
-  const users = await User.find({});
+  const { course, year, branch, search } = req.query;
+
+  const query = {};
+
+  if (course) {
+    query.course = new RegExp(`^${course}$`, 'i');
+  }
+  if (year) {
+    query.year = Number(year);
+  }
+  if (branch) {
+    query.branch = new RegExp(`^${branch}$`, 'i');
+  }
+  if (search) {
+    const searchRegex = new RegExp(search, 'i');
+    query.$or = [{ name: searchRegex }, { studentId: searchRegex }];
+  }
+
+  const users = await User.find(query).sort({ studentId: 1 });
   res.status(200).json(users);
 });
 

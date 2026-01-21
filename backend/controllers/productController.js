@@ -54,7 +54,7 @@ const createProduct = async (req, res) => {
     } catch (diagErr) {
       console.warn('Could not read Product schema year options:', diagErr);
     }
-    const { name, description, price, stock, imageUrl, forCourse, branch, years, year, remarks, isSet, setItems, lowStockThreshold, semesters, collegeId } = req.body;
+    const { name, description, price, stock, imageUrl, forCourse, branch, years, year, remarks, isSet, setItems, lowStockThreshold, semesters, collegeId, applicabilityMode, applicableStudents } = req.body;
     // Handle years array - if years is provided, use it; otherwise fallback to year for backward compatibility
     let parsedYears = [];
     if (years && Array.isArray(years)) {
@@ -110,6 +110,8 @@ const createProduct = async (req, res) => {
       lowStockThreshold: Boolean(isSet) ? 0 : thresholdNumber,
       semesters: (semesters || []).map(Number).filter(s => s === 1 || s === 2),
       stock: collegeId ? 0 : parsedStock, // If collegeId, central stock is 0
+      applicabilityMode: applicabilityMode || 'rules',
+      applicableStudents: Array.isArray(applicableStudents) ? applicableStudents : [],
     });
 
     const createdProduct = await product.save();
@@ -193,7 +195,7 @@ const updateProduct = async (req, res) => {
     // Track old name for updating transactions if name changes
     const oldName = product.name;
 
-    const { name, description, price, stock, imageUrl, forCourse, branch, years, year, remarks, isSet, setItems, lowStockThreshold, semesters } = req.body;
+    const { name, description, price, stock, imageUrl, forCourse, branch, years, year, remarks, isSet, setItems, lowStockThreshold, semesters, applicabilityMode, applicableStudents } = req.body;
     // Handle years array - if years is provided, use it; otherwise fallback to year for backward compatibility
     let parsedYears = undefined;
     if (years !== undefined && Array.isArray(years)) {
@@ -322,6 +324,13 @@ const updateProduct = async (req, res) => {
     if (!product.isSet && lowStockThreshold !== undefined) {
       const thresholdNumber = Math.max(0, Number(lowStockThreshold) || 0);
       product.lowStockThreshold = thresholdNumber;
+    }
+
+    if (applicabilityMode !== undefined) {
+      product.applicabilityMode = applicabilityMode;
+    }
+    if (applicableStudents !== undefined && Array.isArray(applicableStudents)) {
+      product.applicableStudents = applicableStudents;
     }
 
     const updated = await product.save();
