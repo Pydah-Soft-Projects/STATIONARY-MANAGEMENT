@@ -134,19 +134,59 @@ const AuditLogs = ({ currentUser }) => {
     }
   };
 
-  // Fetch current user's college info
+  const [colleges, setColleges] = useState([]);
+  const [selectedCollege, setSelectedCollege] = useState(null); // For SuperAdmin selection
+
+  // Fetch current user's college info (SubAdmin constraint)
   const userCollegeId =
     currentUserInfo?.assignedCollege?._id ||
     (typeof currentUserInfo?.assignedCollege === 'string' ? currentUserInfo?.assignedCollege : null);
+
+  useEffect(() => {
+    // Initialize selectedCollege: if SubAdmin, force to their college. If SA, kept null (Central)
+    if (userCollegeId && !isSuperAdmin) {
+      setSelectedCollege(userCollegeId);
+    }
+  }, [userCollegeId, isSuperAdmin]);
+
+  const fetchColleges = async () => {
+    try {
+      const response = await fetch(apiUrl('/api/stock-transfers/colleges'));
+      if (response.ok) {
+        const data = await response.json();
+        setColleges(Array.isArray(data) ? data : []);
+      }
+    } catch (error) {
+      console.error('Error fetching colleges:', error);
+    }
+  };
 
   const fetchPendingLogs = async () => {
     try {
       setLogsLoading(true);
       setLogsError('');
-      // If Sub-Admin, filter by their college. SuperAdmin sees all (Central + All Colleges)
-      const query = userCollegeId && !isSuperAdmin
-        ? `?status=pending&collegeId=${userCollegeId}`
-        : '?status=pending';
+      // If Sub-Admin, filter by their college. SuperAdmin sees all or filtered by selectedCollege
+      let query = '?status=pending';
+      const targetCollege = userCollegeId && !isSuperAdmin ? userCollegeId : selectedCollege;
+
+      if (targetCollege) {
+        query += `&collegeId=${targetCollege}`;
+      } else if (isSuperAdmin && selectedCollege === null) {
+        // If SA and selected Central (null), maybe show only Central audits? 
+        // Or show ALL if "All" selected? Let's assume null means Central for Entry, but for List maybe we need distinct 'all' logic.
+        // For Filter in Approval: Let's assume we want to filter by the selected options.
+        // Current logic: `selectedCollege` acts as filter.
+        // However, for Approval, SA might want to see EVERYTHING.
+        // Let's keep `selectedCollege` primarily for ENTRY context, and use a separate filter for APPROVAL?
+        // Actually, user said "raise from particular college".
+        // Let's add a robust filter state for Lists.
+      }
+
+      // REVISED LIST LOGIC in render, or here?
+      // Let's stick to standard fetch. For SA, if they picked a college in filter, use it.
+      // If we use selectedCollege for both Entry and View, it's consistent.
+
+      if (targetCollege) query = `?status=pending&collegeId=${targetCollege}`;
 
       const response = await fetch(apiUrl(`/api/audit-logs${query}`));
       if (!response.ok) {
@@ -166,10 +206,9 @@ const AuditLogs = ({ currentUser }) => {
     try {
       setHistoryLoading(true);
       setHistoryError('');
-      // Similar filtering for history
-      const query = userCollegeId && !isSuperAdmin
-        ? `?status=all&collegeId=${userCollegeId}`
-        : '?status=all';
+      let query = '?status=all';
+      const targetCollege = userCollegeId && !isSuperAdmin ? userCollegeId : selectedCollege;
+      if (targetCollege) query += `&collegeId=${targetCollege}`;
 
       const response = await fetch(apiUrl(`/api/audit-logs${query}`));
       if (!response.ok) {
@@ -188,10 +227,6 @@ const AuditLogs = ({ currentUser }) => {
 
   // Helper to get stock for product based on context (Central vs College)
   const getContextStock = (product) => {
-    // If we have college stock map, use it. Otherwise specific logic needed.
-    // For now, if SubAdmin, show 0 if not loaded, or rely on fetching college stock?
-    // NOTE: The products list currently comes from /api/products (Central). 
-    // We need to fetch college stock if user is SubAdmin.
     return product.stock ?? 0;
   };
 
@@ -199,11 +234,13 @@ const AuditLogs = ({ currentUser }) => {
   const [collegeStockMap, setCollegeStockMap] = useState({});
 
   useEffect(() => {
-    if (userCollegeId && !isSuperAdmin) {
+    const targetCollege = userCollegeId && !isSuperAdmin ? userCollegeId : selectedCollege;
+
+    if (targetCollege) {
       // Fetch college stock to override central stock display
       const fetchCollegeStock = async () => {
         try {
-          const res = await fetch(apiUrl(`/api/stock-transfers/colleges/${userCollegeId}/stock`));
+          const res = await fetch(apiUrl(`/api/stock-transfers/colleges/${targetCollege}/stock`));
           if (res.ok) {
             const data = await res.json();
             const map = {};
@@ -216,14 +253,18 @@ const AuditLogs = ({ currentUser }) => {
         } catch (e) { console.error('Error fetching college stock', e); }
       };
       fetchCollegeStock();
+    } else {
+      // Reset if central (mostly for SA switching back to Central)
+      setCollegeStockMap({});
     }
-  }, [userCollegeId, isSuperAdmin, refreshKey]);
+  }, [userCollegeId, isSuperAdmin, selectedCollege, refreshKey]);
 
   useEffect(() => {
     fetchProducts();
+    if (isSuperAdmin) fetchColleges(); // Fetch colleges for SA
     fetchPendingLogs();
     fetchHistoryLogs();
-  }, [refreshKey]);
+  }, [refreshKey, selectedCollege]); // Re-fetch logs when college selection changes
 
   useEffect(() => {
     if (!products?.length) return;
@@ -232,21 +273,17 @@ const AuditLogs = ({ currentUser }) => {
       products.forEach(product => {
         const existing = next[product._id] || {};
         // Determine correct stock to show based on context
-        const currentStock = (userCollegeId && !isSuperAdmin)
+        const contextStock = (selectedCollege)
           ? (collegeStockMap[product._id] ?? 0)
           : (product.stock ?? 0);
 
         if (existing.beforeQuantity === undefined || existing.beforeQuantity === '') {
           next[product._id] = {
-            beforeQuantity: Number(currentStock),
+            beforeQuantity: Number(contextStock),
             afterQuantity: existing.afterQuantity ?? '',
             notes: existing.notes ?? '',
           };
         } else {
-          // If we already have values, keep them, but update "before" might be tricky if stock changed elsewhere.
-          // Let's typically respect what was loaded or user input.
-          // If user hasn't touched it, update it? Risk of overwriting input.
-          // Safer: Only set default if not present.
           next[product._id] = {
             beforeQuantity: existing.beforeQuantity,
             afterQuantity: existing.afterQuantity ?? '',
@@ -256,7 +293,7 @@ const AuditLogs = ({ currentUser }) => {
       });
       return next;
     });
-  }, [products, collegeStockMap, userCollegeId, isSuperAdmin]); // Dependency on collegeStockMap
+  }, [products, collegeStockMap, selectedCollege]); // Dependency on collegeStockMap
 
   const handleEntryChange = (productId, field, value) => {
     setEntryValues(prev => ({
@@ -272,13 +309,13 @@ const AuditLogs = ({ currentUser }) => {
     const values = entryValues[product._id] || {};
 
     // Fallback logic for initial beforeQuantity
-    const currentStock = (userCollegeId && !isSuperAdmin)
+    const contextStock = (selectedCollege)
       ? (collegeStockMap[product._id] ?? 0)
       : (product.stock ?? 0);
 
     const beforeQuantity = values.beforeQuantity !== undefined && values.beforeQuantity !== ''
       ? Number(values.beforeQuantity)
-      : Number(currentStock);
+      : Number(contextStock);
 
     const afterQuantity = values.afterQuantity !== undefined && values.afterQuantity !== ''
       ? Number(values.afterQuantity)
@@ -301,7 +338,7 @@ const AuditLogs = ({ currentUser }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           productId: product._id,
-          collegeId: userCollegeId || null, // Send collegeId if SubAdmin
+          collegeId: selectedCollege || null, // Send selected college (or null for central)
           beforeQuantity,
           afterQuantity,
           notes: values.notes || '',
@@ -510,8 +547,23 @@ const AuditLogs = ({ currentUser }) => {
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">Audit Log Entry</h3>
                   <p className="text-sm text-gray-500">
-                    Provide the before and after quantities for {userCollegeId && !isSuperAdmin ? 'your College' : 'Central Warehouse'}.
+                    Provide the before and after quantities for {selectedCollege ? (colleges.find(c => c._id === selectedCollege)?.name || 'Selected College') : 'Central Warehouse'}.
                   </p>
+
+                  {isSuperAdmin && (
+                    <div className="mt-2">
+                      <select
+                        value={selectedCollege || ''}
+                        onChange={(e) => setSelectedCollege(e.target.value || null)} // Empty string becomes null (Central)
+                        className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                      >
+                        <option value="">Central Warehouse</option>
+                        {colleges.map(c => (
+                          <option key={c._id} value={c._id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
                 {/* ... same headers ... */}
                 <span className="text-sm text-gray-600 bg-gray-100 px-3 py-1 rounded-full">
@@ -563,7 +615,9 @@ const AuditLogs = ({ currentUser }) => {
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Stock ({userCollegeId && !isSuperAdmin ? 'College' : 'Central'})</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Current Stock ({selectedCollege ? (colleges.find(c => c._id === selectedCollege)?.name || 'College') : 'Central'})
+                        </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Before Audit</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">After Audit</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Notes</th>
@@ -574,7 +628,7 @@ const AuditLogs = ({ currentUser }) => {
                       {products.map(product => {
                         const values = entryValues[product._id] || {};
                         const status = entryStatus[product._id];
-                        const currentStock = (userCollegeId && !isSuperAdmin)
+                        const currentStock = (selectedCollege)
                           ? (collegeStockMap[product._id] ?? 0)
                           : (product.stock ?? 0);
 
@@ -866,6 +920,11 @@ const AuditLogs = ({ currentUser }) => {
                             <p className="text-xs text-gray-500">
                               Submitted by {group.createdBy} on {new Date(group.createdAt).toLocaleString()}
                             </p>
+                            {group.items[0]?.college?.name && (
+                              <p className="text-xs font-semibold text-blue-600 mt-0.5">
+                                For College: {group.items[0].college.name}
+                              </p>
+                            )}
                             <p className="text-xs text-gray-500">
                               Reviewed on {group.approvedAt ? new Date(group.approvedAt).toLocaleString() : '—'}
                             </p>
