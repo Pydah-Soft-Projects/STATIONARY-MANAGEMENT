@@ -234,6 +234,17 @@ const StudentDetail = ({
   const avatarUrl = student?.avatarUrl || student?.profileImage || student?.photoUrl || student?.photo || '';
 
   const visibleItems = (products || []).filter(p => {
+    // 1. Check Specific Student Applicability
+    if (p.applicabilityMode === 'students') {
+      const studentId = student.id || student._id;
+      const applicableList = p.applicableStudents || [];
+      return applicableList.some(s => {
+        const sId = (s && typeof s === 'object') ? s._id : s;
+        return String(sId) === String(studentId);
+      });
+    }
+
+    // 2. Rule-Based Applicability (Course/Year/Branch)
     // Course filter: if product has forCourse, it must match student's course
     if (p.forCourse && normalizeCourse(p.forCourse) !== studentCourseNormalized) return false;
 
@@ -269,6 +280,9 @@ const StudentDetail = ({
   });
 
   const isAddOnProduct = (product) => {
+    // If explicitly assigned to students, treat as a Mapped Item (Required), not an Add-On
+    if (product.applicabilityMode === 'students') return false;
+
     const courseValue = normalizeCourse(product?.forCourse || '');
     return courseValue === '';
   };

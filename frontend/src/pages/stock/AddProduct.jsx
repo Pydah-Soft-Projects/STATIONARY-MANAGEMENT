@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Search, Filter, Package, Eye, Edit, Trash2, X, Save, Calendar, DollarSign, FileText, Layers, MinusCircle, LayoutGrid, Table, Archive } from 'lucide-react';
+import { Plus, Search, Filter, Package, Eye, Edit, Trash2, X, Save, Calendar, DollarSign, FileText, Layers, MinusCircle, LayoutGrid, Table, Archive, Users } from 'lucide-react';
 import { apiUrl } from '../../utils/api';
 import { hasFullAccess } from '../../utils/permissions';
 
@@ -22,6 +22,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [showProductDetail, setShowProductDetail] = useState(false);
   const [showAddProduct, setShowAddProduct] = useState(false);
+  const [showAssignModal, setShowAssignModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [viewMode, setViewMode] = useState('table');
@@ -45,18 +46,22 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
   const [studentFilters, setStudentFilters] = useState({ course: '', year: '', branch: '' });
   const [fetchedStudents, setFetchedStudents] = useState([]); // Students fetched from backend based on filters
   const [isFetchingStudents, setIsFetchingStudents] = useState(false);
-  // We use formData.applicableStudents as the set of *selected* students.
-  // When fetching, we will determine which are already selected.
-  // Actually, user wants "All students are checked initially" upon fetch.
-  // So when we fetch, we should probably add them to selection automatically?
-  // Or simply show them as checked in the list and let user uncheck.
-  // If I fetch "CSE Year 1", I show 100 students. I check them all.
-  // formData.applicableStudents should be updated to include these 100.
-  // If user unchecks one, remove from formData.applicableStudents.
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [setItemToAdd, setSetItemToAdd] = useState('');
-  const [productTypeFilter, setProductTypeFilter] = useState('');
+
+  const handleOpenAssignModal = (product) => {
+    setSelectedProduct(product);
+    // Initialize form data just for assignment purposes
+    setFormData(prev => ({
+      ...prev,
+      applicabilityMode: product.applicabilityMode || 'rules',
+      applicableStudents: Array.isArray(product.applicableStudents) ? product.applicableStudents : [],
+    }));
+    // Reset filters
+    setStudentFilters({ course: '', year: '', branch: '' });
+    setFetchedStudents([]);
+    setShowAssignModal(true);
+    setShowProductDetail(false);
+    setShowAddProduct(false);
+  };
 
   useEffect(() => {
     (async () => {
@@ -79,6 +84,8 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
     const cats = Array.from(new Set((products || []).map(p => p.name.toLowerCase().replace(/\s+/g, '_'))));
     setItemCategories && setItemCategories(cats);
   }, [products, setItemCategories]);
+
+  const [productTypeFilter, setProductTypeFilter] = useState(''); // 'single', 'set', or ''
 
   const filteredProducts = useMemo(() => {
     return (products || []).filter(p => {
@@ -161,6 +168,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
     // College Stock (SubAdmin or SuperAdmin viewing college)
     return { label: 'College Stock', value: collegeStockMap[product._id] || 0 };
   };
+  const [setItemToAdd, setSetItemToAdd] = useState('');
   const availableSetProducts = useMemo(() => {
     const selectedIds = new Set((formData.setItems || []).map(item => item.productId));
     return (products || []).filter(p => {
@@ -204,7 +212,6 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
     setIsEditing(false);
   };
 
-  // Initialize form data when product is selected or modal opens
   useEffect(() => {
     if (selectedProduct && showProductDetail) {
       const productYears = selectedProduct.years || (selectedProduct.year ? [selectedProduct.year] : []);
@@ -228,18 +235,6 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
         })).filter(item => item.productId),
         lowStockThreshold: selectedProduct.lowStockThreshold ?? 10,
         applicabilityMode: selectedProduct.applicabilityMode || 'rules',
-        // We might need to fetch full student details if not populated, but assuming ID for now is enough or we fetch details
-        // Since we need to display names, we'll try to use what we have or fetch if needed.
-        // Ideally, the product fetch should populate applicableStudents. 
-        // For now, let's assume getProductById populates it or we rely on what's there.
-        // A small improvement: Ensure getProductById populates applicableStudents in backend if needed.
-        // Since I processed backend first without populate, let's add populate in backend or lazy fetch here.
-        // For simplicity in this turn, I will assume it renders what it has, 
-        // but to be safe, I'll stick to IDs if objects aren't fully there, but UI needs names.
-        // Let's add a quick useEffect to fetch student details if we have IDs but no names? 
-        // Actually, let's just use what comes back. If the backend didn't populate, we might only have IDs.
-        // I will update the backend getProductById to populate this to be smooth.
-        // But for now, let's just Map it safely.
         applicableStudents: Array.isArray(selectedProduct.applicableStudents)
           ? selectedProduct.applicableStudents
           : [],
@@ -248,6 +243,9 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
       setIsEditing(false);
     }
   }, [selectedProduct, showProductDetail, collegeStockMap]);
+
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (showAddProduct) {
@@ -646,8 +644,182 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
     }
   };
 
+  const handleSaveAssignments = async () => {
+    if (!selectedProduct) return;
+    setSaving(true);
+    try {
+      const response = await fetch(apiUrl(`/api/products/${selectedProduct._id}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          applicabilityMode: 'students',
+          applicableStudents: formData.applicableStudents.map(s => s._id),
+          // Preserve other core fields just in case backend requires them or to avoid overwriting partials if patch not supported properly
+          // Generally we should just send what changed if backend supports PATCH, but we reused PUT.
+          // Let's send key fields to be safe, or trust current PUT implementation.
+          // Our existing updateProduct implementation uses `req.body` to overwrite what is provided, keeping others.
+          // So we can send partials safely.
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save assignments');
+      }
+
+      const updated = await response.json();
+      handleProductUpdate(updated);
+      setShowAssignModal(false);
+      setStatusMsg('Applicable students updated successfully!');
+      setTimeout(() => setStatusMsg(''), 3000);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="p-6">
+      {/* ... prev search filters ... */}
+
+      {/* Assign Students Modal */}
+      {showAssignModal && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }} onClick={() => setShowAssignModal(false)}>
+          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Assign Students: {selectedProduct?.name}</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Currently assigned to {formData.applicableStudents.length} student{formData.applicableStudents.length !== 1 ? 's' : ''}.
+                </p>
+              </div>
+              <button onClick={() => setShowAssignModal(false)} className="bg-gray-100 p-2 rounded-full hover:bg-gray-200"><X size={20} /></button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1">
+              {error && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg">{error}</div>}
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6">
+                {/* Reusing existing filter logic UI but streamlined */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">Course</label>
+                  <select
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={studentFilters.course}
+                    onChange={(e) => setStudentFilters({ ...studentFilters, course: e.target.value })}
+                  >
+                    <option value="">Select Course</option>
+                    {(config?.courses || []).map(c => (
+                      <option key={c.name} value={c.name}>{c.displayName}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">Year</label>
+                  <select
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={studentFilters.year}
+                    onChange={(e) => setStudentFilters({ ...studentFilters, year: e.target.value })}
+                  >
+                    <option value="">Select Year</option>
+                    {[1, 2, 3, 4].map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">Branch</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. CSE"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={studentFilters.branch}
+                    onChange={(e) => setStudentFilters({ ...studentFilters, branch: e.target.value })}
+                  />
+                </div>
+                <div className="flex items-end">
+                  <button
+                    onClick={handleFetchStudents}
+                    disabled={isFetchingStudents || !studentFilters.course || !studentFilters.year}
+                    className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {isFetchingStudents ? 'Fetching...' : 'Fetch Students'}
+                  </button>
+                </div>
+              </div>
+
+              {fetchedStudents.length > 0 && (
+                <div className="mb-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-semibold text-gray-700">Fetched Students ({fetchedStudents.length})</h4>
+                    <div className="space-x-2">
+                      <button onClick={handleSelectAllFetched} className="text-xs text-blue-600 hover:underline">Select All</button>
+                      <button onClick={handleDeselectAllFetched} className="text-xs text-red-600 hover:underline">Deselect All</button>
+                    </div>
+                  </div>
+                  <div className="border border-gray-200 rounded-lg max-h-60 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 sticky top-0">
+                        <tr>
+                          <th className="px-4 py-2 text-left">Name</th>
+                          <th className="px-4 py-2 text-left">ID</th>
+                          <th className="px-4 py-2 text-center">Assigned</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {fetchedStudents.map(student => {
+                          const isSelected = formData.applicableStudents.some(s => s._id === student._id);
+                          return (
+                            <tr key={student._id} className={isSelected ? 'bg-blue-50' : ''} onClick={() => toggleStudentSelection(student)}>
+                              <td className="px-4 py-2">{student.name}</td>
+                              <td className="px-4 py-2 text-gray-500">{student.studentId}</td>
+                              <td className="px-4 py-2 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => { }} // handled by row click
+                                  className="w-4 h-4 text-blue-600 rounded"
+                                />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Currently Assigned List Preview */}
+              {formData.applicableStudents.length > 0 && (
+                <div>
+                  <h4 className="font-semibold text-gray-700 mb-2">Currently Assigned ({formData.applicableStudents.length})</h4>
+                  <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-2 border border-gray-100 rounded-lg">
+                    {formData.applicableStudents.map(s => (
+                      <div key={s._id} className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
+                        <span>{s.name}</span>
+                        <button onClick={() => toggleStudentSelection(s)} className="hover:text-red-600"><X size={12} /></button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t border-gray-200 flex justify-end gap-3 sticky bottom-0 bg-white">
+              <button onClick={() => setShowAssignModal(false)} className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg text-sm font-medium">Cancel</button>
+              <button
+                onClick={handleSaveAssignments}
+                disabled={saving}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+              >
+                {saving ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Save size={16} />}
+                Save Assignments
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* existing UI follows ... */}
       {/* Search and Filters */}
       <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 mb-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-4">
@@ -867,26 +1039,36 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                   )}
                 </div>
 
-                <div className="px-4 pb-4 pt-0 flex gap-2">
+                <div className="flex gap-2 px-4 pb-4 pt-0">
+                  {/* View/Edit Button */}
                   <button
                     onClick={() => handleViewDetails(product)}
-                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors font-medium text-xs"
+                    className="flex-1 flex items-center justify-center gap-1 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-all text-sm font-medium"
                   >
-                    <Eye size={16} />
-                    View
+                    {canEdit ? <Edit size={16} /> : <Eye size={16} />}
+                    {canEdit ? 'Edit' : 'View'}
                   </button>
-                  {canEdit ? (
+
+                  {/* Assign Button */}
+                  {canEdit && (
+                    <button
+                      onClick={() => handleOpenAssignModal(product)}
+                      className="flex items-center justify-center gap-1 px-3 py-2 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg hover:bg-purple-100 transition-all text-sm font-medium"
+                      title="Assign to specific students"
+                    >
+                      <Users size={16} />
+                    </button>
+                  )}
+
+                  {/* Delete Button */}
+                  {canEdit && (
                     <button
                       onClick={() => handleDelete(product._id, product.name)}
-                      className="px-3 py-2 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors"
-                      title="Delete"
+                      className="flex items-center justify-center gap-1 px-3 py-2 bg-red-50 border border-red-200 text-red-600 rounded-lg hover:bg-red-100 transition-all text-sm font-medium"
+                      title="Delete product"
                     >
                       <Trash2 size={16} />
                     </button>
-                  ) : (
-                    <span className="text-xs font-medium text-blue-600 bg-blue-100 px-3 py-2 rounded-lg">
-                      View Only
-                    </span>
                   )}
                 </div>
               </div>
@@ -955,12 +1137,21 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-end gap-2">
+                          {canEdit && (
+                            <button
+                              onClick={() => handleOpenAssignModal(product)}
+                              className="p-1.5 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                              title="Assign to specific students"
+                            >
+                              <Users size={18} />
+                            </button>
+                          )}
                           <button
                             onClick={() => handleViewDetails(product)}
                             className="inline-flex items-center gap-2 px-3 py-2 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors"
                           >
-                            <Eye size={16} />
-                            View
+                            {canEdit ? <Edit size={16} /> : <Eye size={16} />}
+                            {canEdit ? 'Edit' : 'View'}
                           </button>
                           {canEdit ? (
                             <button
