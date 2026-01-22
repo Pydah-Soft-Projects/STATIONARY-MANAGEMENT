@@ -236,6 +236,7 @@ const StudentDetail = ({
   const visibleItems = (products || []).filter(p => {
     // 1. Check Specific Student Applicability
     if (p.applicabilityMode === 'students') {
+      if (!student) return false;
       const studentId = student.id || student._id;
       const applicableList = p.applicableStudents || [];
       return applicableList.some(s => {

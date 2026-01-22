@@ -339,12 +339,7 @@ const createTransaction = asyncHandler(async (req, res) => {
     remarks: remarks || '',
   });
 
-  // Re-evaluate stockDeducted based on whether applyStockChanges was called
-  if (isPaid && stockChanges.size > 0) {
-    await applyStockChanges(stockChanges, targetCollegeId);
-    transaction.stockDeducted = true;
-    await transaction.save();
-  }
+  // Duplicate stock deduction block removed here
 
   // Update student's items map based on transaction items
   const updatedItems = { ...(student.items || {}) };
