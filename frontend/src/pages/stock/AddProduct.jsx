@@ -706,7 +706,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                   <select
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                     value={studentFilters.course}
-                    onChange={(e) => setStudentFilters({ ...studentFilters, course: e.target.value })}
+                    onChange={(e) => setStudentFilters({ ...studentFilters, course: e.target.value, branch: '' })}
                   >
                     <option value="">Select Course</option>
                     {(config?.courses || []).map(c => (
@@ -727,13 +727,17 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 mb-1">Branch</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. CSE"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  <select
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
                     value={studentFilters.branch}
                     onChange={(e) => setStudentFilters({ ...studentFilters, branch: e.target.value })}
-                  />
+                    disabled={!studentFilters.course}
+                  >
+                    <option value="">Select Branch</option>
+                    {studentFilters.course && (config?.courses?.find(c => c.name === studentFilters.course)?.branches || []).map(b => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="flex items-end">
                   <button
