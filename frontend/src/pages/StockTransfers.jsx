@@ -792,11 +792,11 @@ const StockTransfers = ({ currentUser }) => {
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${transfer.isPaid
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${transfer.isPaid || transfer.transactionId?.isPaid
                             ? 'bg-green-100 text-green-800 border border-green-200'
                             : 'bg-red-100 text-red-800 border border-red-200'
                             }`}>
-                            {transfer.isPaid ? 'Paid' : 'Unpaid'}
+                            {transfer.isPaid || transfer.transactionId?.isPaid ? 'Paid' : 'Unpaid'}
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -1162,11 +1162,11 @@ const StockTransfers = ({ currentUser }) => {
                   </div>
                   <div>
                     <p className="text-sm text-gray-500">Payment Status</p>
-                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${selectedTransfer.isPaid
+                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${selectedTransfer.isPaid || selectedTransfer.transactionId?.isPaid
                       ? 'bg-green-100 text-green-800 border border-green-200'
                       : 'bg-red-100 text-red-800 border border-red-200'
                       }`}>
-                      {selectedTransfer.isPaid ? 'Paid' : 'Unpaid'}
+                      {selectedTransfer.isPaid || selectedTransfer.transactionId?.isPaid ? 'Paid' : 'Unpaid'}
                     </span>
                   </div>
                   <div>
@@ -1211,10 +1211,6 @@ const StockTransfers = ({ currentUser }) => {
                       <div>
                         <p className="text-sm text-gray-500">Payment Method</p>
                         <p className="font-semibold text-gray-900 capitalize">{selectedTransfer.transactionId?.paymentMethod || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-gray-500">Payment Status</p>
-                        <p className="font-semibold text-gray-900">{selectedTransfer.transactionId?.isPaid ? 'Paid' : 'Unpaid'}</p>
                       </div>
                     </>
                   )}
@@ -1278,7 +1274,7 @@ const StockTransfers = ({ currentUser }) => {
                         </>
                       )}
 
-                      {!selectedTransfer.isPaid && (
+                      {!selectedTransfer.isPaid && !selectedTransfer.transactionId?.isPaid && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
