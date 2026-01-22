@@ -357,7 +357,6 @@ const AuditLogs = ({ currentUser }) => {
       setEntryValues(prev => ({
         ...prev,
         [product._id]: {
-          beforeQuantity: Number(currentStock), // Reset to current? Or ideally update to 'after'? 
           // Actually, 'before' should likely become the 'after' value if approved? 
           // No, approval is async. Reset to blank is fine.
           beforeQuantity: Number(afterQuantity), // Optimistic update?
