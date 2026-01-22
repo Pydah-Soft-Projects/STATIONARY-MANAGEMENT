@@ -125,7 +125,7 @@ const AuditLogs = ({ currentUser }) => {
         throw new Error(`Failed to load products (${response.status})`);
       }
       const data = await response.json();
-      setProducts(Array.isArray(data) ? data : []);
+      setProducts(Array.isArray(data) ? data.filter(p => !p.isSet) : []);
     } catch (error) {
       console.error('Error fetching products for audit logs:', error);
       setProductsError(error.message || 'Unable to load products');
@@ -193,7 +193,7 @@ const AuditLogs = ({ currentUser }) => {
         throw new Error(`Failed to load audit logs (${response.status})`);
       }
       const data = await response.json();
-      setPendingLogs(Array.isArray(data) ? data : []);
+      setPendingLogs(Array.isArray(data) ? data.filter(log => !log.product?.isSet) : []);
     } catch (error) {
       console.error('Error fetching pending audit logs:', error);
       setLogsError(error.message || 'Unable to load audit logs');
@@ -215,7 +215,7 @@ const AuditLogs = ({ currentUser }) => {
         throw new Error(`Failed to load audit history (${response.status})`);
       }
       const data = await response.json();
-      const nonPending = Array.isArray(data) ? data.filter(entry => entry.status !== 'pending') : [];
+      const nonPending = Array.isArray(data) ? data.filter(entry => entry.status !== 'pending' && !entry.product?.isSet) : [];
       setHistoryLogs(nonPending);
     } catch (error) {
       console.error('Error fetching audit history:', error);

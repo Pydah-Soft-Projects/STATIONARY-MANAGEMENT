@@ -74,7 +74,7 @@ const listAuditLogs = asyncHandler(async (req, res) => {
 
   const logs = await AuditLog.find(filter)
     .sort({ createdAt: -1 })
-    .populate('product', 'name stock price forCourse branch')
+    .populate('product', 'name stock price forCourse branch isSet')
     .populate('college', 'name');
 
   res.json(logs);

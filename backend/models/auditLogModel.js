@@ -27,6 +27,10 @@ const auditLogSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    batchId: {
+      type: String,
+      index: true,
+    },
     status: {
       type: String,
       enum: ['pending', 'approved', 'rejected'],
