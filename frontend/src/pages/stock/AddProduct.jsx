@@ -46,6 +46,19 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
   const [studentFilters, setStudentFilters] = useState({ course: '', year: '', branch: '' });
   const [fetchedStudents, setFetchedStudents] = useState([]); // Students fetched from backend based on filters
   const [isFetchingStudents, setIsFetchingStudents] = useState(false);
+  const [studentSearchQuery, setStudentSearchQuery] = useState(''); // Search query for filtering fetched students
+
+  // Filter fetched students based on search query
+  const filteredFetchedStudents = useMemo(() => {
+    if (!studentSearchQuery.trim()) {
+      return fetchedStudents;
+    }
+    const query = studentSearchQuery.toLowerCase().trim();
+    return fetchedStudents.filter(student => 
+      (student.name || '').toLowerCase().includes(query) ||
+      (student.studentId || '').toLowerCase().includes(query)
+    );
+  }, [fetchedStudents, studentSearchQuery]);
 
   const handleOpenAssignModal = (product) => {
     setSelectedProduct(product);
@@ -58,6 +71,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
     // Reset filters
     setStudentFilters({ course: '', year: '', branch: '' });
     setFetchedStudents([]);
+    setStudentSearchQuery(''); // Reset search query
     setShowAssignModal(true);
     setShowProductDetail(false);
     setShowAddProduct(false);
@@ -497,7 +511,8 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
 
   const handleSelectAllFetched = () => {
     const currentIds = new Set(formData.applicableStudents.map(s => s._id));
-    const newStudents = fetchedStudents.filter(s => !currentIds.has(s._id));
+    // Use filtered students instead of all fetched students
+    const newStudents = filteredFetchedStudents.filter(s => !currentIds.has(s._id));
     setFormData(prev => ({
       ...prev,
       applicableStudents: [...prev.applicableStudents, ...newStudents]
@@ -505,7 +520,8 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
   };
 
   const handleDeselectAllFetched = () => {
-    const fetchedIds = new Set(fetchedStudents.map(s => s._id));
+    // Use filtered students instead of all fetched students
+    const fetchedIds = new Set(filteredFetchedStudents.map(s => s._id));
     setFormData(prev => ({
       ...prev,
       applicableStudents: prev.applicableStudents.filter(s => !fetchedIds.has(s._id))
@@ -752,13 +768,38 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
 
               {fetchedStudents.length > 0 && (
                 <div className="mb-6">
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-semibold text-gray-700">Fetched Students ({fetchedStudents.length})</h4>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-semibold text-gray-700">
+                      Fetched Students ({filteredFetchedStudents.length} of {fetchedStudents.length})
+                    </h4>
                     <div className="space-x-2">
                       <button onClick={handleSelectAllFetched} className="text-xs text-blue-600 hover:underline">Select All</button>
                       <button onClick={handleDeselectAllFetched} className="text-xs text-red-600 hover:underline">Deselect All</button>
                     </div>
                   </div>
+                  
+                  {/* Search Bar for Fetched Students */}
+                  <div className="mb-3">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                      <input
+                        type="text"
+                        placeholder="Search students by name or ID..."
+                        value={studentSearchQuery}
+                        onChange={(e) => setStudentSearchQuery(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      />
+                      {studentSearchQuery && (
+                        <button
+                          onClick={() => setStudentSearchQuery('')}
+                          className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        >
+                          <X size={16} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
                   <div className="border border-gray-200 rounded-lg max-h-60 overflow-y-auto">
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50 sticky top-0">
@@ -769,7 +810,8 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
-                        {fetchedStudents.map(student => {
+                        {filteredFetchedStudents.length > 0 ? (
+                          filteredFetchedStudents.map(student => {
                           const isSelected = formData.applicableStudents.some(s => s._id === student._id);
                           return (
                             <tr key={student._id} className={isSelected ? 'bg-blue-50' : ''} onClick={() => toggleStudentSelection(student)}>
@@ -785,7 +827,14 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                               </td>
                             </tr>
                           );
-                        })}
+                        })
+                        ) : (
+                          <tr>
+                            <td colSpan="3" className="px-4 py-8 text-center text-gray-500">
+                              No students found matching "{studentSearchQuery}"
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>

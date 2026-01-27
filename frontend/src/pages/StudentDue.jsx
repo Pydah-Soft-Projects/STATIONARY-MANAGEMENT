@@ -397,7 +397,8 @@ const StudentDue = () => {
     const selectedKitId = dueFilters.kit;
 
     // Kit specific filter logic: find if the kit is assigned to this student
-    const selectedKit = selectedKitId ? normalizedProducts.find(p => p._id === selectedKitId) : null;
+    const kitIdStr = selectedKitId ? String(selectedKitId) : null;
+    const selectedKit = kitIdStr ? normalizedProducts.find(p => String(p._id) === kitIdStr) : null;
     const selectedKitKey = selectedKit ? selectedKit._key : null;
 
     return dueStudents.filter(record => {
@@ -411,17 +412,30 @@ const StudentDue = () => {
       }
 
       // Kit filter logic: Student must have the kit mapped AND at least one item from the kit must be pending
-      if (selectedKitId) {
-        const isKitMapped = record.mappedProducts.some(p => p._id === selectedKitId);
+      if (selectedKitId && kitIdStr) {
+        const isKitMapped = record.mappedProducts.some(p => String(p._id) === kitIdStr);
         if (!isKitMapped) return false;
 
-        // Check if ANY component of this kit is in pendingItems
-        const kitComponentsKeys = selectedKit.isSet
-          ? (selectedKit.setItems || []).map(si => getItemKey(si.product?.name || si.productNameSnapshot))
-          : [selectedKit._key];
-
-        const hasPendingKitItem = kitComponentsKeys.some(key => !student._itemsMap[key]);
-        if (!hasPendingKitItem) return false;
+        // IMPORTANT: When a kit is received, the transaction stores the KIT's name in items map, not component names
+        // So we need to check: 1) Is the kit itself received? 2) If not, check individual components
+        const kitKey = selectedKit._key; // The kit's own key (e.g., "engineering_kit")
+        
+        // If kit is fully received (kit key exists in items map), student has no pending items from this kit
+        if (student._itemsMap[kitKey]) {
+          return false; // Kit fully received, no pending items
+        }
+        
+        // Kit not fully received - check if any components are pending
+        if (selectedKit.isSet) {
+          const kitComponentsKeys = (selectedKit.setItems || []).map(si => 
+            getItemKey(si.product?.name || si.productNameSnapshot)
+          );
+          const hasPendingKitItem = kitComponentsKeys.some(key => !student._itemsMap[key]);
+          if (!hasPendingKitItem) return false; // All components received but kit key not set (edge case)
+        } else {
+          // Non-set kit: if kit key not in map, it's pending
+          // (already checked above, but keeping for clarity)
+        }
       }
 
       if (searchValue) {
@@ -514,16 +528,32 @@ const StudentDue = () => {
 
         // Kit filter logic for report
         if (selectedKitId) {
-          const isKitMapped = record.mappedProducts.some(p => p._id === selectedKitId);
+          // Convert both to strings for reliable comparison
+          const kitIdStr = String(selectedKitId);
+          const isKitMapped = record.mappedProducts.some(p => String(p._id) === kitIdStr);
           if (!isKitMapped) return false;
 
-          const selectedKit = normalizedProducts.find(p => p._id === selectedKitId);
-          const kitComponentsKeys = selectedKit && selectedKit.isSet
-            ? (selectedKit.setItems || []).map(si => getItemKey(si.product?.name || si.productNameSnapshot))
-            : selectedKit ? [selectedKit._key] : [];
-
-          const hasPendingKitItem = kitComponentsKeys.some(key => !student._itemsMap[key]);
-          if (!hasPendingKitItem) return false;
+          const selectedKit = normalizedProducts.find(p => String(p._id) === kitIdStr);
+          if (!selectedKit) return false; // Kit not found
+          
+          // IMPORTANT: When a kit is received, the transaction stores the KIT's name in items map, not component names
+          // So we need to check: 1) Is the kit itself received? 2) If not, check individual components
+          const kitKey = selectedKit._key; // The kit's own key (e.g., "engineering_kit")
+          
+          // If kit is fully received (kit key exists in items map), student has no pending items from this kit
+          if (student._itemsMap[kitKey]) {
+            return false; // Kit fully received, no pending items
+          }
+          
+          // Kit not fully received - check if any components are pending
+          if (selectedKit.isSet) {
+            const kitComponentsKeys = (selectedKit.setItems || []).map(si => 
+              getItemKey(si.product?.name || si.productNameSnapshot)
+            );
+            const hasPendingKitItem = kitComponentsKeys.some(key => !student._itemsMap[key]);
+            if (!hasPendingKitItem) return false; // All components received but kit key not set (edge case)
+          }
+          // For non-set kits, if kit key not in map, it's pending (already handled above)
         }
 
         return true;
@@ -567,11 +597,37 @@ const StudentDue = () => {
         const courseProducts = productsByCourse.get(student._normalizedCourse) || [];
         if (!courseProducts.length) return;
 
-        // Check if student has applicable products
+        // Check if student has applicable products (matching the logic from dueStudents calculation)
         const applicableProds = courseProducts.filter(product => {
-          if (product._years.length > 0 && !product._years.includes(student._year)) return false;
-          if (product._semesters.length > 0 && (!student._semester || !product._semesters.includes(student._semester))) return false;
-          if (product._normalizedBranches.length > 0 && !product._normalizedBranches.includes(student._normalizedBranch)) return false;
+          // Check applicability mode: 'students' mode requires explicit assignment
+          if (product._applicabilityMode === 'students') {
+            if (product._applicableStudents.has(String(student._id))) {
+              return true;
+            }
+            // If 'students' mode and not in list, SKIP
+            return false;
+          }
+
+          // Rule-Based Logic (Existing)
+          // Year filter
+          if (product._years.length > 0 && !product._years.includes(student._year)) {
+            return false;
+          }
+
+          // Semester match (products with specific semesters vs student semester)
+          if (product._semesters.length > 0) {
+            if (!student._semester || !product._semesters.includes(student._semester)) {
+              return false;
+            }
+          }
+
+          // Branch filter
+          if (product._normalizedBranches.length > 0) {
+            if (!product._normalizedBranches.includes(student._normalizedBranch)) {
+              return false;
+            }
+          }
+
           return true;
         });
 
@@ -579,16 +635,41 @@ const StudentDue = () => {
 
         // Kit specific counting logic
         if (reportFilters.kit) {
-          const isKitMapped = applicableProds.some(p => p._id === reportFilters.kit);
+          // Check if the selected kit is in the applicable products for this student
+          // Convert both to strings for reliable comparison
+          const kitIdStr = String(reportFilters.kit);
+          const isKitMapped = applicableProds.some(p => String(p._id) === kitIdStr);
           if (!isKitMapped) return; // This student is not mapped to the selected kit
 
-          const selectedKit = normalizedProducts.find(p => p._id === reportFilters.kit);
-          const kitComponentsKeys = selectedKit && selectedKit.isSet
-            ? (selectedKit.setItems || []).map(si => getItemKey(si.product?.name || si.productNameSnapshot))
-            : selectedKit ? [selectedKit._key] : [];
-
+          const selectedKit = normalizedProducts.find(p => String(p._id) === kitIdStr);
+          if (!selectedKit) return; // Kit not found
+          
+          // IMPORTANT: When a kit is received, the transaction stores the KIT's name in items map, not component names
+          // So we need to check: 1) Is the kit itself received? 2) If not, check individual components
+          const kitKey = selectedKit._key; // The kit's own key (e.g., "engineering_kit")
+          
+          // Count ALL students with this kit mapped (both with and without pending items)
           reportTotalStudents++;
-          const hasPending = kitComponentsKeys.some(key => !student._itemsMap[key]);
+          
+          // Check if student has pending items from this kit
+          let hasPending = false;
+          
+          // If kit is fully received (kit key exists in items map), no pending items
+          if (!student._itemsMap[kitKey]) {
+            // Kit not fully received - check individual components for set products
+            if (selectedKit.isSet) {
+              const kitComponentsKeys = (selectedKit.setItems || []).map(si => 
+                getItemKey(si.product?.name || si.productNameSnapshot)
+              );
+              hasPending = kitComponentsKeys.some(key => !student._itemsMap[key]);
+            } else {
+              // Non-set kit: if kit key not in map, it's pending
+              hasPending = true;
+            }
+          }
+          // If kitKey exists in map, hasPending remains false (kit fully received)
+          
+          // In due report context: "Paid" = all items received (no pending), "Unpaid" = has pending items
           if (hasPending) {
             reportUnpaidCount++;
           } else {
@@ -599,7 +680,9 @@ const StudentDue = () => {
 
         // Default counting logic (all applicable products)
         reportTotalStudents++;
+        // Check if student has any pending items
         const hasPending = applicableProds.some(product => !student._itemsMap[product._key]);
+        // In due report context: "Paid" = all items received (no pending), "Unpaid" = has pending items
         if (hasPending) {
           reportUnpaidCount++;
         } else {
@@ -619,7 +702,10 @@ const StudentDue = () => {
       pdf.setTextColor(0, 0, 0);
       pdf.setFont(undefined, 'bold');
 
-      const selectedKit = reportFilters.kit ? normalizedProducts.find(p => p._id === reportFilters.kit) : null;
+      // Find selected kit with proper ID comparison
+      const selectedKit = reportFilters.kit 
+        ? normalizedProducts.find(p => String(p._id) === String(reportFilters.kit)) 
+        : null;
       const reportTitle = selectedKit
         ? `Stationary Pending List: ${selectedKit.name}`
         : 'Stationary Pending Students List';
@@ -742,10 +828,21 @@ const StudentDue = () => {
             // Show only items from the selected kit if a kit is filtered
             let displayItems = record.pendingItems;
             if (selectedKit) {
-              const kitComponentsKeys = selectedKit.isSet
-                ? (selectedKit.setItems || []).map(si => getItemKey(si.product?.name || si.productNameSnapshot))
-                : [selectedKit._key];
-              displayItems = record.pendingItems.filter(pi => kitComponentsKeys.includes(pi._key));
+              const kitKey = selectedKit._key;
+              // For kits, we need to show the kit itself if it's pending, OR show individual components
+              if (selectedKit.isSet) {
+                // For set products, show the kit if it's in pendingItems, or filter by component keys
+                const kitComponentsKeys = (selectedKit.setItems || []).map(si => 
+                  getItemKey(si.product?.name || si.productNameSnapshot)
+                );
+                // Include the kit itself if it's pending, or filter by components
+                displayItems = record.pendingItems.filter(pi => 
+                  pi._key === kitKey || kitComponentsKeys.includes(pi._key)
+                );
+              } else {
+                // Non-set kit: just show if it matches the kit key
+                displayItems = record.pendingItems.filter(pi => pi._key === kitKey);
+              }
             }
 
             const itemNames = displayItems.map(pi => pi.name).join(', ');

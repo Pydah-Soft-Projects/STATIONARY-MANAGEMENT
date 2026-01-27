@@ -220,12 +220,15 @@ const updateStockEntry = async (req, res) => {
     }
 
     const { quantity, invoiceNumber, invoiceDate, purchasePrice, remarks } = req.body;
-    const oldQuantity = stockEntry.quantity;
+    // Convert to numbers to ensure proper comparison
+    const oldQuantity = Number(stockEntry.quantity) || 0;
+    const newQuantity = quantity !== undefined ? Number(quantity) : oldQuantity;
     const oldProductId = stockEntry.product.toString();
 
     // If quantity is being changed, update stock accordingly
-    if (quantity !== undefined && quantity !== oldQuantity) {
-      const quantityDiff = quantity - oldQuantity;
+    // Use strict numeric comparison to avoid type coercion issues
+    if (quantity !== undefined && newQuantity !== oldQuantity) {
+      const quantityDiff = newQuantity - oldQuantity;
       
       if (stockEntry.college) {
         const { College } = require('../models/collegeModel');
@@ -233,12 +236,18 @@ const updateStockEntry = async (req, res) => {
         if (college) {
           const stockItem = college.stock.find(s => s.product.toString() === oldProductId);
           if (stockItem) {
-            stockItem.quantity = (stockItem.quantity || 0) + quantityDiff;
-            if (stockItem.quantity < 0) {
+            // Calculate new stock: current stock - old entry quantity + new entry quantity
+            // This ensures we're replacing the old entry's contribution, not adding on top
+            const currentStock = Number(stockItem.quantity) || 0;
+            const newStock = currentStock - oldQuantity + newQuantity;
+            
+            if (newStock < 0) {
               return res.status(400).json({ message: 'Cannot reduce college stock below 0' });
             }
+            stockItem.quantity = newStock;
           } else if (quantityDiff > 0) {
-            college.stock.push({ product: oldProductId, quantity: quantityDiff });
+            // If stock item doesn't exist, only add if we're increasing
+            college.stock.push({ product: oldProductId, quantity: newQuantity });
           } else {
             return res.status(400).json({ message: 'Insufficient college stock to reduce' });
           }
@@ -250,27 +259,31 @@ const updateStockEntry = async (req, res) => {
           return res.status(404).json({ message: 'Product not found' });
         }
 
-        // Update product stock
-        product.stock = (product.stock || 0) + quantityDiff;
-        if (product.stock < 0) {
+        // Calculate new stock: current stock - old entry quantity + new entry quantity
+        const currentStock = Number(product.stock) || 0;
+        const newStock = currentStock - oldQuantity + newQuantity;
+        
+        if (newStock < 0) {
           return res.status(400).json({ message: 'Cannot reduce central stock below 0' });
         }
+        product.stock = newStock;
         await product.save();
       }
     }
 
     // Update stock entry fields
     if (quantity !== undefined) {
-      stockEntry.quantity = quantity;
+      stockEntry.quantity = newQuantity;
       // Recalculate total cost
-      stockEntry.totalCost = (stockEntry.purchasePrice || 0) * quantity;
+      stockEntry.totalCost = (stockEntry.purchasePrice || 0) * newQuantity;
     }
     if (invoiceNumber !== undefined) stockEntry.invoiceNumber = invoiceNumber?.trim() || '';
     if (invoiceDate !== undefined) stockEntry.invoiceDate = new Date(invoiceDate);
     if (purchasePrice !== undefined) {
       stockEntry.purchasePrice = purchasePrice;
-      // Recalculate total cost
-      stockEntry.totalCost = purchasePrice * (stockEntry.quantity || 0);
+      // Recalculate total cost using current quantity (newQuantity if quantity was updated, otherwise oldQuantity)
+      const currentQuantity = quantity !== undefined ? newQuantity : oldQuantity;
+      stockEntry.totalCost = purchasePrice * currentQuantity;
     }
     if (remarks !== undefined) stockEntry.remarks = remarks?.trim() || '';
 
