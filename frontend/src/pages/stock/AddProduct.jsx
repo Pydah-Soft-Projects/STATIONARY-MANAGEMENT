@@ -50,11 +50,12 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
 
   // Filter fetched students based on search query
   const filteredFetchedStudents = useMemo(() => {
+    const list = (Array.isArray(fetchedStudents) ? fetchedStudents : []).filter(s => s != null);
     if (!studentSearchQuery.trim()) {
-      return fetchedStudents;
+      return list;
     }
     const query = studentSearchQuery.toLowerCase().trim();
-    return fetchedStudents.filter(student => 
+    return list.filter(student =>
       (student.name || '').toLowerCase().includes(query) ||
       (student.studentId || '').toLowerCase().includes(query)
     );
@@ -66,7 +67,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
     setFormData(prev => ({
       ...prev,
       applicabilityMode: product.applicabilityMode || 'rules',
-      applicableStudents: Array.isArray(product.applicableStudents) ? product.applicableStudents : [],
+      applicableStudents: (Array.isArray(product.applicableStudents) ? product.applicableStudents : []).filter(s => s != null),
     }));
     // Reset filters
     setStudentFilters({ course: '', year: '', branch: '' });
@@ -249,9 +250,9 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
         })).filter(item => item.productId),
         lowStockThreshold: selectedProduct.lowStockThreshold ?? 10,
         applicabilityMode: selectedProduct.applicabilityMode || 'rules',
-        applicableStudents: Array.isArray(selectedProduct.applicableStudents)
+        applicableStudents: (Array.isArray(selectedProduct.applicableStudents)
           ? selectedProduct.applicableStudents
-          : [],
+          : []).filter(s => s != null),
       });
       setSetItemToAdd('');
       setIsEditing(false);
@@ -475,7 +476,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
         // "All students are checked initially"
         // We merge these students into the existing applicableStudents.
         // Identify new students to add
-        const currentIds = new Set(formData.applicableStudents.map(s => s._id));
+        const currentIds = new Set(formData.applicableStudents.filter(s => s && s._id).map(s => s._id));
         const newStudents = students.filter(s => !currentIds.has(s._id));
 
         if (newStudents.length > 0) {
@@ -510,7 +511,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
   };
 
   const handleSelectAllFetched = () => {
-    const currentIds = new Set(formData.applicableStudents.map(s => s._id));
+    const currentIds = new Set(formData.applicableStudents.filter(s => s && s._id).map(s => s._id));
     // Use filtered students instead of all fetched students
     const newStudents = filteredFetchedStudents.filter(s => !currentIds.has(s._id));
     setFormData(prev => ({
@@ -575,7 +576,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
             lowStockThreshold: formData.isSet ? 0 : formData.lowStockThreshold,
             collegeId: activeCollegeId || undefined,
             applicabilityMode: formData.applicabilityMode,
-            applicableStudents: formData.applicabilityMode === 'students' ? formData.applicableStudents.map(s => s._id) : [],
+            applicableStudents: formData.applicabilityMode === 'students' ? formData.applicableStudents.filter(s => s && s._id).map(s => s._id) : [],
           }),
         });
 
@@ -616,7 +617,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
             lowStockThreshold: formData.isSet ? 0 : formData.lowStockThreshold,
             collegeId: activeCollegeId || undefined,
             applicabilityMode: formData.applicabilityMode,
-            applicableStudents: formData.applicabilityMode === 'students' ? formData.applicableStudents.map(s => s._id) : [],
+            applicableStudents: formData.applicabilityMode === 'students' ? formData.applicableStudents.filter(s => s && s._id).map(s => s._id) : [],
           }),
         });
 
@@ -669,7 +670,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           applicabilityMode: 'students',
-          applicableStudents: formData.applicableStudents.map(s => s._id),
+          applicableStudents: formData.applicableStudents.filter(s => s && s._id).map(s => s._id),
           // Preserve other core fields just in case backend requires them or to avoid overwriting partials if patch not supported properly
           // Generally we should just send what changed if backend supports PATCH, but we reused PUT.
           // Let's send key fields to be safe, or trust current PUT implementation.
@@ -846,7 +847,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                 <div>
                   <h4 className="font-semibold text-gray-700 mb-2">Currently Assigned ({formData.applicableStudents.length})</h4>
                   <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-2 border border-gray-100 rounded-lg">
-                    {formData.applicableStudents.map(s => (
+                    {formData.applicableStudents.filter(s => s != null).map(s => (
                       <div key={s._id} className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
                         <span>{s.name}</span>
                         <button onClick={() => toggleStudentSelection(s)} className="hover:text-red-600"><X size={12} /></button>

@@ -299,9 +299,12 @@ const createStockTransfer = asyncHandler(async (req, res) => {
 
   const createdTransfer = await stockTransfer.save();
 
-  // Populate the products and college for response
+  // Populate the products and colleges for response (fromCollege so UI shows selected source, not "Central Warehouse")
   await createdTransfer.populate('items.product', 'name price stock category');
   await createdTransfer.populate('toCollege', 'name location');
+  if (createdTransfer.fromCollege) {
+    await createdTransfer.populate('fromCollege', 'name location');
+  }
 
   res.status(201).json(createdTransfer);
 });
@@ -330,6 +333,7 @@ const getStockTransfers = asyncHandler(async (req, res) => {
   const stockTransfers = await StockTransfer.find(filter)
     .populate('items.product', 'name price stock category')
     .populate('toCollege', 'name location')
+    .populate('fromCollege', 'name location')
     .populate('transactionId', 'transactionId totalAmount paymentMethod isPaid transactionType collegeTransfer branchTransfer')
     .sort({ createdAt: -1, transferDate: -1 });
 
@@ -345,6 +349,7 @@ const getStockTransferById = asyncHandler(async (req, res) => {
   const stockTransfer = await StockTransfer.findById(req.params.id)
     .populate('items.product', 'name price stock category')
     .populate('toCollege', 'name location description')
+    .populate('fromCollege', 'name location')
     .populate('transactionId', 'transactionId totalAmount paymentMethod isPaid transactionType createdAt');
 
   if (!stockTransfer) {
@@ -439,6 +444,9 @@ const updateStockTransfer = asyncHandler(async (req, res) => {
   const updated = await stockTransfer.save();
   await updated.populate('items.product', 'name price stock category');
   await updated.populate('toCollege', 'name location');
+  if (updated.fromCollege) {
+    await updated.populate('fromCollege', 'name location');
+  }
   await updated.populate('transactionId', 'transactionId totalAmount paymentMethod isPaid transactionType');
 
   res.json(updated);

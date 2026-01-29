@@ -234,15 +234,10 @@ const StudentDetail = ({
   const avatarUrl = student?.avatarUrl || student?.profileImage || student?.photoUrl || student?.photo || '';
 
   const visibleItems = (products || []).filter(p => {
-    // 1. Check Specific Student Applicability
+    // 1. Specific Student Applicability: show to all students; mapped vs addon is decided in isAddOnProduct
     if (p.applicabilityMode === 'students') {
       if (!student) return false;
-      const studentId = student.id || student._id;
-      const applicableList = p.applicableStudents || [];
-      return applicableList.some(s => {
-        const sId = (s && typeof s === 'object') ? s._id : s;
-        return String(sId) === String(studentId);
-      });
+      return true;
     }
 
     // 2. Rule-Based Applicability (Course/Year/Branch)
@@ -281,8 +276,17 @@ const StudentDetail = ({
   });
 
   const isAddOnProduct = (product) => {
-    // If explicitly assigned to students, treat as a Mapped Item (Required), not an Add-On
-    if (product.applicabilityMode === 'students') return false;
+    // If explicitly assigned to specific students: mapped (required) for those students, addon for others
+    if (product.applicabilityMode === 'students') {
+      if (!student) return true;
+      const studentId = student.id || student._id;
+      const applicableList = product.applicableStudents || [];
+      const isAssigned = applicableList.some(s => {
+        const sId = (s && typeof s === 'object') ? s._id : s;
+        return String(sId) === String(studentId);
+      });
+      return !isAssigned;
+    }
 
     const courseValue = normalizeCourse(product?.forCourse || '');
     return courseValue === '';
