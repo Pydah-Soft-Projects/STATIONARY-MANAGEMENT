@@ -325,6 +325,16 @@ const Reports = ({ currentUser }) => {
     return filteredTransactions.filter(t => !t.transactionType || t.transactionType === 'student');
   }, [filteredTransactions]);
 
+  // Transactions that count toward revenue: all student + paid college/branch transfers (for monthly/daily reports)
+  const revenueEligibleTransactions = useMemo(() => {
+    return filteredTransactions.filter(t => {
+      if (t.transactionType === 'college_transfer' || t.transactionType === 'branch_transfer') {
+        return t.isPaid === true;
+      }
+      return !t.transactionType || t.transactionType === 'student';
+    });
+  }, [filteredTransactions]);
+
   const branchTransfers = useMemo(() => {
     return filteredTransactions.filter(t => t.transactionType === 'branch_transfer' || t.transactionType === 'college_transfer');
   }, [filteredTransactions]);
@@ -400,15 +410,17 @@ const Reports = ({ currentUser }) => {
     return `Rs ${Number(amount || 0).toFixed(2)}`;
   };
 
-  // Calculate day-end sales summary
+  // Calculate day-end sales summary (revenue amounts include paid college/branch transfers; items sold = student only)
   const calculateDayEndSales = useCallback((transactions) => {
-    // Exclude branch/college transfers from sales calculations (internal stock movements)
-    const revenueTransactions = transactions.filter(t => t.transactionType !== 'branch_transfer' && t.transactionType !== 'college_transfer');
+    // Use passed-in transactions for revenue amounts (already revenue-eligible: student + paid transfers)
+    const revenueTransactions = transactions;
+    // For "items sold" count only student transactions (not transfer movements)
+    const itemsTransactions = transactions.filter(t => t.transactionType !== 'branch_transfer' && t.transactionType !== 'college_transfer');
 
-    // Aggregate items sold across all transactions
+    // Aggregate items sold across student transactions only
     // For sets, expand them into their component items
     const itemsSoldMap = new Map();
-    revenueTransactions.forEach(transaction => {
+    itemsTransactions.forEach(transaction => {
       if (transaction.items && Array.isArray(transaction.items)) {
         transaction.items.forEach(item => {
           const setQuantity = Number(item.quantity) || 0;
@@ -467,10 +479,9 @@ const Reports = ({ currentUser }) => {
     };
   }, []);
 
-  // Calculate statistics from filtered transactions
+  // Calculate statistics from filtered transactions (revenue includes paid college/branch transfers)
   const statistics = useMemo(() => {
-    // Exclude branch/college transfers from revenue calculations (internal stock movements)
-    const revenueTransactions = studentTransactions.filter(t => t.transactionType !== 'branch_transfer' && t.transactionType !== 'college_transfer');
+    const revenueTransactions = revenueEligibleTransactions;
 
     const totalAmount = revenueTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
     const paidTransactions = revenueTransactions.filter(t => t.isPaid);
@@ -478,7 +489,7 @@ const Reports = ({ currentUser }) => {
     const paidAmount = paidTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
     const unpaidAmount = unpaidTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
 
-    // Calculate items sold using existing function
+    // Calculate items sold using existing function (pass revenue-eligible for amounts; items sold = student only inside)
     const salesData = calculateDayEndSales(revenueTransactions);
 
     return {
@@ -491,11 +502,11 @@ const Reports = ({ currentUser }) => {
       itemsSold: salesData.itemsSold,
       totalItemsSold: salesData.statistics.totalItemsSold,
     };
-  }, [studentTransactions, calculateDayEndSales]);
+  }, [revenueEligibleTransactions, calculateDayEndSales]);
 
-  // Calculate monthly statistics with items sold and day-wise breakdown
+  // Calculate monthly statistics with items sold and day-wise breakdown (revenue includes paid college/branch transfers)
   const monthlyStats = useMemo(() => {
-    const revenueTransactions = studentTransactions.filter(t => t.transactionType !== 'branch_transfer' && t.transactionType !== 'college_transfer');
+    const revenueTransactions = revenueEligibleTransactions;
     const monthMap = new Map();
 
     revenueTransactions.forEach(transaction => {
@@ -642,7 +653,7 @@ const Reports = ({ currentUser }) => {
     });
 
     return Array.from(monthMap.values()).sort((a, b) => b.monthKey.localeCompare(a.monthKey));
-  }, [studentTransactions]);
+  }, [revenueEligibleTransactions]);
 
   // Set default to current month when switching to daily breakdown sub-tab or when monthlyStats is available
   useEffect(() => {
@@ -667,9 +678,9 @@ const Reports = ({ currentUser }) => {
     }
   }, [activeTab, monthlyReportSubTab, monthlyStats]);
 
-  // Enhanced Monthly Sales Report - Comprehensive table with all items and months
+  // Enhanced Monthly Sales Report - Comprehensive table with all items and months (revenue includes paid college/branch transfers)
   const comprehensiveMonthlyReport = useMemo(() => {
-    const revenueTransactions = studentTransactions.filter(t => t.transactionType !== 'branch_transfer' && t.transactionType !== 'college_transfer');
+    const revenueTransactions = revenueEligibleTransactions;
 
     // Get all months from transactions
     const allMonths = new Set();
@@ -760,7 +771,7 @@ const Reports = ({ currentUser }) => {
       monthlyTotals: monthlyTotals,
       monthlyRevenue: monthlyRevenue
     };
-  }, [studentTransactions]);
+  }, [revenueEligibleTransactions]);
 
   // Get product price for an item name
   const getProductPrice = useCallback((itemName) => {
@@ -783,13 +794,20 @@ const Reports = ({ currentUser }) => {
     const allDays = new Set();
     const itemDailySales = new Map(); // itemName -> { dayKey -> quantity }
     const allItems = new Set();
-    const dailyRevenue = new Map(); // dayKey -> revenue
+    const dailyRevenue = new Map(); // dayKey -> revenue (includes student + paid college/branch transfers)
+    const dailyTransferRevenue = new Map(); // dayKey -> revenue from college/branch transfers only (for table row)
 
     selectedMonth.dayWiseBreakdown.forEach(day => {
       const dayKey = day.date; // Format: YYYY-MM-DD
       const dayName = new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       allDays.add(dayKey);
-      dailyRevenue.set(dayKey, day.totalAmount || 0);
+      const txs = day.transactions || [];
+      const dayRev = txs.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
+      dailyRevenue.set(dayKey, dayRev);
+      const transferRev = txs
+        .filter(t => t.transactionType === 'college_transfer' || t.transactionType === 'branch_transfer')
+        .reduce((sum, t) => sum + (t.totalAmount || 0), 0);
+      dailyTransferRevenue.set(dayKey, transferRev);
 
       // Process items sold on this day
       if (day.itemsSold && Array.isArray(day.itemsSold)) {
@@ -839,13 +857,14 @@ const Reports = ({ currentUser }) => {
       itemDailySales: itemDailySales,
       dailyTotals: dailyTotals,
       dailyRevenue: dailyRevenue,
+      dailyTransferRevenue: dailyTransferRevenue,
       monthName: selectedMonth.month
     };
   }, [selectedMonthForDaily, monthlyStats]);
 
-  // Calculate day-wise breakdown
+  // Calculate day-wise breakdown (revenue includes paid college/branch transfers)
   const dayWiseBreakdown = useMemo(() => {
-    const revenueTransactions = studentTransactions.filter(t => t.transactionType !== 'branch_transfer' && t.transactionType !== 'college_transfer');
+    const revenueTransactions = revenueEligibleTransactions;
     const dayMap = new Map();
 
     revenueTransactions.forEach(transaction => {
@@ -879,7 +898,7 @@ const Reports = ({ currentUser }) => {
     });
 
     return Array.from(dayMap.values()).sort((a, b) => b.date.localeCompare(a.date));
-  }, [studentTransactions]);
+  }, [revenueEligibleTransactions]);
 
   const generateDayEndReport = async (transactions) => {
     // Filter transactions by date range if specified
@@ -968,8 +987,11 @@ const Reports = ({ currentUser }) => {
       (reportFilters.includeSummary || reportFilters.onlyStatistics);
 
     if (showStats) {
-      // Exclude branch transfers from revenue calculations (internal stock movements)
-      const revenueTransactions = filteredTransactions.filter(t => t.transactionType !== 'branch_transfer');
+      // Revenue: student (all) + paid college/branch transfers
+      const revenueTransactions = filteredTransactions.filter(t => {
+        if (t.transactionType === 'college_transfer' || t.transactionType === 'branch_transfer') return t.isPaid === true;
+        return true;
+      });
       const totalAmount = revenueTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
       const paidCount = revenueTransactions.filter(t => t.isPaid).length;
       const paidAmount = revenueTransactions.filter(t => t.isPaid).reduce((sum, t) => sum + (t.totalAmount || 0), 0);
@@ -2674,6 +2696,7 @@ const Reports = ({ currentUser }) => {
                                 <p className="text-lg font-bold text-purple-700">{selectedMonth.transactions.length}</p>
                               </div>
                             </div>
+                            <p className="text-xs text-gray-500 mb-4">Revenue includes student sales and paid college/branch transfers.</p>
 
                             {/* Daily Sales Table - Items as Rows, Days as Columns */}
                             {dailyBreakdownReport ? (
@@ -2724,6 +2747,30 @@ const Reports = ({ currentUser }) => {
                                         {formatCurrency(
                                           Array.from(dailyBreakdownReport.dailyRevenue.values()).reduce(
                                             (sum, revenue) => sum + revenue,
+                                            0
+                                          )
+                                        )}
+                                      </td>
+                                    </tr>
+                                    {/* College Transfers row (amount per day in table) */}
+                                    <tr className="bg-amber-50/80 font-medium border-b border-amber-200">
+                                      <td className="px-4 py-2 text-gray-600 border-r border-gray-200"></td>
+                                      <td className="px-4 py-2 text-amber-800 border-r border-gray-200">College Transfers</td>
+                                      {dailyBreakdownReport.days.map((day, dayIdx) => {
+                                        const transferRev = dailyBreakdownReport.dailyTransferRevenue?.get(day.key) || 0;
+                                        return (
+                                          <td
+                                            key={day.key}
+                                            className={`px-3 py-2 whitespace-nowrap text-right ${transferRev > 0 ? 'text-amber-800 font-medium' : 'text-gray-400'} ${dayIdx < dailyBreakdownReport.days.length - 1 ? 'border-r border-gray-200' : ''}`}
+                                          >
+                                            {transferRev > 0 ? formatCurrency(transferRev) : '-'}
+                                          </td>
+                                        );
+                                      })}
+                                      <td className="px-4 py-2 whitespace-nowrap text-right text-amber-800 font-medium bg-amber-100">
+                                        {formatCurrency(
+                                          Array.from(dailyBreakdownReport.dailyTransferRevenue?.values() || []).reduce(
+                                            (sum, rev) => sum + rev,
                                             0
                                           )
                                         )}

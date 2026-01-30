@@ -161,57 +161,58 @@ const Dashboard = () => {
           today.setHours(0, 0, 0, 0);
 
           filteredTransactions.forEach(transaction => {
-            const isRevenueTransaction = transaction.transactionType === 'student';
+            const isStudentSale = transaction.transactionType === 'student';
+            const isPaidTransfer = (transaction.transactionType === 'college_transfer' || transaction.transactionType === 'branch_transfer') && transaction.isPaid;
+            const isRevenueTransaction = isStudentSale || isPaidTransfer;
 
             if (isRevenueTransaction) {
               if (transaction.isPaid) {
                 totalRevenue += transaction.totalAmount || 0;
 
-                // Track Zero-Stock Dues
-                let hasPartial = false;
-                const partialItems = [];
+                // Track Zero-Stock Dues (student transactions only)
+                if (isStudentSale) {
+                  let hasPartial = false;
+                  const partialItems = [];
 
-                (transaction.items || []).forEach(item => {
-                  const key = (item.name || '').toLowerCase().replace(/\s+/g, '_');
-                  const studentId = String(transaction.student?.userId?._id || transaction.student?.userId);
-                  const studentRecord = allStudentsMap.get(studentId);
+                  (transaction.items || []).forEach(item => {
+                    const key = (item.name || '').toLowerCase().replace(/\s+/g, '_');
+                    const studentId = String(transaction.student?.userId?._id || transaction.student?.userId);
+                    const studentRecord = allStudentsMap.get(studentId);
 
-                  if (item.status === 'partial') {
-                    // Check if student still owes it
-                    if (studentRecord && (!studentRecord.items || !studentRecord.items[key])) {
-                      hasPartial = true;
-                      partialItems.push(item.name);
-                    }
-                  } else if (item.isSet && Array.isArray(item.setComponents)) {
-                    // Check components for sets
-                    const missingComponents = item.setComponents.filter(c => !c.taken);
-                    if (missingComponents.length > 0) {
+                    if (item.status === 'partial') {
                       if (studentRecord && (!studentRecord.items || !studentRecord.items[key])) {
                         hasPartial = true;
-                        missingComponents.forEach(c => partialItems.push(c.name));
+                        partialItems.push(item.name);
+                      }
+                    } else if (item.isSet && Array.isArray(item.setComponents)) {
+                      const missingComponents = item.setComponents.filter(c => !c.taken);
+                      if (missingComponents.length > 0) {
+                        if (studentRecord && (!studentRecord.items || !studentRecord.items[key])) {
+                          hasPartial = true;
+                          missingComponents.forEach(c => partialItems.push(c.name));
+                        }
+                      }
+                    }
+                  });
+
+                  if (hasPartial) {
+                    const sId = String(transaction.student?.userId?._id || transaction.student?.userId);
+
+                    if (sId && sId !== 'undefined' && sId !== 'null') {
+                      if (!zeroStockMap.has(sId)) {
+                        zeroStockMap.set(sId, {
+                          student: transaction.student,
+                          studentId: sId,
+                          items: new Set(partialItems),
+                          transactionDate: transaction.transactionDate
+                        });
+                      } else {
+                        partialItems.forEach(name => zeroStockMap.get(sId).items.add(name));
                       }
                     }
                   }
-                });
-
-                if (hasPartial) {
-                  const sId = String(transaction.student?.userId?._id || transaction.student?.userId);
-
-                  if (sId && sId !== 'undefined' && sId !== 'null') {
-                    if (!zeroStockMap.has(sId)) {
-                      zeroStockMap.set(sId, {
-                        student: transaction.student,
-                        studentId: sId, // Explicitly store the ID
-                        items: new Set(partialItems),
-                        transactionDate: transaction.transactionDate
-                      });
-                    } else {
-                      partialItems.forEach(name => zeroStockMap.get(sId).items.add(name));
-                    }
-                  }
                 }
-
-              } else {
+              } else if (isStudentSale) {
                 pendingRevenue += transaction.totalAmount || 0;
               }
 
