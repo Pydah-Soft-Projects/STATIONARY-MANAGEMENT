@@ -3,6 +3,7 @@ const { User } = require('../models/userModel');
 const { Product } = require('../models/productModel');
 const { College } = require('../models/collegeModel');
 const { SubAdmin } = require('../models/subAdminModel');
+const { StockTransfer } = require('../models/stockTransferModel');
 const asyncHandler = require('express-async-handler');
 
 // Helpers for stock management (supports set products)
@@ -370,7 +371,7 @@ const createTransaction = asyncHandler(async (req, res) => {
  * @access  Public
  */
 const getAllTransactions = asyncHandler(async (req, res) => {
-  const { course, studentId, transactionType, paymentMethod, isPaid, startDate, endDate, collegeId } = req.query;
+  const { course, studentId, transactionType, paymentMethod, isPaid, startDate, endDate, collegeId, limit } = req.query;
   
   const filter = {};
 
@@ -419,11 +420,37 @@ const getAllTransactions = asyncHandler(async (req, res) => {
     if (endDate) filter.transactionDate.$lte = new Date(endDate + 'T23:59:59');
   }
 
+  const maxLimit = Math.min(parseInt(limit, 10) || 5000, 10000);
   const transactions = await Transaction.find(filter)
     .populate('items.productId', 'name price imageUrl')
     .populate('student.userId', 'name studentId course year branch')
     .populate('collegeTransfer.collegeId', 'name location')
-    .sort({ transactionDate: -1 });
+    .sort({ transactionDate: -1 })
+    .limit(maxLimit)
+    .lean();
+
+  // For college/branch transfers, attach transferDate from StockTransfer so reports group by transfer date, not completed-at
+  const transferTxIds = transactions
+    .filter(t => t.transactionType === 'college_transfer' || t.transactionType === 'branch_transfer')
+    .map(t => t._id);
+  if (transferTxIds.length > 0) {
+    const transfers = await StockTransfer.find({ transactionId: { $in: transferTxIds } })
+      .select('transactionId transferDate')
+      .lean();
+    const txIdToTransferDate = new Map();
+    transfers.forEach(t => {
+      const txId = t.transactionId && t.transactionId.toString ? t.transactionId.toString() : t.transactionId;
+      if (txId && t.transferDate) txIdToTransferDate.set(txId, t.transferDate);
+    });
+    transactions.forEach(t => {
+      if (t.transactionType === 'college_transfer' || t.transactionType === 'branch_transfer') {
+        const txId = t._id && t._id.toString ? t._id.toString() : t._id;
+        if (txIdToTransferDate.has(txId)) {
+          t.transferDate = txIdToTransferDate.get(txId);
+        }
+      }
+    });
+  }
 
   res.status(200).json(transactions);
 });
@@ -435,11 +462,17 @@ const getAllTransactions = asyncHandler(async (req, res) => {
  */
 const getTransactionById = asyncHandler(async (req, res) => {
   const transaction = await Transaction.findById(req.params.id)
-    .populate('items.productId', 'name price imageUrl description');
+    .populate('items.productId', 'name price imageUrl description')
+    .lean();
 
   if (!transaction) {
     res.status(404);
     throw new Error('Transaction not found');
+  }
+
+  if (transaction.transactionType === 'college_transfer' || transaction.transactionType === 'branch_transfer') {
+    const transfer = await StockTransfer.findOne({ transactionId: req.params.id }).select('transferDate').lean();
+    if (transfer && transfer.transferDate) transaction.transferDate = transfer.transferDate;
   }
 
   res.status(200).json(transaction);

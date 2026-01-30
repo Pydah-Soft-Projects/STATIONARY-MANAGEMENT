@@ -5,6 +5,17 @@ import { hasFullAccess } from '../utils/permissions';
 import jsPDF from 'jspdf';
 import { useReactToPrint } from 'react-to-print';
 
+// Helpers defined outside component so they can be used in initial state
+const getTodayDate = () => {
+  const today = new Date();
+  return today.toISOString().split('T')[0];
+};
+const getDefaultStartDate = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - 90);
+  return d.toISOString().split('T')[0];
+};
+
 const Reports = ({ currentUser }) => {
   // Check access level
   const isSuperAdmin = currentUser?.role === 'Administrator';
@@ -18,8 +29,8 @@ const Reports = ({ currentUser }) => {
     transactionType: '',
     paymentMethod: '',
     isPaid: '',
-    startDate: '',
-    endDate: '',
+    startDate: getDefaultStartDate(),
+    endDate: getTodayDate(),
   });
   const [colleges, setColleges] = useState([]);
   const [selectedCollege, setSelectedCollege] = useState('');
@@ -35,12 +46,6 @@ const Reports = ({ currentUser }) => {
     receiptHeader: 'PYDAH COLLEGE OF ENGINEERING',
     receiptSubheader: 'Stationery Management System',
   });
-
-  // Get today's date in YYYY-MM-DD format
-  const getTodayDate = () => {
-    const today = new Date();
-    return today.toISOString().split('T')[0];
-  };
 
   const [reportFilters, setReportFilters] = useState({
     course: '',
@@ -339,6 +344,13 @@ const Reports = ({ currentUser }) => {
     return filteredTransactions.filter(t => t.transactionType === 'branch_transfer' || t.transactionType === 'college_transfer');
   }, [filteredTransactions]);
 
+  // For reports: college/branch transfers use transferDate (from StockTransfer), others use transactionDate
+  const getReportDate = useCallback((transaction) => {
+    const isTransfer = transaction.transactionType === 'college_transfer' || transaction.transactionType === 'branch_transfer';
+    const dateVal = isTransfer && transaction.transferDate ? transaction.transferDate : transaction.transactionDate;
+    return new Date(dateVal);
+  }, []);
+
   // Pagination for student transactions
   const studentTotalPages = Math.ceil(studentTransactions.length / itemsPerPage);
   const studentStartIndex = (currentPage - 1) * itemsPerPage;
@@ -510,7 +522,7 @@ const Reports = ({ currentUser }) => {
     const monthMap = new Map();
 
     revenueTransactions.forEach(transaction => {
-      const date = new Date(transaction.transactionDate);
+      const date = getReportDate(transaction);
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const monthName = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
       const dayKey = date.toISOString().split('T')[0];
@@ -653,7 +665,7 @@ const Reports = ({ currentUser }) => {
     });
 
     return Array.from(monthMap.values()).sort((a, b) => b.monthKey.localeCompare(a.monthKey));
-  }, [revenueEligibleTransactions]);
+  }, [revenueEligibleTransactions, getReportDate]);
 
   // Set default to current month when switching to daily breakdown sub-tab or when monthlyStats is available
   useEffect(() => {
@@ -688,7 +700,7 @@ const Reports = ({ currentUser }) => {
     const allItems = new Set();
 
     revenueTransactions.forEach(transaction => {
-      const date = new Date(transaction.transactionDate);
+      const date = getReportDate(transaction);
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const monthName = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
       allMonths.add(monthKey);
@@ -747,7 +759,7 @@ const Reports = ({ currentUser }) => {
     // Calculate monthly revenue/income
     const monthlyRevenue = new Map();
     revenueTransactions.forEach(transaction => {
-      const date = new Date(transaction.transactionDate);
+      const date = getReportDate(transaction);
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const currentRevenue = monthlyRevenue.get(monthKey) || 0;
       monthlyRevenue.set(monthKey, currentRevenue + (transaction.totalAmount || 0));
@@ -771,7 +783,7 @@ const Reports = ({ currentUser }) => {
       monthlyTotals: monthlyTotals,
       monthlyRevenue: monthlyRevenue
     };
-  }, [revenueEligibleTransactions]);
+  }, [revenueEligibleTransactions, getReportDate]);
 
   // Get product price for an item name
   const getProductPrice = useCallback((itemName) => {
@@ -868,7 +880,7 @@ const Reports = ({ currentUser }) => {
     const dayMap = new Map();
 
     revenueTransactions.forEach(transaction => {
-      const date = new Date(transaction.transactionDate);
+      const date = getReportDate(transaction);
       const dayKey = date.toISOString().split('T')[0];
       const dayName = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
@@ -898,7 +910,7 @@ const Reports = ({ currentUser }) => {
     });
 
     return Array.from(dayMap.values()).sort((a, b) => b.date.localeCompare(a.date));
-  }, [revenueEligibleTransactions]);
+  }, [revenueEligibleTransactions, getReportDate]);
 
   const generateDayEndReport = async (transactions) => {
     // Filter transactions by date range if specified

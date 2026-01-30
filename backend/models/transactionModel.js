@@ -150,6 +150,9 @@ transactionSchema.index({ transactionDate: -1 });
 transactionSchema.index({ transactionType: 1 });
 transactionSchema.index({ 'branchTransfer.branchId': 1 });
 transactionSchema.index({ branchId: 1 });
+// Compound indexes for Reports / list queries (college + date, date range)
+transactionSchema.index({ collegeId: 1, transactionDate: -1 });
+transactionSchema.index({ transactionDate: -1, transactionType: 1 });
 
 const Transaction = mongoose.model('Transaction', transactionSchema);
 
