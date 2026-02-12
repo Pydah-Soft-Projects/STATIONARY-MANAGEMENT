@@ -1047,7 +1047,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
           )}
         </div>
       ) : isCardView ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {filteredProducts.map((product) => {
             const productYears = product.years || (product.year ? [product.year] : []);
             const yearsDisplay = productYears.length === 0

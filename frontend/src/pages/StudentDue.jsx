@@ -192,8 +192,7 @@ const StudentDue = () => {
   }, [fetchDues, fetchProducts]);
 
   const courseOptions = useMemo(() => {
-    const allCourses = courses.map(c => c.displayName || c.name);
-    return [...new Set(allCourses)].sort();
+    return courses.map(c => c.displayName || c.name).sort();
   }, [courses]);
 
   const yearOptions = useMemo(() => {
@@ -218,11 +217,17 @@ const StudentDue = () => {
       return Array.from(branches).sort();
     }
     // Specific course branches
-    const selectedCourse = courses.find(c =>
-      (c.name.toLowerCase() === dueFilters.course.toLowerCase()) ||
-      (c.displayName === dueFilters.course)
+    // Specific course branches
+    const matchingCourses = courses.filter(c =>
+      (c.name && c.name.toLowerCase() === dueFilters.course.toLowerCase()) ||
+      (c.displayName && c.displayName === dueFilters.course)
     );
-    return [...new Set(selectedCourse?.branches || [])].sort();
+
+    const specificBranches = new Set();
+    matchingCourses.forEach(c => {
+      (c.branches || []).forEach(b => specificBranches.add(b));
+    });
+    return Array.from(specificBranches).sort();
   }, [courses, dueFilters.course]);
 
 
@@ -505,12 +510,12 @@ const StudentDue = () => {
         // Define column positions
         const colName = 22;
         const colRoll = 85;
-        const colPhone = 120;
-        const colRemarks = 155;
+        // const colPhone = 120; // REMOVED
+        const colRemarks = 130; // Adjusted position
 
         pdf.text('Student Name', colName, yPos + 1);
         pdf.text('Roll Number', colRoll, yPos + 1);
-        pdf.text('Mobile', colPhone, yPos + 1);
+        // pdf.text('Mobile', colPhone, yPos + 1); // REMOVED
 
         const remarksLabel = reportFilters.includeItemDetails ? 'Pending Items' : 'Remarks';
         pdf.text(remarksLabel, colRemarks, yPos + 1);
@@ -532,7 +537,7 @@ const StudentDue = () => {
             pdf.rect(20, yPos - 3, 170, 6, 'F');
             pdf.text('Student Name', colName, yPos + 1);
             pdf.text('Roll Number', colRoll, yPos + 1);
-            pdf.text('Mobile', colPhone, yPos + 1);
+            // pdf.text('Mobile', colPhone, yPos + 1); // REMOVED
             pdf.text('Remarks', colRemarks, yPos + 1);
             yPos += 8;
             pdf.setFont(undefined, 'normal');
@@ -553,7 +558,7 @@ const StudentDue = () => {
 
           pdf.text(studentName, colName, yPos + 2);
           pdf.text(studentId, colRoll, yPos + 2);
-          pdf.text(phone, colPhone, yPos + 2);
+          // pdf.text(phone, colPhone, yPos + 2); // REMOVED
 
           if (reportFilters.includeItemDetails) {
             // Show only items from the selected kit if a kit is filtered
@@ -641,7 +646,7 @@ const StudentDue = () => {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-6">
+        <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="p-4 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600">
               <div className="flex items-start justify-between">
@@ -682,77 +687,86 @@ const StudentDue = () => {
               <p className="text-xs text-white/90 mt-3">Courses with at least one pending student</p>
             </div>
           </div>
+        </div>
 
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="relative w-full lg:max-w-md">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+        {/* Filters Section */}
+        <div className="mb-6">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Search */}
+            <div className="relative w-full lg:w-68 shrink-0">
+              <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
               <input
                 type="text"
+                placeholder="Search students..."
+                className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white shadow-sm"
                 value={dueFilters.search}
                 onChange={(e) => setDueFilters({ ...dueFilters, search: e.target.value })}
-                placeholder="Search by student name or ID"
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
-            <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
-              <select
-                value={dueFilters.course}
-                onChange={(e) => setDueFilters({ ...dueFilters, course: e.target.value, branch: '' })}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="">Select Course</option>
-                {courseOptions.map(course => (
-                  <option key={course} value={course}>{course.toUpperCase()}</option>
-                ))}
-              </select>
-              <select
-                value={dueFilters.year}
-                onChange={(e) => setDueFilters({ ...dueFilters, year: e.target.value })}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="">All Years</option>
-                {yearOptions.map(year => (
-                  <option key={year} value={String(year)}>{`Year ${year}`}</option>
-                ))}
-              </select>
-              <select
-                value={dueFilters.branch}
-                onChange={(e) => setDueFilters({ ...dueFilters, branch: e.target.value })}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                disabled={!dueFilters.course && branchOptions.length === 0}
-              >
-                <option value="">All Branches</option>
-                {branchOptions.map(branch => (
-                  <option key={branch} value={branch}>{branch}</option>
-                ))}
-              </select>
-              <select
-                value={dueFilters.semester}
-                onChange={(e) => setDueFilters({ ...dueFilters, semester: e.target.value })}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="">All Semesters</option>
-                {semesterOptions.map(semester => (
-                  <option key={semester} value={String(semester)}>{`Semester ${semester}`}</option>
-                ))}
-              </select>
-              <select
-                value={dueFilters.kit}
-                onChange={(e) => setDueFilters({ ...dueFilters, kit: e.target.value })}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="">All Kits/Sets</option>
-                {kitOptions.map(kit => (
-                  <option key={kit._id} value={kit._id}>{kit.name}</option>
-                ))}
-              </select>
-              <button
-                onClick={() => setDueFilters({ search: '', course: '', year: '', branch: '', semester: '', kit: '' })}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors"
-              >
-                Reset
-              </button>
-            </div>
+
+            <select
+              value={dueFilters.course}
+              onChange={(e) => setDueFilters({ ...dueFilters, course: e.target.value, branch: '' })}
+              className="px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white shadow-sm w-full lg:w-auto"
+            >
+              <option value="">Select Course</option>
+              {courseOptions.map(course => (
+                <option key={course} value={course}>{course.toUpperCase()}</option>
+              ))}
+            </select>
+
+            <select
+              value={dueFilters.branch}
+              onChange={(e) => setDueFilters({ ...dueFilters, branch: e.target.value })}
+              className="px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white shadow-sm w-full lg:w-auto disabled:opacity-50"
+              disabled={!dueFilters.course && branchOptions.length === 0}
+            >
+              <option value="">All Branches</option>
+              {branchOptions.map(branch => (
+                <option key={branch} value={branch}>{branch}</option>
+              ))}
+            </select>
+
+            <select
+              value={dueFilters.year}
+              onChange={(e) => setDueFilters({ ...dueFilters, year: e.target.value })}
+              className="px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white shadow-sm w-full lg:w-auto"
+            >
+              <option value="">All Years</option>
+              {yearOptions.map(year => (
+                <option key={year} value={String(year)}>{`Year ${year}`}</option>
+              ))}
+            </select>
+
+            <select
+              value={dueFilters.semester}
+              onChange={(e) => setDueFilters({ ...dueFilters, semester: e.target.value })}
+              className="px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white shadow-sm w-full lg:w-auto"
+            >
+              <option value="">All Semesters</option>
+              {semesterOptions.map(semester => (
+                <option key={semester} value={String(semester)}>{`Semester ${semester}`}</option>
+              ))}
+            </select>
+
+            <select
+              value={dueFilters.kit}
+              onChange={(e) => setDueFilters({ ...dueFilters, kit: e.target.value })}
+              className="px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white shadow-sm w-full lg:w-auto"
+            >
+              <option value="">All Kits/Sets</option>
+              {kitOptions.map(kit => (
+                <option key={kit._id} value={kit._id}>{kit.name}</option>
+              ))}
+            </select>
+
+            {/* Reset Button */}
+            <button
+              onClick={() => setDueFilters({ search: '', course: '', year: '', branch: '', semester: '', kit: '' })}
+              className="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50 transition-colors shadow-sm w-full lg:w-auto ml-auto lg:ml-0"
+            >
+              Reset
+            </button>
           </div>
         </div>
 
@@ -832,8 +846,6 @@ const StudentDue = () => {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pending Items</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Pending Amount</th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Pending Count</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -847,7 +859,11 @@ const StudentDue = () => {
                       const studentKey = student._id || student.id || student.studentId || Math.random();
 
                       return (
-                        <tr key={studentKey} className="hover:bg-gray-50 transition-colors">
+                        <tr
+                          key={studentKey}
+                          className="hover:bg-gray-50 transition-colors cursor-pointer"
+                          onClick={() => navigate(`/student/${student._id || student.id || studentKey}`)}
+                        >
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="flex flex-col">
                               <span className="text-sm font-medium text-gray-900">{student.name}</span>
@@ -879,36 +895,22 @@ const StudentDue = () => {
                           </td>
                           <td className="px-6 py-4">
                             <div className="space-y-2">
-                              <div className="flex items-center justify-between text-xs text-gray-500">
+                              {/* <div className="flex items-center justify-between text-xs text-gray-500">
                                 <span>{issuedCount} issued</span>
                                 <span>{pendingCount} pending</span>
-                              </div>
-                              <div className="flex items-center justify-between text-xs text-gray-500">
+                              </div> */}
+                              {/* <div className="flex items-center justify-between text-xs text-gray-500">
                                 <span>{formatCurrency(record.issuedValue)}</span>
                                 <span>{formatCurrency(record.pendingValue)}</span>
-                              </div>
+                              </div> */}
                               <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
                                 <div className="h-full bg-blue-500" style={{ width: `${completion}%` }}></div>
                               </div>
-                              <p className="text-xs font-medium text-gray-600">{completion}% complete</p>
+                              <p className="text-xs font-medium text-gray-600">{issuedCount}/{totalMapped}</p>
                             </div>
                           </td>
                           <td className="px-6 py-4 text-right">
-                            <span className="text-sm font-semibold text-rose-600">{formatCurrency(record.pendingValue)}</span>
-                          </td>
-                          <td className="px-6 py-4 text-center">
-                            <span className="inline-flex items-center justify-center px-3 py-1 rounded-full bg-rose-100 text-rose-700 text-sm font-semibold">
-                              {pendingCount}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <button
-                              onClick={() => navigate(`/student/${student._id || student.id || studentKey}`)}
-                              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-                            >
-                              <Eye size={16} />
-                              View Student
-                            </button>
+                            <span className="text-sm font-semibold text-rose-600">{formatCurrency(record.pendingAmount || record.pendingValue)}</span>
                           </td>
                         </tr>
                       );

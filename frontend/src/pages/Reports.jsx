@@ -1702,7 +1702,7 @@ const Reports = ({ currentUser }) => {
               </div>
               <div>
                 <h1 className="text-3xl font-bold text-gray-900">Reports</h1>
-                <p className="text-gray-600 mt-1">Monitor transactions and generate consolidated reports</p>
+                {/* <p className="text-gray-600 mt-1">Monitor transactions and generate consolidated reports</p> */}
               </div>
             </div>
 
@@ -1955,7 +1955,7 @@ const Reports = ({ currentUser }) => {
               </div>
 
               {/* Items Sold Details - Expandable */}
-              {statistics.itemsSold.length > 0 && (
+              {/* {statistics.itemsSold.length > 0 && (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                   <div
                     className="px-6 py-4 border-b border-gray-200 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors"
@@ -2005,7 +2005,7 @@ const Reports = ({ currentUser }) => {
                     </div>
                   )}
                 </div>
-              )}
+              )} */}
 
               {/* Student Transactions Table */}
               {(filters.transactionType === '' || filters.transactionType === 'student') && (
