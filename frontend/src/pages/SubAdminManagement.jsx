@@ -187,16 +187,17 @@ const SubAdminModal = ({ isOpen, onClose, onSave, subAdmin }) => {
     });
   };
 
-  const handleCoursePermissionChange = (courseName, access) => {
-    const normalizedCourse = normalizeCourseName(courseName);
-    const courseKey = `course-dashboard-${normalizedCourse}`;
+  const handleCoursePermissionChange = (courseIdentifier, access) => {
+    // courseIdentifier can be specific ID (new way) or normalized name (legacy)
+    const normalizedKey = normalizeCourseName(courseIdentifier);
+    const coursePermissionKey = `course-dashboard-${normalizedKey}`;
 
     setCoursePermissions(prev => {
       const newCoursePerms = { ...prev };
       if (access === null) {
-        delete newCoursePerms[courseName];
+        delete newCoursePerms[courseIdentifier]; // Use the identifier as the key for local state
       } else {
-        newCoursePerms[courseName] = access;
+        newCoursePerms[courseIdentifier] = access;
       }
       return newCoursePerms;
     });
@@ -204,9 +205,9 @@ const SubAdminModal = ({ isOpen, onClose, onSave, subAdmin }) => {
     setPermissions(prev => {
       const newPerms = { ...prev };
       if (access === null) {
-        delete newPerms[courseKey];
+        delete newPerms[coursePermissionKey];
       } else {
-        newPerms[courseKey] = access;
+        newPerms[coursePermissionKey] = access;
       }
       return newPerms;
     });
@@ -463,28 +464,51 @@ const SubAdminModal = ({ isOpen, onClose, onSave, subAdmin }) => {
                                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                                     {courses.map((course) => {
                                       const courseName = course.name || course;
+                                      const courseId = course.id || course.name; // Fallback to name if ID missing (legacy)
                                       const courseDisplayName = course.displayName || courseName;
-                                      const courseAccess = getCoursePermissionAccess(courseName);
+
+                                      // Check if we have permission via ID (preferred) or Name (legacy)
+                                      // This covers both migration cases
+                                      const accessById = getCoursePermissionAccess(course.id);
+                                      const accessByName = getCoursePermissionAccess(courseName); // normalized inside
+                                      // also check raw normalized key in permissions
+                                      const normName = normalizeCourseName(courseName);
+                                      const normId = normalizeCourseName(course.id);
+
+                                      // Determine effective access
+                                      const courseAccess = accessById || accessByName ||
+                                        (permissions[`course-dashboard-${normId}`]) ||
+                                        (permissions[`course-dashboard-${normName}`]) || null;
+
                                       return (
-                                        <div key={courseName} className="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-200 hover:border-blue-300 transition-colors">
+                                        <div key={courseId} className="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-200 hover:border-blue-300 transition-colors">
                                           <input
                                             type="checkbox"
                                             checked={courseAccess !== null}
                                             onChange={(e) => {
+                                              // ALWAYS save using ID if available to fix the rename issue
+                                              const targetIdentifier = course.id || courseName;
                                               if (e.target.checked) {
-                                                // Default to same access level as parent
-                                                handleCoursePermissionChange(courseName, access);
+                                                handleCoursePermissionChange(targetIdentifier, access);
                                               } else {
-                                                handleCoursePermissionChange(courseName, null);
+                                                handleCoursePermissionChange(targetIdentifier, null);
+                                                // Also try to remove legacy name permission if it exists to clean up
+                                                if (course.id && courseName) {
+                                                  handleCoursePermissionChange(courseName, null);
+                                                }
                                               }
                                             }}
                                             className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                                           />
                                           <label className="text-sm text-gray-700 flex-1 cursor-pointer" onClick={() => {
+                                            const targetIdentifier = course.id || courseName;
                                             if (courseAccess === null) {
-                                              handleCoursePermissionChange(courseName, access);
+                                              handleCoursePermissionChange(targetIdentifier, access);
                                             } else {
-                                              handleCoursePermissionChange(courseName, null);
+                                              handleCoursePermissionChange(targetIdentifier, null);
+                                              if (course.id && courseName) {
+                                                handleCoursePermissionChange(courseName, null);
+                                              }
                                             }
                                           }}>
                                             {courseDisplayName}
@@ -495,7 +519,8 @@ const SubAdminModal = ({ isOpen, onClose, onSave, subAdmin }) => {
                                                 type="button"
                                                 onClick={(e) => {
                                                   e.stopPropagation();
-                                                  handleCoursePermissionChange(courseName, courseAccess === 'view' ? 'full' : 'view');
+                                                  const targetIdentifier = course.id || courseName;
+                                                  handleCoursePermissionChange(targetIdentifier, courseAccess === 'view' ? 'full' : 'view');
                                                 }}
                                                 className={`px-2 py-1 text-xs rounded transition-colors ${courseAccess === 'view'
                                                   ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'

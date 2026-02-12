@@ -44,22 +44,73 @@ const StudentDashboard = ({ currentUser }) => {
   const isSuperAdmin = currentUser?.role === 'Administrator';
   const userPermissions = Array.isArray(currentUser?.permissions) ? currentUser.permissions : [];
 
-  // Helper to extract allowed courses from permissions
+  const [collegeCourses, setCollegeCourses] = useState([]);
+
+  // Fetch Assigned College Courses
+  useEffect(() => {
+    const fetchCollegeCourses = async () => {
+      if (!currentUser?.assignedCollege) return;
+
+      try {
+        // assignedCollege might be populated object or ID string
+        const collegeId = typeof currentUser.assignedCollege === 'object'
+          ? currentUser.assignedCollege._id
+          : currentUser.assignedCollege;
+
+        if (!collegeId) return;
+
+        // Use the stock endpoint which now returns courses
+        const res = await fetch(apiUrl(`/api/stock-transfers/colleges/${collegeId}/stock`));
+        if (res.ok) {
+          const data = await res.json();
+          if (data.courses && Array.isArray(data.courses)) {
+            setCollegeCourses(data.courses);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch college courses:', err);
+      }
+    };
+
+    if (isOnline) {
+      fetchCollegeCourses();
+    }
+  }, [currentUser, isOnline]);
+
+  // Helper to extract allowed courses from permissions AND assigned college
   const allowedCourseNames = useMemo(() => {
     if (isSuperAdmin) return null; // Access to all
-    if (!hasViewAccess(userPermissions, 'course-dashboard')) return [];
 
-    const allowed = [];
-    userPermissions.forEach(perm => {
-      if (typeof perm === 'string' && perm.startsWith('course-dashboard-')) {
-        const parts = perm.split(':');
-        // Extract course name (e.g. course-dashboard-btech -> btech)
-        const courseName = parts[0].replace('course-dashboard-', '');
-        allowed.push(courseName);
-      }
+    const allowed = new Set();
+
+    // 1. Add courses from permissions
+    if (hasViewAccess(userPermissions, 'course-dashboard')) {
+      userPermissions.forEach(perm => {
+        if (typeof perm === 'string' && perm.startsWith('course-dashboard-')) {
+          const parts = perm.split(':');
+          // Extract course name (e.g. course-dashboard-btech -> btech)
+          const courseName = parts[0].replace('course-dashboard-', '');
+          allowed.add(courseName);
+        }
+      });
+    }
+
+    // 2. Add courses from Assigned College (Automatic Access)
+    collegeCourses.forEach(course => {
+      // These are likely Names (e.g. "B.Tech"), so we add them potentially raw or normalized?
+      // The filter logic checks BOTH ID and Normalized Name.
+      // So if "B.Tech" is here, we add "btech" (normalized) to match the check logic?
+      // Actually, the check logic in fetchCourses compares:
+      // normalizeCourseName(allowed) === normName
+      // So if we add "M.Tech" here, normalizing it later works.
+      allowed.add(course);
     });
-    return allowed;
-  }, [isSuperAdmin, userPermissions]);
+
+    // If no permissions AND no college courses, return empty array to block access
+    if (allowed.size === 0) return [];
+
+    return Array.from(allowed);
+  }, [isSuperAdmin, userPermissions, collegeCourses]);
 
   // -- Effects --
 
@@ -74,8 +125,15 @@ const StudentDashboard = ({ currentUser }) => {
           let availableCourses = data;
           if (allowedCourseNames !== null) {
             availableCourses = data.filter(c => {
+              // Check 1: Match by ID (New robust method)
+              // We need to check if any of the "allowedCourseNames" (which are actually permission keys suffix) matches the course ID
+              const idMatch = allowedCourseNames.includes(String(c.id));
+
+              // Check 2: Match by Normalized Name (Legacy method)
               const normName = normalizeCourseName(c.name);
-              return allowedCourseNames.some(allowed => normalizeCourseName(allowed) === normName);
+              const nameMatch = allowedCourseNames.some(allowed => normalizeCourseName(allowed) === normName);
+
+              return idMatch || nameMatch;
             });
           }
           setCourses(availableCourses);

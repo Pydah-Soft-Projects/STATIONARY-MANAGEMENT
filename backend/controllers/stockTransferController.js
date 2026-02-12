@@ -76,6 +76,7 @@ const getCollegeStockAll = asyncHandler(async (req, res) => {
       location: college.location,
     },
     stock: college.stock || [],
+    courses: college.courses || [], // Explicitly return allowed courses
   });
 });
 

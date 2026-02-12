@@ -143,9 +143,14 @@ export const getAllowedCourses = (permissions) => {
  * @param {string} courseName - Course name to normalize
  * @returns {string} - Normalized course name
  */
-export const normalizeCourseName = (courseName) => {
-  if (!courseName) return '';
-  return String(courseName).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+export const normalizeCourseName = (courseInput) => {
+  if (!courseInput) return '';
+  // If input looks like a MongoDB ObjectId (24 hex chars), return it as is
+  if (/^[0-9a-fA-F]{24}$/.test(String(courseInput))) {
+    return String(courseInput);
+  }
+  // Fallback to name normalization for legacy support
+  return String(courseInput).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
 };
 
 /**
