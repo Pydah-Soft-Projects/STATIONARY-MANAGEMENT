@@ -544,10 +544,8 @@ const StudentReceiptModal = ({
         setRemarks('');
 
         setStatusMsg({ type: 'success', message: 'Offline transaction queued. It will sync when you reconnect.' });
-        setTimeout(() => {
-          setStatusMsg({ type: '', message: '' });
-          onClose();
-        }, 1500);
+        setStatusMsg({ type: 'success', message: 'Offline transaction queued. It will sync when you reconnect.' });
+        onClose();
         return;
       }
 
@@ -616,10 +614,8 @@ const StudentReceiptModal = ({
 
       // Show success message and close modal after 1.5 seconds
       setStatusMsg({ type: 'success', message: 'Transaction saved successfully!' });
-      setTimeout(() => {
-        setStatusMsg({ type: '', message: '' });
-        onClose(); // Close the modal after showing success message
-      }, 1500);
+      setStatusMsg({ type: 'success', message: 'Transaction saved successfully!' });
+      onClose();
     } catch (error) {
       console.error('Error saving transaction:', error);
       setStatusMsg({ type: 'error', message: error.message || 'Failed to save transaction' });

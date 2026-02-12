@@ -153,7 +153,7 @@ const StudentDetail = ({
       const s = students.find(s => String(s.id) === String(id) || String(s.studentId) === String(id));
       if (s) setStudent(s);
     }
-  }, [id, isOnline, students]);
+  }, [id, isOnline]);
 
   // Refresh products when student changes to get college-specific stock
   useEffect(() => {
@@ -1380,7 +1380,6 @@ const StudentDetail = ({
             }}
             onTransactionSaved={(updatedStudent) => {
               setStudent(updatedStudent);
-              setStudents(prev => prev.map(s => s.id === updatedStudent.id ? updatedStudent : s));
               // Force refresh transactions after saving
               fetchStudentTransactions(true);
             }}
@@ -1389,7 +1388,6 @@ const StudentDetail = ({
                 onQueueTransaction(queuedTransaction, optimisticStudent);
               }
               setStudent(optimisticStudent);
-              setStudents(prev => prev.map(s => s.id === optimisticStudent.id ? optimisticStudent : s));
               // Force refresh to show new transaction
               fetchStudentTransactions(true);
             }}
