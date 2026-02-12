@@ -29,7 +29,7 @@ const Sidebar = ({ onLogout, isMobile: isMobileProp, sidebarOpen, setSidebarOpen
   // Map sidebar items with permission keys
   const allMenuItems = [
     { path: '/', label: 'Dashboard', icon: Home, exact: true, permissionKey: 'dashboard' },
-    { path: '/student-management', label: 'Manage Students', icon: Users, permissionKey: 'student-management' },
+    // { path: '/student-management', label: 'Manage Students', icon: Users, permissionKey: 'student-management' }, // REMOVED
     { path: '/students-dashboard', label: 'Student Dashboard', icon: GraduationCap, permissionKey: 'course-dashboard' },
     { path: '/sub-admin-management', label: 'Manage Sub-Admins', icon: UserPlus, superAdminOnly: true },
     { path: '/courses', label: 'College and Courses', icon: GraduationCap, permissionKey: 'courses' },

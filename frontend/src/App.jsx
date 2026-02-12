@@ -6,7 +6,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const StudentDetail = lazy(() => import('./pages/StudentDetail'));
 const StudentDashboard = lazy(() => import('./pages/StudentDashboard'));
 // const AddStudent = lazy(() => import('./pages/AddStudent')); // REMOVED
-const StudentManagement = lazy(() => import('./pages/StudentManagement'));
+// const StudentManagement = lazy(() => import('./pages/StudentManagement')); // REMOVED
 const Login = lazy(() => import('./pages/Login'));
 const SubAdminManagement = lazy(() => import('./pages/SubAdminManagement'));
 const ManageStock = lazy(() => import('./pages/ManageStock'));
@@ -33,7 +33,7 @@ const resolveDefaultPath = (user) => {
   const priorityPaths = [
     { key: 'dashboard', path: '/' },
     // { key: 'add-student', path: '/add-student' }, // REMOVED
-    { key: 'student-management', path: '/student-management' },
+    // { key: 'student-management', path: '/student-management' }, // REMOVED
     { key: 'course-dashboard', path: '/students-dashboard' },
     { key: 'courses', path: '/courses' },
     { key: 'manage-stock', path: '/manage-stock' },
@@ -433,6 +433,8 @@ function App() {
                     }
                   />
                   */}
+                  {/* REMOVED StudentManagement Route */}
+                  {/*
                   <Route
                     path="/student-management"
                     element={
@@ -447,6 +449,7 @@ function App() {
                       </ProtectedRoute>
                     }
                   />
+                  */}
                   <Route
                     path="/sub-admin-management"
                     element={
