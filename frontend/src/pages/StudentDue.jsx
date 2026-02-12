@@ -3,6 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { Search, Eye, Users, ClipboardList, Building2, AlertCircle, Download, RefreshCw, ChevronLeft, ChevronRight, X, FileText, Calendar } from 'lucide-react';
 import { apiUrl } from '../utils/api';
 import jsPDF from 'jspdf';
+import { normalizeCourseName, hasViewAccess } from '../utils/permissions';
+import useOnlineStatus from '../hooks/useOnlineStatus'; // Assuming this hook exists or we can use navigator.onLine check, but let's check imports in StudentDashboard
+// Actually StudentDashboard uses useOnlineStatus. Let's check if we need it here.
+// The file previously didn't use it. Let's stick to what's needed.
 
 const normalizeValue = (value) => {
   if (!value) return '';
@@ -30,7 +34,7 @@ const getProductYears = (product) => {
 
 const formatCurrency = (amount = 0) => `₹${Number(amount || 0).toFixed(2)}`;
 
-const StudentDue = () => {
+const StudentDue = ({ currentUser }) => {
   const navigate = useNavigate();
   const [students, setStudents] = useState([]);
   const [courses, setCourses] = useState([]);
@@ -69,22 +73,90 @@ const StudentDue = () => {
     receiptSubheader: 'Stationery Management System',
   });
 
+  // -- Permissions --
+  const isSuperAdmin = currentUser?.role === 'Administrator';
+  const userPermissions = Array.isArray(currentUser?.permissions) ? currentUser.permissions : [];
+  const [collegeCourses, setCollegeCourses] = useState([]);
+
+  // Fetch Assigned College Courses
   useEffect(() => {
-    fetchCourses(); // From SQL
-    fetchProducts();
-    fetchSettings();
-  }, []);
+    const fetchCollegeCourses = async () => {
+      if (!currentUser?.assignedCollege) return;
 
-  // Trigger fetch when filters or page change
-  useEffect(() => {
-    if (!dueFilters.course) return;
+      try {
+        const collegeId = typeof currentUser.assignedCollege === 'object'
+          ? currentUser.assignedCollege._id
+          : currentUser.assignedCollege;
 
-    const timer = setTimeout(() => {
-      fetchDues();
-    }, 500); // Debounce 500ms
+        if (!collegeId) return;
 
-    return () => clearTimeout(timer);
-  }, [currentPage, itemsPerPage, dueFilters]);
+        const res = await fetch(apiUrl(`/api/stock-transfers/colleges/${collegeId}/stock`));
+        if (res.ok) {
+          const data = await res.json();
+          if (data.courses && Array.isArray(data.courses)) {
+            setCollegeCourses(data.courses);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch college courses:', err);
+      }
+    };
+
+    fetchCollegeCourses();
+  }, [currentUser]);
+
+  // Helper to extract allowed courses from permissions AND assigned college
+  const allowedCourseNames = useMemo(() => {
+    if (isSuperAdmin) return null; // Access to all
+
+    const allowed = new Set();
+
+    // 1. Add courses from permissions
+    if (hasViewAccess(userPermissions, 'course-dashboard')) {
+      userPermissions.forEach(perm => {
+        if (typeof perm === 'string' && perm.startsWith('course-dashboard-')) {
+          const parts = perm.split(':');
+          const courseName = parts[0].replace('course-dashboard-', '');
+          allowed.add(courseName);
+        }
+      });
+    }
+
+    // 2. Add courses from Assigned College (Automatic Access)
+    collegeCourses.forEach(course => {
+      allowed.add(course);
+    });
+
+    // If no permissions AND no college courses, return empty array to block access
+    if (allowed.size === 0) return [];
+
+    return Array.from(allowed);
+  }, [isSuperAdmin, userPermissions, collegeCourses]);
+
+  // Fetch Courses (Modified to filter)
+  const fetchCourses = useCallback(async () => {
+    try {
+      const response = await fetch(apiUrl('/api/sql/academic/courses'));
+      if (response.ok) {
+        const data = await response.json();
+
+        let availableCourses = data;
+        if (allowedCourseNames !== null) {
+          availableCourses = data.filter(c => {
+            // Check 1: Match by ID
+            const idMatch = allowedCourseNames.includes(String(c.id));
+            // Check 2: Match by Normalized Name
+            const normName = normalizeCourseName(c.name);
+            const nameMatch = allowedCourseNames.some(allowed => normalizeCourseName(allowed) === normName);
+            return idMatch || nameMatch;
+          });
+        }
+        setCourses(availableCourses || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch courses", err);
+    }
+  }, [allowedCourseNames]);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -101,22 +173,22 @@ const StudentDue = () => {
     }
   }, []);
 
-  const fetchCourses = useCallback(async () => {
-    try {
-      const response = await fetch(apiUrl('/api/sql/academic/courses'));
-      if (response.ok) {
-        const data = await response.json();
-        // Flatten courses for dropdown if needed or just store raw
-        // The API returns [{name, displayName, branches:[], years:[]}]
-        // We can adapt or just use it.
-        // Existing code expects array of strings? No, existing code used `fetchStudents` to derive courses.
-        // We should adapt `courseOptions` later.
-        setCourses(data || []);
-      }
-    } catch (err) {
-      console.error("Failed to fetch courses", err);
-    }
-  }, []);
+  // Trigger fetch when filters or page change
+  useEffect(() => {
+    if (!dueFilters.course) return;
+
+    const timer = setTimeout(() => {
+      fetchDues();
+    }, 500); // Debounce 500ms
+
+    return () => clearTimeout(timer);
+  }, [currentPage, itemsPerPage, dueFilters]);
+
+  useEffect(() => {
+    fetchCourses(); // From SQL
+    fetchProducts();
+    fetchSettings();
+  }, [fetchCourses, fetchSettings]);
 
   const fetchDues = useCallback(async () => {
     try {
