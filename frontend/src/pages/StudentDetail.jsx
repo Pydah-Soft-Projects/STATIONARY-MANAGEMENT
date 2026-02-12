@@ -18,6 +18,8 @@ const StudentDetail = ({
   const { id } = useParams();
   const navigate = useNavigate();
   const [student, setStudent] = useState(null);
+  const [loadingStudent, setLoadingStudent] = useState(false);
+  const [error, setError] = useState(null);
   const [showTransactionModal, setShowTransactionModal] = useState(false);
   const [rawTransactions, setRawTransactions] = useState([]);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
@@ -116,11 +118,42 @@ const StudentDetail = ({
     }
   }, [setProducts, currentUser, student?.course]);
 
+  // Fetch student details from SQL API
   useEffect(() => {
-    const s = students.find(s => String(s.id) === String(id));
-    setStudent(s || null);
-    setAvatarFailed(false);
-  }, [id, students]);
+    if (!id) return;
+
+    // Check if we have the student in props first (optional optimization, but since we want SQL source of truth, better to fetch or verify)
+    // Actually, the prompt says "fetch the student details ... from the MySQL only".
+    // So we should prioritize the API fetch.
+
+    const fetchStudent = async () => {
+      setLoadingStudent(true);
+      setError(null);
+      try {
+        const res = await fetch(apiUrl(`/api/sql/students/${id}`));
+        if (!res.ok) {
+          throw new Error('Student not found');
+        }
+        const data = await res.json();
+        setStudent(data);
+        setAvatarFailed(false);
+      } catch (err) {
+        console.error("Failed to fetch student details:", err);
+        setError(err.message);
+        setStudent(null);
+      } finally {
+        setLoadingStudent(false);
+      }
+    };
+
+    if (isOnline) {
+      fetchStudent();
+    } else {
+      // Offline fallback: try to find in students prop or cache
+      const s = students.find(s => String(s.id) === String(id) || String(s.studentId) === String(id));
+      if (s) setStudent(s);
+    }
+  }, [id, isOnline, students]);
 
   // Refresh products when student changes to get college-specific stock
   useEffect(() => {
@@ -631,14 +664,22 @@ const StudentDetail = ({
     });
   }, [transactions, pendingTransactionsForStudent, buildSignature]);
 
-  if (!student) {
+  if (loadingStudent) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Loader2 className="animate-spin text-blue-600" size={48} />
+      </div>
+    );
+  }
+
+  if (error || !student) {
     return (
       <div className="min-h-screen bg-gray-50 p-6">
         <div className="max-w-4xl mx-auto">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
             <div className="text-6xl mb-4">❓</div>
             <h2 className="text-2xl font-bold text-gray-900 mb-3">Student not found</h2>
-            <p className="text-gray-600 mb-6">Either the student doesn't exist or it hasn't loaded yet.</p>
+            <p className="text-gray-600 mb-6">{error || "Either the student doesn't exist or it hasn't loaded yet."}</p>
             <button
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               onClick={() => navigate(-1)}
@@ -711,9 +752,15 @@ const StudentDetail = ({
             <div className="px-6 py-5 space-y-4">
               <div className="grid grid-cols-1 gap-4">
                 <div className="space-y-1">
-                  <p className="  uppercase tracking-wide">Student ID</p>
-                  <p className="text-sm font-medium text-gray-500">{student.studentId}</p>
+                  <p className="  uppercase tracking-wide">Admission Number</p>
+                  <p className="text-sm font-medium text-gray-500">{student.alternateId || student.studentId}</p>
                 </div>
+                {student.pin && (
+                  <div className="space-y-1">
+                    <p className=" uppercase tracking-wide">PIN Number</p>
+                    <p className="text-sm font-medium text-gray-500">{student.pin}</p>
+                  </div>
+                )}
                 <div className="space-y-1">
                   <p className=" uppercase tracking-wide">Course</p>
                   <p className="text-sm font-medium text-gray-500">{student.course.toUpperCase()}</p>

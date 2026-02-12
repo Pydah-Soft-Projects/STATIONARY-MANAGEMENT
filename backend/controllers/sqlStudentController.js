@@ -2,6 +2,7 @@ const asyncHandler = require('express-async-handler');
 const { getMySqlPool } = require('../config/mysql');
 const { User } = require('../models/userModel');
 const { AcademicConfig } = require('../models/academicConfigModel');
+const { Transaction } = require('../models/transactionModel');
 
 const DEFAULT_STUDENT_TABLE = 'students';
 
@@ -43,7 +44,7 @@ const normalizeStudentRow = (row) => {
     ]) || null;
 
   const secondaryId =
-    deriveValue(row, ['student_id', 'studentId', 'roll_no', 'rollNo', 'registration_no', 'registrationNo']) ||
+    deriveValue(row, ['admission_number', 'admission_no', 'student_id', 'studentId', 'roll_no', 'rollNo', 'registration_no', 'registrationNo']) ||
     id ||
     null;
 
@@ -86,6 +87,7 @@ const getSqlStudents = asyncHandler(async (req, res) => {
     course = '',
     branch = '',
     year = '',
+    semester = '',
     forceRefresh = false,
   } = req.query;
 
@@ -120,6 +122,11 @@ const getSqlStudents = asyncHandler(async (req, res) => {
     params.push(String(year));
   }
 
+  if (semester && semester !== 'all') {
+      conditions.push(`CAST(current_semester AS CHAR) = ?`);
+      params.push(String(semester));
+  }
+
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
   // Count total records for pagination
@@ -141,37 +148,130 @@ const getSqlStudents = asyncHandler(async (req, res) => {
     const [rows] = await pool.query(dataSql, queryParams);
 
     // Normalize rows
-    const normalized = Array.isArray(rows) ? rows.map(normalizeStudentRow) : [];
+    const students = Array.isArray(rows) ? rows.map(normalizeStudentRow) : [];
 
-    // Also fetch available courses and years for the filter UI
-    const [courseRows] = await pool.query(`SELECT DISTINCT course FROM \`${tableName}\` WHERE course IS NOT NULL AND course != ''`);
-    const [yearRows] = await pool.query(`SELECT DISTINCT current_year FROM \`${tableName}\` WHERE current_year IS NOT NULL`);
-
-    const availableCourses = courseRows.map(r => String(r.course).toLowerCase().trim()).filter(Boolean);
-    const availableYears = yearRows.map(r => String(r.current_year)).filter(Boolean).sort();
-
+    // Build result
     res.json({
-      rows: normalized,
+      rows: students,
       count: total,
-      table: tableName,
       pagination: {
         page: pageNum,
         limit: limitNum,
         totalPages: Math.ceil(total / limitNum),
-        total,
       },
-      availableCourses: Array.from(new Set(availableCourses)).sort(),
-      availableYears: Array.from(new Set(availableYears)),
+      debug: {
+        tableName,
+        conditions: conditions.length,
+      },
     });
   } catch (error) {
-    console.error('[MySQL] Failed to fetch student records:', error);
-    const status = error?.code === 'ER_NO_SUCH_TABLE' ? 404 : 500;
-    res.status(status);
-    throw new Error(
-      error?.code === 'ER_NO_SUCH_TABLE'
-        ? `Table "${tableName}" not found in the configured database.`
-        : error.message || 'Failed to fetch students from MySQL.',
+    console.error('[MySQL] Failed to fetch students:', error);
+    res.status(500);
+    throw new Error(`SQL Error: ${error.message}`);
+  }
+});
+
+
+
+// ... existing imports ...
+
+// Helper to normalize product names for the items map (must match transactionController logic)
+const normalizeItemKey = (name) => {
+  if (!name) return '';
+  return name.toLowerCase().replace(/\s+/g, '_');
+};
+
+const getStudentById = asyncHandler(async (req, res) => {
+  const pool = getMySqlPool();
+  if (!pool) {
+    res.status(500);
+    throw new Error('MySQL pool is not configured.');
+  }
+
+  const { id } = req.params;
+  const tableName = process.env.DB_STUDENTS_TABLE || DEFAULT_STUDENT_TABLE;
+
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // Try to find by id column first
+    const [rows] = await connection.query(
+      `SELECT * FROM ${tableName} WHERE id = ? LIMIT 1`,
+      [id]
     );
+
+    let student = null;
+
+    if (rows.length === 0) {
+      // Fallback: search by admission_number, admission_no, or pin_no
+       const [rowsFallback] = await connection.query(
+        `SELECT * FROM ${tableName} WHERE admission_number = ? OR admission_no = ? OR pin_no = ? LIMIT 1`,
+        [id, id, id]
+      );
+      
+      if (rowsFallback.length === 0) {
+          res.status(404);
+          throw new Error('Student not found');
+      }
+      student = normalizeStudentRow(rowsFallback[0]);
+    } else {
+      student = normalizeStudentRow(rows[0]);
+    }
+
+    // --- Dynamic Items Calculation (Migration Support) ---
+    // Since MySQL student doesn't have 'items' map, we reconstruct it from Transaction history.
+    // We look for transactions linked via sqlId (preferred) or legacy studentId.
+    
+    // 1. Find all PAID transactions for this student
+    const studentSqlId = String(student.id); // Ensure string for matching
+    const studentAdmissionNo = String(student.studentId);
+    
+    const transactions = await Transaction.find({
+      $or: [
+        { 'student.sqlId': studentSqlId }, // Direct SQL ID match
+        { 'student.sqlId': studentAdmissionNo }, // Fallback to admission no if migration mapped it that way
+        // Fallback for un-migrated legacy data (less likely now, but safe to include)
+        { 'student.studentId': studentAdmissionNo, transactionType: 'student' } 
+      ],
+      isPaid: true
+    }).select('items');
+
+    // 2. Aggregate items
+    const itemsMap = {};
+    let hasPaidTransaction = false;
+
+    if (transactions && transactions.length > 0) {
+      hasPaidTransaction = true;
+      transactions.forEach(txn => {
+        if (txn.items && Array.isArray(txn.items)) {
+          txn.items.forEach(item => {
+             // Only count fulfilled items (or non-partial if logic requires)
+             if (item.status !== 'partial') {
+               const key = normalizeItemKey(item.name);
+               if (key) {
+                 itemsMap[key] = true;
+               }
+               if (item.productId) {
+                   itemsMap[`id:${item.productId}`] = true;
+               }
+             }
+          });
+        }
+      });
+    }
+
+    // 3. Attach to student object
+    student.items = itemsMap;
+    student.paid = hasPaidTransaction; // Simple paid status derived from history
+
+    res.json(student);
+
+  } catch (error) {
+    res.status(500);
+    throw new Error(`SQL Error: ${error.message}`);
+  } finally {
+     if (connection) connection.release();
   }
 });
 
@@ -671,6 +771,7 @@ const syncSqlStudents = asyncHandler(async (req, res) => {
 module.exports = {
   getSqlStudents,
   syncSqlStudents,
+  getStudentById,
   normalizeStudentRow,
 };
 

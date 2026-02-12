@@ -81,10 +81,15 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(apiUrl('/api/config/academic'));
+        // Fetch from SQL Academic Config
+        const res = await fetch(apiUrl('/api/sql/academic/courses'));
         if (res.ok) {
           const data = await res.json();
-          setConfig(data);
+          // Transform SQL data to match expected config structure for compatibility
+          // SQL returns: [{ name, displayName, total_years, years: [1,2..], branches: ['A', 'B'] }]
+          // Component expects: { courses: [...] }
+          setConfig({ courses: data });
+
           // Default to "All Courses" (empty string) instead of first course
           if (!selectedCourse) {
             setSelectedCourse('');
@@ -231,13 +236,29 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
     if (selectedProduct && showProductDetail) {
       const productYears = selectedProduct.years || (selectedProduct.year ? [selectedProduct.year] : []);
       const displayStockInfo = getDisplayStock(selectedProduct);
+
+      // Normalize Course Name (Fix Legacy Mismatches)
+      let normalizedCourse = selectedProduct.forCourse || '';
+      if (config?.courses && normalizedCourse) {
+        const exactMatch = config.courses.find(c => c.name === normalizedCourse);
+        if (!exactMatch) {
+          // Try fuzzy match (remove dots, trim, lowercase)
+          const cleanName = normalizedCourse.replace(/\./g, '').trim().toLowerCase();
+          const fuzzyMatch = config.courses.find(c => c.name.replace(/\./g, '').trim().toLowerCase() === cleanName);
+          if (fuzzyMatch) {
+            console.log(`Auto-correcting course name from "${normalizedCourse}" to "${fuzzyMatch.name}"`);
+            normalizedCourse = fuzzyMatch.name;
+          }
+        }
+      }
+
       setFormData({
         name: selectedProduct.name || '',
         description: selectedProduct.description || '',
         price: selectedProduct.price || 0,
         stock: displayStockInfo.value || 0,
         remarks: selectedProduct.remarks || '',
-        forCourse: selectedProduct.forCourse || '',
+        forCourse: normalizedCourse,
         years: productYears,
 
         branch: Array.isArray(selectedProduct.branch) ? selectedProduct.branch : (selectedProduct.branch ? [selectedProduct.branch] : []),
@@ -257,7 +278,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
       setSetItemToAdd('');
       setIsEditing(false);
     }
-  }, [selectedProduct, showProductDetail, collegeStockMap]);
+  }, [selectedProduct, showProductDetail, collegeStockMap, config]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -457,7 +478,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
     }
   };
 
-  // Student Fetching Logic
+  // Student Fetching Logic (Updated to use SQL Students)
   const handleFetchStudents = async () => {
     setIsFetchingStudents(true);
     setFetchedStudents([]);
@@ -466,18 +487,33 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
       if (studentFilters.course) queryParams.append('course', studentFilters.course);
       if (studentFilters.year) queryParams.append('year', studentFilters.year);
       if (studentFilters.branch) queryParams.append('branch', studentFilters.branch);
+      // Ensure we get enough results or handle pagination if needed. 
+      // For now, let's assume the API returns a reasonable list or we might need to add a limit.
+      // SQL API might require explicit limit or return all matching.
 
-      const res = await fetch(apiUrl(`/api/users?${queryParams.toString()}`));
+      const res = await fetch(apiUrl(`/api/sql/students?${queryParams.toString()}`));
       if (res.ok) {
         const data = await res.json();
-        const students = Array.isArray(data) ? data : [];
-        setFetchedStudents(students);
+        // SQL API returns { students: [], total, ... } or just [] depending on implementation.
+        // Based on sqlStudentController, it returns { students: [...], ... }
+        const students = data.students || (Array.isArray(data) ? data : []);
 
-        // "All students are checked initially"
+        // Map SQL student data to expected format if necessary
+        // The component expects { _id (or id), name, studentId }
+        // SQL students have { id, name, admission_number (as studentId?), ... }
+        const mappedStudents = students.map(s => ({
+          _id: s.id, // Use SQL ID as _id for frontend compatibility
+          name: s.name,
+          studentId: s.admission_number || s.pin || s.id // Fallback for display
+        }));
+
+        setFetchedStudents(mappedStudents);
+
+        // "All students are checked initially" logic...
         // We merge these students into the existing applicableStudents.
         // Identify new students to add
         const currentIds = new Set(formData.applicableStudents.filter(s => s && s._id).map(s => s._id));
-        const newStudents = students.filter(s => !currentIds.has(s._id));
+        const newStudents = mappedStudents.filter(s => !currentIds.has(s._id));
 
         if (newStudents.length > 0) {
           setFormData(prev => ({
@@ -778,7 +814,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                       <button onClick={handleDeselectAllFetched} className="text-xs text-red-600 hover:underline">Deselect All</button>
                     </div>
                   </div>
-                  
+
                   {/* Search Bar for Fetched Students */}
                   <div className="mb-3">
                     <div className="relative">
@@ -813,22 +849,22 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                       <tbody className="divide-y divide-gray-100">
                         {filteredFetchedStudents.length > 0 ? (
                           filteredFetchedStudents.map(student => {
-                          const isSelected = formData.applicableStudents.some(s => s._id === student._id);
-                          return (
-                            <tr key={student._id} className={isSelected ? 'bg-blue-50' : ''} onClick={() => toggleStudentSelection(student)}>
-                              <td className="px-4 py-2">{student.name}</td>
-                              <td className="px-4 py-2 text-gray-500">{student.studentId}</td>
-                              <td className="px-4 py-2 text-center">
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={() => { }} // handled by row click
-                                  className="w-4 h-4 text-blue-600 rounded"
-                                />
-                              </td>
-                            </tr>
-                          );
-                        })
+                            const isSelected = formData.applicableStudents.some(s => s._id === student._id);
+                            return (
+                              <tr key={student._id} className={isSelected ? 'bg-blue-50' : ''} onClick={() => toggleStudentSelection(student)}>
+                                <td className="px-4 py-2">{student.name}</td>
+                                <td className="px-4 py-2 text-gray-500">{student.studentId}</td>
+                                <td className="px-4 py-2 text-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => { }} // handled by row click
+                                    className="w-4 h-4 text-blue-600 rounded"
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })
                         ) : (
                           <tr>
                             <td colSpan="3" className="px-4 py-8 text-center text-gray-500">

@@ -1,11 +1,10 @@
 const express = require("express");
 const { connectDB } = require("./config/db"); // Assuming db.js is in a 'config' folder
+const { connectMySQL } = require("./config/mysql");
 const productRoutes = require("./routes/productRoutes");
 const cors = require("cors");
-const userRoutes = require("./routes/userRoutes");
 const dotenv = require("dotenv");
 const subAdminRoutes = require("./routes/subAdminRoutes");
-const academicConfigRoutes = require("./routes/academicConfigRoutes");
 const transactionRoutes = require("./routes/transactionRoutes");
 const vendorRoutes = require("./routes/vendorRoutes");
 const stockEntryRoutes = require("./routes/stockEntryRoutes");
@@ -23,6 +22,8 @@ const app = express();
 
 // Connect to MongoDB
 connectDB();
+// Connect to MySQL
+connectMySQL();
 
 // CORS configuration
 const allowedOrigins = [
@@ -133,12 +134,8 @@ app.get("/", (req, res) => {
 // Mount product routes
 app.use("/api/products", productRoutes);
 
-// Mount user routes
-app.use("/api", userRoutes);
 // Mount sub-admin routes
 app.use("/api", subAdminRoutes);
-// Mount academic config routes
-app.use("/api", academicConfigRoutes);
 // Mount transaction routes
 app.use("/api/transactions", transactionRoutes);
 // Mount vendor routes
@@ -156,6 +153,14 @@ app.use("/api/sql", sqlStudentRoutes);
 app.use("/api/general-products", generalProductRoutes);
 app.use("/api/general-purchases", generalPurchaseRoutes);
 app.use("/api/general-distributions", generalDistributionRoutes);
+
+// SQL Academic Routes (Courses, Branches)
+const sqlAcademicRoutes = require("./routes/sqlAcademicRoutes");
+app.use("/api/sql/academic", sqlAcademicRoutes);
+
+// SQL Dues Routes
+const sqlDuesRoutes = require("./routes/sqlDuesRoutes");
+app.use("/api/sql", sqlDuesRoutes); // Mounts as /api/sql/dues
 
 // Error handling middleware (must be after all routes)
 app.use((err, req, res, next) => {

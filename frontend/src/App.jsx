@@ -5,7 +5,7 @@ const Sidebar = lazy(() => import('./Sidebar'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const StudentDetail = lazy(() => import('./pages/StudentDetail'));
 const StudentDashboard = lazy(() => import('./pages/StudentDashboard'));
-const AddStudent = lazy(() => import('./pages/AddStudent'));
+// const AddStudent = lazy(() => import('./pages/AddStudent')); // REMOVED
 const StudentManagement = lazy(() => import('./pages/StudentManagement'));
 const Login = lazy(() => import('./pages/Login'));
 const SubAdminManagement = lazy(() => import('./pages/SubAdminManagement'));
@@ -32,7 +32,7 @@ const resolveDefaultPath = (user) => {
   const permissions = user.permissions || [];
   const priorityPaths = [
     { key: 'dashboard', path: '/' },
-    { key: 'add-student', path: '/add-student' },
+    // { key: 'add-student', path: '/add-student' }, // REMOVED
     { key: 'student-management', path: '/student-management' },
     { key: 'course-dashboard', path: '/students-dashboard' },
     { key: 'courses', path: '/courses' },
@@ -61,7 +61,7 @@ const DefaultRoute = ({ currentUser }) => {
 };
 
 function App() {
-  const [students, setStudents] = useState(() => loadJSON('studentsCache', []));
+  // const [students, setStudents] = useState(() => loadJSON('studentsCache', [])); // REMOVED legacy cache
   const [itemCategories, setItemCategories] = useState(() => loadJSON('itemCategoriesCache', []));
   const [products, setProducts] = useState(() => loadJSON('productsCache', []));
   const [currentCourse, setCurrentCourse] = useState('');
@@ -94,6 +94,8 @@ function App() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  // REMOVED legacy fetchStudentsData
+  /*
   const fetchStudentsData = useCallback(async () => {
     if (!isAuthenticated) return;
     // Persist authentication state locally for reloads
@@ -111,6 +113,7 @@ function App() {
       console.warn('Could not fetch students yet:', error);
     }
   }, [isAuthenticated]);
+  */
 
   const fetchProductsData = useCallback(async () => {
     try {
@@ -126,13 +129,14 @@ function App() {
 
   useEffect(() => {
     if (isAuthenticated && isOnline) {
-      fetchStudentsData();
+      // fetchStudentsData(); // REMOVED
+      localStorage.setItem('isAuthenticated', 'true'); // Keep auth persistence
     } else if (!isAuthenticated) {
       // Clear authentication state
       localStorage.removeItem('isAuthenticated');
       setCurrentUser(null);
     }
-  }, [isAuthenticated, isOnline, fetchStudentsData]);
+  }, [isAuthenticated, isOnline]);
 
   useEffect(() => {
     if (isOnline) {
@@ -147,11 +151,13 @@ function App() {
     saveJSON('itemCategoriesCache', cats);
   }, [products]);
 
+  /*
   useEffect(() => {
     if (Array.isArray(students)) {
       saveJSON('studentsCache', students);
     }
   }, [students]);
+  */
 
   useEffect(() => {
     saveJSON('productsCache', products);
@@ -208,7 +214,7 @@ function App() {
       if (!isCancelled) {
         setPendingTransactions(remaining);
         if (processedAny) {
-          await fetchStudentsData();
+          // await fetchStudentsData(); // REMOVED
           await fetchProductsData();
         }
       }
@@ -220,10 +226,11 @@ function App() {
     return () => {
       isCancelled = true;
     };
-  }, [isOnline, pendingTransactions, fetchStudentsData, fetchProductsData]);
+  }, [isOnline, pendingTransactions, fetchProductsData]);
 
   const queueOfflineTransaction = useCallback((queuedTransaction, optimisticStudent) => {
     setPendingTransactions(prev => [...prev, queuedTransaction]);
+    /*
     if (optimisticStudent) {
       setStudents(prev => {
         const exists = prev.some(s => String(s.id) === String(optimisticStudent.id));
@@ -234,6 +241,7 @@ function App() {
         return updated;
       });
     }
+    */
   }, []);
 
   // Listen to item category edit/delete events dispatched from ProductList
@@ -241,27 +249,14 @@ function App() {
     const onRemove = (e) => {
       const name = e.detail;
       setItemCategories((prev) => prev.filter((i) => i !== name));
-      // Remove the item key from all students
-      setStudents((prev) => prev.map(s => {
-        if (!s.items) return s;
-        const { [name]: removed, ...rest } = s.items;
-        return { ...s, items: rest };
-      }));
+      // Removed local student item cleanup - handled by backend/dynamic calculation now
     };
 
     const onEdit = (e) => {
       const { oldVal, newVal } = e.detail;
       const normalizedNew = newVal.toLowerCase().replace(/\s+/g, '_');
       setItemCategories((prev) => prev.map(i => i === oldVal ? normalizedNew : i));
-      setStudents((prev) => prev.map(s => {
-        const items = s.items || {};
-        if (items.hasOwnProperty(oldVal)) {
-          const val = items[oldVal];
-          const { [oldVal]: removed, ...rest } = items;
-          return { ...s, items: { ...rest, [normalizedNew]: val } };
-        }
-        return s;
-      }));
+      // Removed local student item cleanup - handled by backend/dynamic calculation now
     };
 
     window.addEventListener('removeItemCategory', onRemove);
@@ -272,45 +267,10 @@ function App() {
     };
   }, []);
 
-  const addStudent = async (newStudent) => {
-    try {
-      // The newStudent object from the form should now contain name, studentId, course, and year
-      // We'll add the other required fields before sending to the backend.
-      const studentWithDefaults = {
-        ...newStudent,
-        email: `${newStudent.studentId}@pydah.com`, // Example email generation
-        password: 'password123', // Default or generated password
-      };
-      // Use the correct relative endpoint for registration
-      const response = await fetch(apiUrl('/api/users/register'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(studentWithDefaults),
-      });
-
-      if (!response.ok) {
-        // Try to parse error JSON, but fallback to status text if it fails
-        const errorData = await response.json().catch(() => ({ message: response.statusText }));
-        if (response.status === 404) {
-          throw new Error('API endpoint not found. Is the backend server running on port 5000?');
-        }
-        throw new Error(errorData.message || 'Failed to add student');
-      }
-
-      // The backend likely wraps the new user in a property, e.g., { user: { ... } }
-      const responseData = await response.json();
-      const savedStudent = responseData.user || responseData; // Adjust if the property name is different
-
-      setStudents((prevStudents) => [...prevStudents, { ...savedStudent, id: savedStudent._id }]);
-      return { success: true };
-    } catch (error) {
-      console.error('Error adding student:', error);
-      return { success: false, message: error.message };
-    }
-  };
+  // REMOVED addStudent function
 
   const addItemCategory = (newItem) => {
-    // This method now only updates client-side categories; server products are source of truth
+    // This method now only updates client-side categories; server Products are source of truth
     if (itemCategories.includes(newItem) || newItem.trim() === '') return;
     const newItemCategory = newItem.toLowerCase().replace(/\s+/g, '_');
     setItemCategories((prev) => [...prev, newItemCategory]);
@@ -438,7 +398,7 @@ function App() {
                     element={
                       <ProtectedRoute currentUser={currentUser} requiredPermissions={["student-dashboard", "course-dashboard"]}>
                         <StudentDashboard
-                          initialStudents={students}
+                          // initialStudents={students} // REMOVED
                           isOnline={isOnline}
                           currentUser={currentUser}
                         />
@@ -450,8 +410,8 @@ function App() {
                     element={
                       <ProtectedRoute currentUser={currentUser} requiredPermissions={["student-management", "student-dashboard", "course-dashboard"]}>
                         <StudentDetail
-                          students={students}
-                          setStudents={setStudents}
+                          // students={students} // REMOVED
+                          // setStudents={setStudents} // REMOVED
                           products={products}
                           setProducts={setProducts}
                           onQueueTransaction={queueOfflineTransaction}
@@ -462,6 +422,8 @@ function App() {
                       </ProtectedRoute>
                     }
                   />
+                  {/* REMOVED AddStudent Route */}
+                  {/*
                   <Route
                     path="/add-student"
                     element={
@@ -470,15 +432,16 @@ function App() {
                       </ProtectedRoute>
                     }
                   />
+                  */}
                   <Route
                     path="/student-management"
                     element={
                       <ProtectedRoute currentUser={currentUser} requiredPermission="student-management">
                         <StudentManagement
-                          students={students}
-                          setStudents={setStudents}
-                          addStudent={addStudent}
-                          refreshStudents={fetchStudentsData}
+                          // students={students} // REMOVED
+                          // setStudents={setStudents} // REMOVED
+                          // addStudent={addStudent} // REMOVED
+                          // refreshStudents={fetchStudentsData} // REMOVED
                           currentUser={currentUser}
                         />
                       </ProtectedRoute>

@@ -1,5 +1,5 @@
 const { Transaction } = require('../models/transactionModel');
-const { User } = require('../models/userModel');
+// const { User } = require('../models/userModel'); // REMOVED
 const { Product } = require('../models/productModel');
 const { College } = require('../models/collegeModel');
 const { SubAdmin } = require('../models/subAdminModel');
@@ -131,8 +131,17 @@ const loadProductsWithComponents = async (productIds) => {
  * @route   POST /api/transactions
  * @access  Public
  */
+const { getMySqlPool } = require('../config/mysql');
+
+// DEFAULT_STUDENT_TABLE constant should match sqlStudentController
+const DEFAULT_STUDENT_TABLE = 'students';
+
+/**
+ * @desc    Create a new transaction
+ * @route   POST /api/transactions
+ * @access  Public
+ */
 const createTransaction = asyncHandler(async (req, res) => {
-  // Check for branchId in input (legacy compat) or collegeId
   const { studentId, items, paymentMethod, isPaid, remarks } = req.body;
   let { collegeId, branchId } = req.body;
   
@@ -146,20 +155,73 @@ const createTransaction = asyncHandler(async (req, res) => {
     throw new Error('Student ID and items are required');
   }
 
-  // Find the student
-  const student = await User.findById(studentId);
-  if (!student) {
+  // Find the student via MySQL
+  const pool = getMySqlPool();
+  if (!pool) {
+    res.status(500);
+    throw new Error('MySQL pool is not configured.');
+  }
+
+  const tableName = process.env.DB_STUDENTS_TABLE || DEFAULT_STUDENT_TABLE;
+  let studentData = null;
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT * FROM ${tableName} WHERE id = ? LIMIT 1`,
+      [studentId]
+    );
+
+    if (rows.length > 0) {
+      studentData = rows[0];
+    } else {
+      // Fallback: search by admission_number, admission_no, or pin_no
+      const [rowsFallback] = await pool.query(
+        `SELECT * FROM ${tableName} WHERE admission_number = ? OR admission_no = ? OR pin_no = ? LIMIT 1`,
+        [studentId, studentId, studentId]
+      );
+      if (rowsFallback.length > 0) {
+        studentData = rowsFallback[0];
+      }
+    }
+  } catch (error) {
+    console.error('MySQL Error during student lookup:', error);
+    res.status(500);
+    throw new Error('Database error during student lookup');
+  }
+
+  if (!studentData) {
     res.status(404);
     throw new Error('Student not found');
   }
 
+  // Construct student object for transaction
+  // Helper to safely get value from multiple possible keys (similar to sqlStudentController)
+  const deriveValue = (record, possibleKeys, fallback = null) => {
+    for (const key of possibleKeys) {
+      if (key in record && record[key] !== null && record[key] !== undefined) {
+        return record[key];
+      }
+    }
+    return fallback;
+  };
+
+  const name =
+    deriveValue(studentData, ['name', 'student_name', 'studentName', 'full_name', 'fullName']) ||
+    'Unknown';
+  
+  const studentAdmissionNo = 
+     deriveValue(studentData, ['admission_number', 'admission_no', 'student_id', 'studentId', 'roll_no', 'rollNo', 'pin_no', 'pinNo']) || 
+     'N/A';
+     
+  const course = deriveValue(studentData, ['course', 'course_name', 'courseName', 'program', 'programme'], 'N/A');
+  const yearValue = deriveValue(studentData, ['year', 'year_of_study', 'yearOfStudy', 'current_year', 'stud_year', 'semester_year'], 'N/A');
+  const branch = deriveValue(studentData, ['branch', 'department', 'dept', 'department_name'], 'N/A');
+  const semesterValue = deriveValue(studentData, ['semester', 'current_semester', 'semester_no', 'sem', 'sem_no'], null);
+
   // Determine College context
-  // If `staffId` is provided (e.g., from auth middleware), check assignedCollege
-  // For now, assume the request *might* include `collegeId` directly or we lookup based on logged-in user if available
-  // To make this robust without full auth middleware context in this snippet, we'll check body first then fallback
   let targetCollegeId = collegeId;
 
-  // If no collegeId in body, and we have a user (staff) in request (if auth middleware attached it)
+  // If no collegeId in body, and we have a user (staff) in request
   if (!targetCollegeId && req.user && req.user.assignedCollege) {
     targetCollegeId = req.user.assignedCollege;
   }
@@ -173,24 +235,18 @@ const createTransaction = asyncHandler(async (req, res) => {
   }
 
   // Backup: If still no collegeId, find college associated with student's course
-  if (!targetCollegeId && student.course) {
-    console.log('[DEBUG] createTransaction: Attempting backup lookup for course:', student.course);
-    const backupCollege = await College.findOne({ courses: student.course });
+  if (!targetCollegeId && course) {
+    console.log('[DEBUG] createTransaction: Attempting backup lookup for course:', course);
+    const backupCollege = await College.findOne({ courses: course });
     if (backupCollege) {
       console.log('[DEBUG] createTransaction: Backup found college:', backupCollege.name);
       targetCollegeId = backupCollege._id;
-    } else {
-      console.log('[DEBUG] createTransaction: No college found for course:', student.course);
     }
   }
 
-  // Critical: If college-wise management is active, we MUST have a collegeId for stock deduction
-  // unless we decide to fallback to Global Stock (which defeats the purpose).
-  // For safety during migration, if no collegeId is found, we might throw Error or fallback.
-  // Let's enforce College ID.
   if (!targetCollegeId) {
     res.status(400);
-    throw new Error('Transaction must be associated with a College for stock deduction. Please ensure Staff is assigned to a College.');
+    throw new Error('Transaction must be associated with a College. Please ensure Staff is assigned to a College.');
   }
 
   const requestedProductIds = new Set(items.map((item) => item.productId));
@@ -262,15 +318,11 @@ const createTransaction = asyncHandler(async (req, res) => {
             reason: taken ? undefined : reason,
           });
         } else {
-          // IF UNPAID, we allow it even if stock is low, and don't deduct yet
           componentDetails.push({
             productId: component._id,
             name: component.name,
             quantity: required,
-            taken: true, // Mark as taken by default in the transaction record if unpaid? 
-            // Or maybe false if we want them to mark it manually later?
-            // "allow for creation even when out of stock" suggests they are PLANNING to give it.
-            // Let's set taken: true as the "desired" state, but we don't deduct stock yet.
+            taken: true,
           });
         }
       }
@@ -320,13 +372,14 @@ const createTransaction = asyncHandler(async (req, res) => {
     transactionType: 'student', // Explicitly set for student transactions
     collegeId: targetCollegeId, // Record the college
     student: {
-      userId: student._id,
-      name: student.name,
-      studentId: student.studentId,
-      course: student.course,
-      year: student.year,
-      branch: student.branch || '',
-      semester: student.semester || null,
+      userId: null, // Legacy ID removed
+      sqlId: String(studentData.id), // Store MySQL ID
+      name: name,
+      studentId: studentAdmissionNo,
+      course: course,
+      year: yearValue !== 'N/A' ? parseInt(yearValue) || 1 : 1,
+      branch: branch || '',
+      semester: semesterValue ? parseInt(semesterValue) || null : null,
     },
     items: validatedItems,
     totalAmount,
@@ -334,37 +387,21 @@ const createTransaction = asyncHandler(async (req, res) => {
     isPaid: isPaid || false,
     paidAt: isPaid ? new Date() : null,
     stockDeducted: (isPaid && stockChanges.size > 0 && Array.from(stockChanges.values()).every(v => v < 0)) || false, 
-    // Wait, the logic for stockDeducted should be: did we actually apply changes?
-    // Let's refine this below.
     transactionDate: new Date(),
     remarks: remarks || '',
   });
 
-  // Duplicate stock deduction block removed here
-
-  // Update student's items map based on transaction items
-  const updatedItems = { ...(student.items || {}) };
-  validatedItems.forEach(item => {
-    // Only mark as received if the item is fully fulfilled
-    if (item.status !== 'partial') {
-      const productName = item.name;
-      const key = productName.toLowerCase().replace(/\s+/g, '_');
-      updatedItems[key] = true;
-    }
-  });
-
-  // Update student's paid status if transaction is paid
-  if (isPaid && !student.paid) {
-    student.paid = true;
-  }
-
-  // Update student's items map
-  student.items = updatedItems;
-  await student.save();
+  // Updated student items are NOT saved to MongoDB anymore.
+  // They are calculated dynamically by sqlStudentController.
 
   res.status(201).json(transaction);
 });
 
+/**
+ * @desc    Get all transactions
+ * @route   GET /api/transactions
+ * @access  Public
+ */
 /**
  * @desc    Get all transactions
  * @route   GET /api/transactions
@@ -399,10 +436,14 @@ const getAllTransactions = asyncHandler(async (req, res) => {
     }
     
     if (studentId) {
-      const student = await User.findById(studentId);
-      if (student) {
-        filter['student.userId'] = student._id;
-      }
+      // Logic update: 'studentId' param can be either sqlId, legacy userId, or the string studentId (Admission No)
+      // Since we are decoupling from User, we shouldn't do User.findById(studentId).
+      // We'll search by sqlId or studentId string in the Transaction.student object.
+      filter.$or = [
+        { 'student.sqlId': studentId },
+        { 'student.studentId': studentId },
+        { 'student.userId': studentId } // Keep legacy support just in case
+      ];
     }
   }
   
@@ -423,7 +464,8 @@ const getAllTransactions = asyncHandler(async (req, res) => {
   const maxLimit = Math.min(parseInt(limit, 10) || 5000, 10000);
   const transactions = await Transaction.find(filter)
     .populate('items.productId', 'name price imageUrl')
-    .populate('student.userId', 'name studentId course year branch')
+    // removed populate('student.userId') as we are not using the ref for student data anymore
+    // data is embedded in student object inside transaction
     .populate('collegeTransfer.collegeId', 'name location')
     .sort({ transactionDate: -1 })
     .limit(maxLimit)
@@ -666,21 +708,11 @@ const updateTransaction = asyncHandler(async (req, res) => {
     transaction.items = validatedItems;
     transaction.totalAmount = totalAmount;
 
-    // Update student's items map
-    const student = await User.findById(transaction.student.userId);
-    if (student) {
-      const updatedItems = { ...(student.items || {}) };
-      validatedItems.forEach(item => {
-        // Only mark as received if the item is fully fulfilled
-        if (item.status !== 'partial') {
-          const productName = item.name;
-          const key = productName.toLowerCase().replace(/\s+/g, '_');
-          updatedItems[key] = true;
-        }
-      });
-      student.items = updatedItems;
-      await student.save();
-    }
+    transaction.items = validatedItems;
+    transaction.totalAmount = totalAmount;
+
+    // Updated student items are NOT saved to MongoDB anymore.
+    // They are calculated dynamically by sqlStudentController.
   }
 
   if (paymentMethod !== undefined) {
@@ -758,12 +790,8 @@ const updateTransaction = asyncHandler(async (req, res) => {
       }
     }
 
-    // Update student's paid status
-    const student = await User.findById(transaction.student.userId);
-    if (student) {
-      student.paid = isPaid;
-      await student.save();
-    }
+    // REMOVED: We no longer update student.paid status on the MongoDB User model.
+    // This is now derived dynamically from transaction history in sqlStudentController.
   }
 
   if (remarks !== undefined) {
@@ -952,14 +980,31 @@ const getStudentDuesReport = asyncHandler(async (req, res) => {
  * @access  Public
  */
 const getTransactionsByStudent = asyncHandler(async (req, res) => {
-  const student = await User.findById(req.params.studentId);
+  const { studentId } = req.params;
+  
+  // Check if studentId is a valid ObjectId (MongoDB _id)
+  const isObjectId = /^[0-9a-fA-F]{24}$/.test(studentId);
 
-  if (!student) {
-    res.status(404);
-    throw new Error('Student not found');
+  let filter = {};
+
+  if (isObjectId) {
+      // If ObjectId, assume it's a Mongo User ID
+      filter = { 'student.userId': studentId };
+  } else {
+      // If not ObjectId, assume it's a MySQL ID (sqlId) or Admission No (studentId)
+      const cleanId = studentId.replace(/^["']|["']$/g, '');
+      
+      // We want to match either sqlId OR studentId (Admission No)
+      // Since we migrated, sqlId should be the primary key.
+      filter = { 
+          $or: [
+              { 'student.sqlId': cleanId },
+              { 'student.studentId': cleanId }
+          ] 
+      };
   }
 
-  const transactions = await Transaction.find({ 'student.userId': student._id })
+  const transactions = await Transaction.find(filter)
     .populate('items.productId', 'name price imageUrl')
     .sort({ transactionDate: -1 });
 

@@ -54,7 +54,24 @@ const getMySqlPool = () => {
   return pool;
 };
 
+const connectMySQL = async () => {
+  try {
+    const pool = getMySqlPool();
+    if (!pool) {
+       console.error('[MySQL] Failed to initialize pool (missing config?)');
+       return;
+    }
+    const connection = await pool.getConnection();
+    console.log('[MySQL] Connected successfully ✅');
+    connection.release();
+  } catch (error) {
+    console.error('[MySQL] Connection failed:', error.message);
+    // process.exit(1); // Optional: Exit if SQL is critical
+  }
+};
+
 module.exports = {
   getMySqlPool,
+  connectMySQL,
 };
 

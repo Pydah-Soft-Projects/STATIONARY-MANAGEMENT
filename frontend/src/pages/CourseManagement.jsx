@@ -6,8 +6,6 @@ import { hasFullAccess } from '../utils/permissions';
 const CourseManagement = ({ currentUser }) => {
   const isSuperAdmin = currentUser?.role === 'Administrator';
   // Permission check - reusing 'courses' permission but contextually it's 'college-courses'
-  // If user is sub-admin, they probably shouldn't be here unless they can manage their own college (which is rare).
-  // Assuming this page is mostly for SuperAdmins or high-level admins to configure mappings.
   const canEdit = isSuperAdmin;
 
   // State
@@ -37,25 +35,18 @@ const CourseManagement = ({ currentUser }) => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        // Fetch Colleges
-        const collegeRes = await fetch(apiUrl('/api/stock-transfers/colleges'));
+        // Fetch Colleges (MongoDB)
+        const collegeRes = await fetch(apiUrl('/api/stock-transfers/colleges?activeOnly=false')); // fetch all to manage
         if (!collegeRes.ok) {
           throw new Error(`Failed to load colleges (${collegeRes.status})`);
         }
         const collegeData = await collegeRes.json();
 
-        // Fetch All Configured Courses
-        const courseRes = await fetch(apiUrl('/api/academic-config/courses'));
+        // Fetch All Configured Courses (MySQL)
+        const courseRes = await fetch(apiUrl('/api/sql/academic/courses'));
         let courseData = [];
         if (courseRes.ok) {
           courseData = await courseRes.json();
-        } else if (courseRes.status === 404) {
-          // Fallback
-          const legacyRes = await fetch(apiUrl('/api/config/academic'));
-          if (legacyRes.ok) {
-            const legacyData = await legacyRes.json();
-            courseData = legacyData.courses || [];
-          }
         }
 
         setColleges(Array.isArray(collegeData) ? collegeData : []);
@@ -123,7 +114,9 @@ const CourseManagement = ({ currentUser }) => {
       // Update local state
       setColleges(prev => prev.map(c => c._id === updatedCollege._id ? updatedCollege : c));
 
-      alert('Course mapping updated successfully!');
+      // Show success message
+      setStatusMsg({ type: 'success', message: 'Course mapping updated successfully!' });
+      setTimeout(() => setStatusMsg({ type: '', message: '' }), 3000);
 
     } catch (err) {
       console.error(err);
@@ -453,7 +446,7 @@ const CourseManagement = ({ currentUser }) => {
 
                 {allCourses.length === 0 && (
                   <div className="text-center py-12 text-gray-500">
-                    No courses found in global configuration.
+                    No courses found in MySQL configuration.
                   </div>
                 )}
               </div>
@@ -471,12 +464,13 @@ const CourseManagement = ({ currentUser }) => {
       </div>
 
 
-      {/* Master Course List */}
+      {/* Master Course List (Read Only) */}
       <div className="mt-8 pt-8 border-t border-gray-200">
         <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
           <BookOpen size={20} className="text-gray-500" />
-          Global Course Configuration
+          MySQL Course Configuration
         </h2>
+        <p className="text-sm text-gray-500 mb-4">Read-only view of courses configured in the application database.</p>
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
@@ -533,7 +527,7 @@ const CourseManagement = ({ currentUser }) => {
                 {allCourses.length === 0 && (
                   <tr>
                     <td colSpan="5" className="px-6 py-8 text-center text-gray-400">
-                      No global courses configured.
+                      No global courses configured in MySQL.
                     </td>
                   </tr>
                 )}
@@ -541,11 +535,6 @@ const CourseManagement = ({ currentUser }) => {
             </table>
           </div>
         </div>
-      </div>
-
-      {/* Footnote about Add Course */}
-      <div className="mt-8 text-center text-xs text-gray-400 pb-8">
-        Global course configurations are managed via SQL/Database directly.
       </div>
 
       {/* Add College Modal */}

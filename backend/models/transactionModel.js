@@ -30,8 +30,14 @@ const transactionSchema = new mongoose.Schema(
     student: {
       userId: { 
         type: mongoose.Schema.Types.ObjectId, 
-        required: function() { return this.transactionType === 'student'; },
+        required: false, // Made optional for migration/future decoupling
         ref: 'User' 
+      },
+      sqlId: {
+        type: String,
+        required: false, // Optional until fully migrated
+        trim: true,
+        index: true // Indexed for fast lookups
       },
       name: { type: String, required: function() { return this.transactionType === 'student'; } },
       studentId: { type: String, required: function() { return this.transactionType === 'student'; } },

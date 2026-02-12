@@ -102,7 +102,7 @@ const generalDistributionSchema = new mongoose.Schema(
 );
 
 // Indexes
-generalDistributionSchema.index({ distributionId: 1 });
+// generalDistributionSchema.index({ distributionId: 1 }); // Removed duplicate index
 generalDistributionSchema.index({ recipientName: 1 });
 generalDistributionSchema.index({ department: 1 });
 generalDistributionSchema.index({ distributionDate: -1 });

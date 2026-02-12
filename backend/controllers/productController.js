@@ -341,7 +341,7 @@ const updateProduct = async (req, res) => {
     if (oldName !== newName) {
       try {
         const { Transaction } = require('../models/transactionModel');
-        const { User } = require('../models/userModel');
+        // const { User } = require('../models/userModel'); // REMOVED
 
         // Helper to convert product name to items key format
         const nameToKey = (name) => name?.toLowerCase().replace(/\s+/g, '_') || '';
@@ -369,30 +369,11 @@ const updateProduct = async (req, res) => {
           { arrayFilters: [{ 'item.product': updated._id }] }
         );
 
-        // Update the items key in all students who have this product
-        // Rename the key from old name format to new name format
-        if (oldKey && newKey && oldKey !== newKey) {
-          // Find all users who have the old key in their items
-          const usersWithOldKey = await User.find({ [`items.${oldKey}`]: { $exists: true } });
-
-          for (const user of usersWithOldKey) {
-            const oldValue = user.items[oldKey];
-            // Use $unset to remove old key and $set to add new key
-            await User.updateOne(
-              { _id: user._id },
-              {
-                $unset: { [`items.${oldKey}`]: "" },
-                $set: { [`items.${newKey}`]: oldValue }
-              }
-            );
-          }
-
-          console.log(`Updated items key from "${oldKey}" to "${newKey}" for ${usersWithOldKey.length} students`);
-        }
+        // Update the items key in all transactions who have this product
+        // REMOVED: Student items are now calculated dynamically. We do not need to update MongoDB User docs.
 
         console.log(`Product name updated from "${oldName}" to "${newName}" in all transactions and sets`);
       } catch (syncError) {
-        // Log but don't fail the update if transaction sync fails
         console.error('Failed to sync product name to related records:', syncError);
       }
     }
@@ -418,15 +399,7 @@ const deleteProduct = async (req, res) => {
     console.log('Product deleted from products collection:', product._id);
 
     // Also remove this product key from any user's items map (if present)
-    try {
-      const key = product.name.toLowerCase().replace(/\s+/g, '_');
-      const { User } = require('../models/userModel');
-      // Unset the nested items.<key> field for all users
-      await User.updateMany({ [`items.${key}`]: { $exists: true } }, { $unset: { [`items.${key}`]: "" } });
-    } catch (innerErr) {
-      // Log but don't fail the deletion if user update fails
-      console.error('Failed to remove item key from users:', innerErr);
-    }
+    // REMOVED: Student items are now calculated dynamically.
 
     res.json({ message: 'Product removed' });
   } catch (error) {

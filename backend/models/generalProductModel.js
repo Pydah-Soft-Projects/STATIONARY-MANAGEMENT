@@ -44,7 +44,7 @@ const generalProductSchema = new mongoose.Schema(
 );
 
 // Indexes for efficient queries
-generalProductSchema.index({ name: 1 });
+// generalProductSchema.index({ name: 1 }); // Removed duplicate index
 generalProductSchema.index({ isActive: 1 });
 
 const GeneralProduct = mongoose.model('GeneralProduct', generalProductSchema);
