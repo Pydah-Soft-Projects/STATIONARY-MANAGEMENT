@@ -164,7 +164,7 @@ const ManageStock = ({ itemCategories, addItemCategory, setItemCategories, curre
 
         {/* Tab Content */}
         {tabs.length > 0 && activeTab && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+          <div className="mt-4">
             {activeTab === 'products' && canAccessProducts && (
               <AddProduct
                 itemCategories={itemCategories}

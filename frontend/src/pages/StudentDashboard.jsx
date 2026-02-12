@@ -15,30 +15,49 @@ const StudentDashboard = ({ currentUser }) => {
   const isOnline = useOnlineStatus();
 
   // -- State --
-  const [courses, setCourses] = useState([]);
-  const [branches, setBranches] = useState([]);
-  const [students, setStudents] = useState([]);
+  // Initialize from sessionStorage if available
+  const getInitialState = (key, defaultValue) => {
+    const saved = sessionStorage.getItem(`dashboard_${key}`);
+    return saved ? JSON.parse(saved) : defaultValue;
+  };
+
+  const [courses, setCourses] = useState(() => getInitialState('courses', []));
+  const [branches, setBranches] = useState(() => getInitialState('branches', []));
+  const [students, setStudents] = useState(() => getInitialState('students', []));
 
   // Filters
-  const [selectedCourse, setSelectedCourse] = useState('');
-  const [selectedBranch, setSelectedBranch] = useState('');
-  const [selectedYear, setSelectedYear] = useState('');
-  const [selectedSemester, setSelectedSemester] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const [selectedCourse, setSelectedCourse] = useState(() => getInitialState('selectedCourse', ''));
+  const [selectedBranch, setSelectedBranch] = useState(() => getInitialState('selectedBranch', ''));
+  const [selectedYear, setSelectedYear] = useState(() => getInitialState('selectedYear', ''));
+  const [selectedSemester, setSelectedSemester] = useState(() => getInitialState('selectedSemester', ''));
+  const [searchTerm, setSearchTerm] = useState(() => getInitialState('searchTerm', ''));
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(() => getInitialState('searchTerm', ''));
 
   // Pagination & Meta
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [pagination, setPagination] = useState({
+  const [pagination, setPagination] = useState(() => getInitialState('pagination', {
     page: 1,
-    limit: 50,
+    limit: 100,
     totalPages: 0,
     totalRecords: 0
-  });
+  }));
 
   const searchTimeoutRef = useRef(null);
   const hasInitialized = useRef(false);
+
+  // Persist state changes
+  useEffect(() => {
+    sessionStorage.setItem('dashboard_courses', JSON.stringify(courses));
+    sessionStorage.setItem('dashboard_branches', JSON.stringify(branches));
+    sessionStorage.setItem('dashboard_students', JSON.stringify(students));
+    sessionStorage.setItem('dashboard_selectedCourse', JSON.stringify(selectedCourse));
+    sessionStorage.setItem('dashboard_selectedBranch', JSON.stringify(selectedBranch));
+    sessionStorage.setItem('dashboard_selectedYear', JSON.stringify(selectedYear));
+    sessionStorage.setItem('dashboard_selectedSemester', JSON.stringify(selectedSemester));
+    sessionStorage.setItem('dashboard_searchTerm', JSON.stringify(searchTerm));
+    sessionStorage.setItem('dashboard_pagination', JSON.stringify(pagination));
+  }, [courses, branches, students, selectedCourse, selectedBranch, selectedYear, selectedSemester, searchTerm, pagination]);
 
   // -- Permissions --
   const isSuperAdmin = currentUser?.role === 'Administrator';
@@ -126,17 +145,17 @@ const StudentDashboard = ({ currentUser }) => {
           if (allowedCourseNames !== null) {
             availableCourses = data.filter(c => {
               // Check 1: Match by ID (New robust method)
-              // We need to check if any of the "allowedCourseNames" (which are actually permission keys suffix) matches the course ID
               const idMatch = allowedCourseNames.includes(String(c.id));
-
               // Check 2: Match by Normalized Name (Legacy method)
               const normName = normalizeCourseName(c.name);
               const nameMatch = allowedCourseNames.some(allowed => normalizeCourseName(allowed) === normName);
-
               return idMatch || nameMatch;
             });
           }
-          setCourses(availableCourses);
+          // Only update if changed to prevent re-fetching students
+          if (JSON.stringify(availableCourses) !== JSON.stringify(courses)) {
+            setCourses(availableCourses);
+          }
         }
       } catch (err) {
         console.error('Failed to fetch courses:', err);
@@ -166,7 +185,9 @@ const StudentDashboard = ({ currentUser }) => {
         const res = await fetch(apiUrl(`/api/sql/academic/branches?courseId=${courseObj.id}`));
         if (res.ok) {
           const data = await res.json();
-          setBranches(data);
+          if (JSON.stringify(data) !== JSON.stringify(branches)) {
+            setBranches(data);
+          }
         }
       } catch (err) {
         console.error('Failed to fetch branches:', err);
@@ -192,8 +213,9 @@ const StudentDashboard = ({ currentUser }) => {
     // REQUIREMENT: Must select Course and Branch first (unless searching globally? Logic says "select user filter... then render")
     // Let's enforce Course selection at minimum. Branch might be optional if "All Branches" is allowed, but UI usually requires drill down.
     // User request: "select that filter of the course and the branch. Then, we will render"
-    if (!selectedCourse || !selectedBranch) {
-      // If not selected, clear students or do nothing
+    // REQUIREMENT: Must select Course OR have a search term
+    if (!selectedCourse && !debouncedSearchTerm) {
+      // If not selected and no search, clear students
       if (!isRefresh) setStudents([]);
       return;
     }
@@ -246,8 +268,14 @@ const StudentDashboard = ({ currentUser }) => {
 
   // Trigger fetch when mandatory filters change or pagination changes
   useEffect(() => {
+    // If this is the initialization phase and we have restored data, SKIP the fetch
+    // This prevents "reloading" when navigating back
+    if (!hasInitialized.current) {
+      hasInitialized.current = true;
+      if (students.length > 0) return;
+    }
     fetchStudents();
-  }, [fetchStudents]);
+  }, [fetchStudents, students.length]);
 
   // Handlers
   const handlePageChange = (newPage) => {
@@ -285,30 +313,33 @@ const StudentDashboard = ({ currentUser }) => {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all shadow-md hover:shadow-lg font-medium"
-              onClick={() => navigate('/add-student')}
-            >
-              <Plus size={18} />
-              Add Student
-            </button>
-          </div>
+
         </div>
 
         {/* Filters Section */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-          <div className="flex items-center gap-2 mb-4 text-gray-800">
-            <Filter size={20} className="text-blue-600" />
-            <h3 className="font-semibold text-lg">Filter Data</h3>
-          </div>
-
+        {/* Filters Section */}
+        <div className="mb-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            {/* Search - MOVED TO FIRST */}
+            <div className="lg:col-span-1">
+              <label className="block text-xs font-medium text-gray-500 mb-1 uppercase">Search</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={14} />
+                <input
+                  type="text"
+                  placeholder="Name or ID..."
+                  className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white/50 backdrop-blur-sm"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+            </div>
+
             {/* Course Selector */}
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1 uppercase">Course</label>
               <select
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white/50 backdrop-blur-sm"
                 value={selectedCourse}
                 onChange={(e) => {
                   setSelectedCourse(e.target.value);
@@ -327,7 +358,7 @@ const StudentDashboard = ({ currentUser }) => {
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1 uppercase">Branch</label>
               <select
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:bg-gray-100"
+                className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none disabled:opacity-50 bg-white/50 backdrop-blur-sm"
                 value={selectedBranch}
                 onChange={(e) => {
                   setSelectedBranch(e.target.value);
@@ -346,7 +377,7 @@ const StudentDashboard = ({ currentUser }) => {
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1 uppercase">Year</label>
               <select
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white/50 backdrop-blur-sm"
                 value={selectedYear}
                 onChange={(e) => setSelectedYear(e.target.value)}
               >
@@ -361,7 +392,7 @@ const StudentDashboard = ({ currentUser }) => {
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1 uppercase">Semester</label>
               <select
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white/50 backdrop-blur-sm"
                 value={selectedSemester}
                 onChange={(e) => setSelectedSemester(e.target.value)}
               >
@@ -371,32 +402,19 @@ const StudentDashboard = ({ currentUser }) => {
                 ))}
               </select>
             </div>
-
-            {/* Search */}
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1 uppercase">Search</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
-                <input
-                  type="text"
-                  placeholder="Name or ID..."
-                  className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-            </div>
           </div>
         </div>
 
         {/* Content Area */}
-        {(!selectedCourse || !selectedBranch) ? (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
-            <div className="w-20 h-20 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Filter size={32} />
+        {(!selectedCourse && !debouncedSearchTerm) ? (
+          <div className="rounded-xl border-dashed border-2 border-gray-300 p-12 text-center bg-gray-50/50 min-h-[400px] flex flex-col items-center justify-center">
+            <div className="w-24 h-24 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
+              <GraduationCap size={48} />
             </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">Select Course and Branch</h3>
-            <p className="text-gray-600">Please select a course and branch to view student records.</p>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">Search or Select Course</h3>
+            <p className="text-gray-500 max-w-sm mx-auto">
+              Select a course from the filters above or use the search bar to find specific students.
+            </p>
           </div>
         ) : (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -435,7 +453,7 @@ const StudentDashboard = ({ currentUser }) => {
                       <th className="px-6 py-3 font-semibold">Year</th>
                       <th className="px-6 py-3 font-semibold">Semester</th>
                       <th className="px-6 py-3 font-semibold">Branch</th>
-                      <th className="px-6 py-3 font-semibold">Actions</th>
+
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -456,18 +474,7 @@ const StudentDashboard = ({ currentUser }) => {
                         <td className="px-6 py-4 text-gray-600">{student.year}</td>
                         <td className="px-6 py-4 text-gray-600">{student.semester || '-'}</td>
                         <td className="px-6 py-4 text-gray-600">{student.branch}</td>
-                        <td className="px-6 py-4">
-                          <button
-                            className="text-red-500 hover:text-red-700 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteStudent(student);
-                            }}
-                            title="Delete"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </td>
+
                       </tr>
                     ))}
                   </tbody>
