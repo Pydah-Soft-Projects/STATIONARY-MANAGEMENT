@@ -103,11 +103,23 @@ const getStudentDues = asyncHandler(async (req, res) => {
       console.time('FetchData');
       const [sqlResult, allProducts] = await Promise.all([
          pool.query(sql, sqlParams),
-         Product.find(productQuery).lean()
+         Product.find(productQuery).lean().then(products => {
+             console.log(`[Dues] Debug: Found ${products.length} products matching query:`, JSON.stringify(productQuery));
+             products.forEach(p => {
+                 console.log(` - ${p.name} (${p._id})`);
+                 console.log(`   forCourse: '${p.forCourse}'`);
+                 console.log(`   Applicability: Years [${p.years?.join(',') || ''}], Sems [${p.semesters?.join(',') || ''}]`);
+                 console.log(`   Mode: ${p.applicabilityMode}`);
+             });
+             return products;
+         })
       ]);
-      console.timeEnd('FetchData'); // Global label less risky here as it's within async block but safe to keep or remove if noisy
+      console.timeEnd('FetchData'); 
 
       const [rows] = sqlResult;
+      
+      console.log(`[Dues] Debug: SQL Query returned ${rows?.length || 0} rows.`);
+      
       let allStudents = Array.isArray(rows) ? rows.map(normalizeStudentRow) : [];
 
       // Filter out withdrawn/cancelled students
@@ -115,6 +127,8 @@ const getStudentDues = asyncHandler(async (req, res) => {
         const status = String(student.status || '').toLowerCase();
         return !status.includes('cancel') && !status.includes('withdrawn') && !status.includes('discontinued');
       });
+
+      console.log(`[Dues] Debug: After filtering active students: ${allStudents.length}`);
 
       if (allStudents.length === 0) {
           return res.json({
@@ -231,6 +245,12 @@ const getStudentDues = asyncHandler(async (req, res) => {
                // Year Check
                const productYears = Array.isArray(product.years) ? product.years : (product.year ? [product.year] : []);
                const studentYear = Number(student.year);
+               
+               // DEBUG: Log first few students to check their year
+               if (allStudents.indexOf(student) < 5 && product.name.includes("M.TECH")) {
+                   console.log(`[Dues Debug] Student: ${student.name}, Year: "${student.year}" (Parsed: ${studentYear}) vs Product Years: [${productYears}]`);
+               }
+
                if (productYears.length > 0 && !productYears.includes(studentYear)) return false;
 
                // Semester Check (Optional in product)

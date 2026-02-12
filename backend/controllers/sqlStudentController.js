@@ -57,6 +57,21 @@ const normalizeStudentRow = (row) => {
   const status = deriveValue(row, ['status', 'admission_status', 'admissionStatus', 'student_status', 'studentStatus', 'admission_state'], null);
   const phoneNumber = deriveValue(row, ['student_mobile', 'parent_mobile1', 'parent_mobile2', 'mobile', 'phone', 'contact'], '');
 
+  // Helper to normalize Year/Sem (handles Roman Numerals common in Indian colleges)
+  const normalizeAcademicUnit = (val) => {
+    if (val === null || val === undefined) return null;
+    const s = String(val).trim().toUpperCase();
+    if (s === 'I' || s === '1') return 1;
+    if (s === 'II' || s === '2') return 2;
+    if (s === 'III' || s === '3') return 3;
+    if (s === 'IV' || s === '4') return 4;
+    const num = parseInt(s, 10);
+    return isNaN(num) ? s : num;
+  };
+
+  const year = normalizeAcademicUnit(yearValue) || yearValue; // Fallback to raw if logic fails
+  const semester = normalizeAcademicUnit(semesterValue) || semesterValue;
+
   return {
     id: id ?? preferredId ?? `${name}-${course}`,
     name,
@@ -64,8 +79,8 @@ const normalizeStudentRow = (row) => {
     pin: pin || null,
     alternateId: secondaryId || null,
     course,
-    year: yearValue !== null && yearValue !== undefined ? Number(yearValue) || yearValue : 'N/A',
-    semester: semesterValue !== null && semesterValue !== undefined ? Number(semesterValue) || semesterValue : null,
+    year,
+    semester,
     branch,
     status: status || null,
     phoneNumber: phoneNumber || '',
