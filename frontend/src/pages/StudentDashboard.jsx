@@ -348,7 +348,7 @@ const StudentDashboard = ({ currentUser }) => {
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={14} />
                 <input
                   type="text"
-                  placeholder="Name or ID..."
+                  placeholder="Name or PIN..."
                   className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white/50 backdrop-blur-sm"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}

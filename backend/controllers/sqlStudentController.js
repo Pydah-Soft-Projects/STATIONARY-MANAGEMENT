@@ -118,8 +118,8 @@ const getSqlStudents = asyncHandler(async (req, res) => {
 
   if (search) {
     const searchPattern = `%${search}%`;
-    conditions.push(`(student_name LIKE ? OR admission_number LIKE ? OR student_mobile LIKE ?)`);
-    params.push(searchPattern, searchPattern, searchPattern);
+    conditions.push(`(student_name LIKE ? OR pin_no LIKE ?)`);
+    params.push(searchPattern, searchPattern);
   }
 
   if (course && course !== 'all') {
@@ -154,14 +154,12 @@ const getSqlStudents = asyncHandler(async (req, res) => {
 
   try {
     // Get total count
-    console.log('[MySQL] Executing Count Query:', countSql, 'Params:', params);
     const [countRows] = await pool.query(countSql, params);
     const total = countRows[0]?.total || 0;
 
     // Get paginated data
     // Append Limit and Offset to params
     const queryParams = [...params, limitNum, offset];
-    console.log('[MySQL] Executing Data Query:', dataSql, 'Params:', queryParams);
     const [rows] = await pool.query(dataSql, queryParams);
 
     // Normalize rows
