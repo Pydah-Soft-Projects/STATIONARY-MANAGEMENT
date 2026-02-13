@@ -6,9 +6,6 @@ import { parsePermission, permissionsToObject, objectToPermissions } from '../ut
 // Sidebar menu items for permissions
 const SIDEBAR_ITEMS = [
   { path: '/', label: 'Dashboard', key: 'dashboard' },
-  { path: '/add-student', label: 'Add Student', key: 'add-student' },
-  { path: '/student-management', label: 'Manage Students', key: 'student-management' },
-  { path: '/courses', label: 'Add Courses', key: 'courses' },
   { path: '/students-dashboard', label: 'Student Dashboard', key: 'course-dashboard' },
   {
     path: '/manage-stock',

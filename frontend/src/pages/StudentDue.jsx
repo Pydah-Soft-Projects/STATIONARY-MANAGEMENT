@@ -68,6 +68,7 @@ const StudentDue = ({ currentUser }) => {
     includeSummary: true,
     includeItemDetails: false,
   });
+  const [generatingReport, setGeneratingReport] = useState(false);
   const [receiptSettings, setReceiptSettings] = useState({
     receiptHeader: 'PYDAH GROUP OF INSTITUTIONS',
     receiptSubheader: 'Stationery Management System',
@@ -482,20 +483,32 @@ const StudentDue = ({ currentUser }) => {
 
   const handleReportGenerate = async () => {
     try {
-      // NOTE: Report currently generates based on the loaded students. 
-      // ideally we should fetch all students matching criteria for a full report.
-      // For now, we'll use the 'students' from state which might be paginated.
-      // TODO: Implement 'fetch all' for report generation if needed.
+      setGeneratingReport(true);
+      // Fetch ALL matching students for report (ignore client pagination)
+      // Use reportFilters state which holds the modal's selections
+      const query = new URLSearchParams({
+        page: 1,
+        limit: 1000000, // Fetch effectively all
+        search: reportFilters.course ? '' : dueFilters.search, // Use search only if no specific course filter override? Or keep consistent? 
+        // User asked to "select filters". The modal filters should be prioritized.
+        // But if reportFilters are initialized from dueFilters, it's consistent.
+        // Let's use reportFilters completely.
+        course: reportFilters.course,
+        branch: reportFilters.branch,
+        year: reportFilters.year,
+        semester: reportFilters.semester,
+        kitId: reportFilters.kit
+      });
 
-      const filteredForReport = students; // Use current students from backend
+      const response = await fetch(apiUrl(`/api/sql/dues?${query.toString()}`));
+      if (!response.ok) throw new Error('Failed to fetch report data');
 
-      // Calculate Paid/Unpaid counts for the report summary
-      // We can use the 'stats' from backend for global numbers
-      const reportPaidCount = (stats.totalStudents || 0) - (stats.totalStudentsWithDues || 0); // specific stats might be needed
-      const reportUnpaidCount = stats.totalStudents || filteredForReport.length;
-      const reportTotalStudents = stats.totalStudents || filteredForReport.length;
+      const data = await response.json();
+      const filteredForReport = data.students || [];
 
-      // ... rest of PDF generation using filteredForReport ...
+      // Calculate stats from the full dataset (backend returns totalDue)
+      const totalPendingAmount = filteredForReport.reduce((sum, record) => sum + (record.totalDue || 0), 0);
+      const totalPendingStudents = filteredForReport.length;
 
       // Generate PDF
       const pdf = new jsPDF({
@@ -525,7 +538,6 @@ const StudentDue = ({ currentUser }) => {
 
       let yPos = 28;
 
-
       // Report Info Section (Condensed)
       pdf.setFontSize(10);
       pdf.setFont(undefined, 'bold');
@@ -545,7 +557,6 @@ const StudentDue = ({ currentUser }) => {
 
       pdf.setFont(undefined, 'normal');
       pdf.setFontSize(9);
-      // Generated on date removed from top as it appears in footer
       yPos += 3;
 
       // Student Details Table & Statistics Merged
@@ -562,9 +573,8 @@ const StudentDue = ({ currentUser }) => {
 
         // Right side: Statistics (Merged into same line)
         if (reportFilters.includeSummary) {
-          const totalPendingAmount = filteredForReport.reduce((sum, record) => sum + record.pendingValue, 0);
-          // NEW SUMMARY FORMAT: Paid | Unpaid | Total Students | Pending Amount
-          const statsText = `Paid: ${reportPaidCount} | Unpaid: ${reportUnpaidCount} | Total Students: ${reportTotalStudents} | Amount: ${formatCurrencyForPDF(totalPendingAmount)}`;
+          // NEW SUMMARY FORMAT: Total Pending Students | Total Amount
+          const statsText = `Total Pending Students: ${totalPendingStudents} | Total Amount: ${formatCurrencyForPDF(totalPendingAmount)}`;
 
           pdf.setFontSize(9); // Slightly smaller for stats
           pdf.text(statsText, 190, yPos, { align: 'right' });
@@ -579,15 +589,13 @@ const StudentDue = ({ currentUser }) => {
         pdf.setFillColor(230, 230, 230);
         pdf.rect(20, yPos - 3, 170, 6, 'F');
 
-        // Define column positions
+        // Define column positions (Adjusted for gap and narrower remarks)
         const colName = 22;
-        const colRoll = 85;
-        // const colPhone = 120; // REMOVED
-        const colRemarks = 130; // Adjusted position
+        const colRoll = 105; // Increased mainly to avoid overlap (was 85)
+        const colRemarks = 150; // Started later, making column narrower (was 130)
 
         pdf.text('Student Name', colName, yPos + 1);
         pdf.text('Roll Number', colRoll, yPos + 1);
-        // pdf.text('Mobile', colPhone, yPos + 1); // REMOVED
 
         const remarksLabel = reportFilters.includeItemDetails ? 'Pending Items' : 'Remarks';
         pdf.text(remarksLabel, colRemarks, yPos + 1);
@@ -597,7 +605,6 @@ const StudentDue = ({ currentUser }) => {
         pdf.setFontSize(9);
 
         filteredForReport.forEach((record, index) => {
-          console.log('PDF Record:', record.student.name, record.student.phoneNumber);
           // Check if we need a new page
           if (yPos > 270) {
             pdf.addPage();
@@ -609,7 +616,6 @@ const StudentDue = ({ currentUser }) => {
             pdf.rect(20, yPos - 3, 170, 6, 'F');
             pdf.text('Student Name', colName, yPos + 1);
             pdf.text('Roll Number', colRoll, yPos + 1);
-            // pdf.text('Mobile', colPhone, yPos + 1); // REMOVED
             pdf.text('Remarks', colRemarks, yPos + 1);
             yPos += 8;
             pdf.setFont(undefined, 'normal');
@@ -617,10 +623,9 @@ const StudentDue = ({ currentUser }) => {
           }
 
           const student = record.student;
-          const studentName = (student.name || 'N/A').substring(0, 40);
+          // Substring length increased as we have more space now (105-22 = 82mm approx)
+          const studentName = (student.name || 'N/A').substring(0, 45);
           const studentId = (student.studentId || 'N/A');
-          // Ensure phone number is treated as string
-          const phone = student.phoneNumber ? String(student.phoneNumber) : 'N/A';
 
           // Alternate row background
           if (index % 2 === 0) {
@@ -630,31 +635,27 @@ const StudentDue = ({ currentUser }) => {
 
           pdf.text(studentName, colName, yPos + 2);
           pdf.text(studentId, colRoll, yPos + 2);
-          // pdf.text(phone, colPhone, yPos + 2); // REMOVED
 
           if (reportFilters.includeItemDetails) {
             // Show only items from the selected kit if a kit is filtered
             let displayItems = record.pendingItems;
             if (selectedKit) {
               const kitKey = selectedKit._key;
-              // For kits, we need to show the kit itself if it's pending, OR show individual components
               if (selectedKit.isSet) {
-                // For set products, show the kit if it's in pendingItems, or filter by component keys
                 const kitComponentsKeys = (selectedKit.setItems || []).map(si =>
                   getItemKey(si.product?.name || si.productNameSnapshot)
                 );
-                // Include the kit itself if it's pending, or filter by components
                 displayItems = record.pendingItems.filter(pi =>
                   pi._key === kitKey || kitComponentsKeys.includes(pi._key)
                 );
               } else {
-                // Non-set kit: just show if it matches the kit key
                 displayItems = record.pendingItems.filter(pi => pi._key === kitKey);
               }
             }
 
             const itemNames = displayItems.map(pi => pi.name).join(', ');
-            const splitItems = pdf.splitTextToSize(itemNames, 40);
+            // Split text to fit in narrower column (190 - 150 = 40mm)
+            const splitItems = pdf.splitTextToSize(itemNames, 35);
             pdf.text(splitItems, colRemarks, yPos + 2);
 
             // Adjust yPos if items wrap
@@ -665,8 +666,6 @@ const StudentDue = ({ currentUser }) => {
           }
 
           yPos += 8;
-
-          // Separator line REMOVED as requested
         });
       } else {
         pdf.setFontSize(10);
@@ -691,6 +690,8 @@ const StudentDue = ({ currentUser }) => {
     } catch (error) {
       console.error('Error generating PDF:', error);
       alert('Error generating PDF report');
+    } finally {
+      setGeneratingReport(false);
     }
   };
 
@@ -982,7 +983,9 @@ const StudentDue = ({ currentUser }) => {
                             </div>
                           </td>
                           <td className="px-6 py-4 text-right">
-                            <span className="text-sm font-semibold text-rose-600">{formatCurrency(record.pendingAmount || record.pendingValue)}</span>
+                            <span className="text-sm font-semibold text-rose-600">
+                              {formatCurrency(record.totalDue)}
+                            </span>
                           </td>
                         </tr>
                       );
@@ -996,11 +999,13 @@ const StudentDue = ({ currentUser }) => {
                 <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="text-sm text-gray-600">
-                      Showing <span className="font-semibold">{startIndex + 1}</span> to{' '}
+                      Shows <span className="font-semibold">
+                        {students.length > 0 ? startIndex + 1 : 0}
+                      </span> to {' '}
                       <span className="font-semibold">
-                        {Math.min(endIndex, filteredDueStudents.length)}
+                        {startIndex + students.length}
                       </span>{' '}
-                      of <span className="font-semibold">{filteredDueStudents.length}</span> students
+                      of <span className="font-semibold">{Math.max(stats.totalStudents || 0, startIndex + students.length)}</span> students
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -1213,10 +1218,20 @@ const StudentDue = ({ currentUser }) => {
                 </button>
                 <button
                   onClick={handleReportGenerate}
-                  className="px-6 py-2 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-lg hover:from-purple-700 hover:to-purple-800 transition-all font-medium flex items-center gap-2"
+                  disabled={generatingReport}
+                  className="px-6 py-2 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-lg hover:from-purple-700 hover:to-purple-800 transition-all font-medium flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
                 >
-                  <Download size={18} />
-                  Generate PDF
+                  {generatingReport ? (
+                    <>
+                      <RefreshCw size={18} className="animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <Download size={18} />
+                      Generate PDF
+                    </>
+                  )}
                 </button>
               </div>
             </div>

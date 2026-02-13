@@ -138,15 +138,15 @@ const getSqlStudents = asyncHandler(async (req, res) => {
   }
 
   if (semester && semester !== 'all') {
-      conditions.push(`CAST(current_semester AS CHAR) = ?`);
-      params.push(String(semester));
+    conditions.push(`CAST(current_semester AS CHAR) = ?`);
+    params.push(String(semester));
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
   // Count total records for pagination
   const countSql = `SELECT COUNT(*) as total FROM \`${tableName}\` ${whereClause}`;
-  
+
   // Fetch paginated records
   const dataSql = forceRefresh
     ? `SELECT SQL_NO_CACHE * FROM \`${tableName}\` ${whereClause} ORDER BY admission_number DESC LIMIT ? OFFSET ?`
@@ -154,12 +154,14 @@ const getSqlStudents = asyncHandler(async (req, res) => {
 
   try {
     // Get total count
+    console.log('[MySQL] Executing Count Query:', countSql, 'Params:', params);
     const [countRows] = await pool.query(countSql, params);
     const total = countRows[0]?.total || 0;
 
     // Get paginated data
     // Append Limit and Offset to params
     const queryParams = [...params, limitNum, offset];
+    console.log('[MySQL] Executing Data Query:', dataSql, 'Params:', queryParams);
     const [rows] = await pool.query(dataSql, queryParams);
 
     // Normalize rows
@@ -180,9 +182,23 @@ const getSqlStudents = asyncHandler(async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('[MySQL] Failed to fetch students:', error);
-    res.status(500);
-    throw new Error(`SQL Error: ${error.message}`);
+    console.error('[MySQL] Fatal Error in getSqlStudents:', error);
+    // Log additional context
+    console.error('[MySQL] Query State:', {
+      tableName,
+      conditions,
+      params,
+      limitNum,
+      offset
+    });
+
+    // Ensure we don't crash the process if something weird happened
+    if (!res.headersSent) {
+      res.status(500).json({
+        message: 'Internal Student Dashboard error',
+        error: error.message
+      });
+    }
   }
 });
 
@@ -209,7 +225,7 @@ const getStudentById = asyncHandler(async (req, res) => {
   let connection;
   try {
     connection = await pool.getConnection();
-    
+
     // Try to find by id column first
     const [rows] = await connection.query(
       `SELECT * FROM ${tableName} WHERE id = ? LIMIT 1`,
@@ -220,14 +236,14 @@ const getStudentById = asyncHandler(async (req, res) => {
 
     if (rows.length === 0) {
       // Fallback: search by admission_number, admission_no, or pin_no
-       const [rowsFallback] = await connection.query(
+      const [rowsFallback] = await connection.query(
         `SELECT * FROM ${tableName} WHERE admission_number = ? OR admission_no = ? OR pin_no = ? LIMIT 1`,
         [id, id, id]
       );
-      
+
       if (rowsFallback.length === 0) {
-          res.status(404);
-          throw new Error('Student not found');
+        res.status(404);
+        throw new Error('Student not found');
       }
       student = normalizeStudentRow(rowsFallback[0]);
     } else {
@@ -237,17 +253,17 @@ const getStudentById = asyncHandler(async (req, res) => {
     // --- Dynamic Items Calculation (Migration Support) ---
     // Since MySQL student doesn't have 'items' map, we reconstruct it from Transaction history.
     // We look for transactions linked via sqlId (preferred) or legacy studentId.
-    
+
     // 1. Find all PAID transactions for this student
     const studentSqlId = String(student.id); // Ensure string for matching
     const studentAdmissionNo = String(student.studentId);
-    
+
     const transactions = await Transaction.find({
       $or: [
         { 'student.sqlId': studentSqlId }, // Direct SQL ID match
         { 'student.sqlId': studentAdmissionNo }, // Fallback to admission no if migration mapped it that way
         // Fallback for un-migrated legacy data (less likely now, but safe to include)
-        { 'student.studentId': studentAdmissionNo, transactionType: 'student' } 
+        { 'student.studentId': studentAdmissionNo, transactionType: 'student' }
       ],
       isPaid: true
     }).select('items');
@@ -261,16 +277,16 @@ const getStudentById = asyncHandler(async (req, res) => {
       transactions.forEach(txn => {
         if (txn.items && Array.isArray(txn.items)) {
           txn.items.forEach(item => {
-             // Only count fulfilled items (or non-partial if logic requires)
-             if (item.status !== 'partial') {
-               const key = normalizeItemKey(item.name);
-               if (key) {
-                 itemsMap[key] = true;
-               }
-               if (item.productId) {
-                   itemsMap[`id:${item.productId}`] = true;
-               }
-             }
+            // Only count fulfilled items (or non-partial if logic requires)
+            if (item.status !== 'partial') {
+              const key = normalizeItemKey(item.name);
+              if (key) {
+                itemsMap[key] = true;
+              }
+              if (item.productId) {
+                itemsMap[`id:${item.productId}`] = true;
+              }
+            }
           });
         }
       });
@@ -286,7 +302,7 @@ const getStudentById = asyncHandler(async (req, res) => {
     res.status(500);
     throw new Error(`SQL Error: ${error.message}`);
   } finally {
-     if (connection) connection.release();
+    if (connection) connection.release();
   }
 });
 
@@ -312,9 +328,9 @@ const getEmailDomain = () => process.env.SQL_STUDENT_EMAIL_DOMAIN || 'mysql-sync
  */
 const isAdmissionCancelled = (status) => {
   if (!status) return false;
-  
+
   const statusStr = String(status).trim().toLowerCase();
-  
+
   // List of variations that indicate cancellation
   const cancelledPatterns = [
     'admission cancelled',
@@ -333,7 +349,7 @@ const isAdmissionCancelled = (status) => {
     'terminated',
     'inactive',
   ];
-  
+
   // Check if status contains any cancellation pattern
   return cancelledPatterns.some(pattern => statusStr.includes(pattern));
 };
@@ -445,12 +461,12 @@ const syncSqlStudents = asyncHandler(async (req, res) => {
   const { filters = {}, forceRefresh = false, noCache = false } = req.body;
   const { courses = [], branches = [], years = [] } = filters;
   const hasFilters = (Array.isArray(courses) && courses.length > 0) ||
-                     (Array.isArray(branches) && branches.length > 0) ||
-                     (Array.isArray(years) && years.length > 0);
+    (Array.isArray(branches) && branches.length > 0) ||
+    (Array.isArray(years) && years.length > 0);
 
   const tableName = process.env.DB_STUDENTS_TABLE || DEFAULT_STUDENT_TABLE;
   // Use SQL_NO_CACHE hint to bypass MySQL query cache when forceRefresh is true
-  const sql = (forceRefresh || noCache) 
+  const sql = (forceRefresh || noCache)
     ? `SELECT SQL_NO_CACHE * FROM \`${tableName}\``
     : `SELECT * FROM \`${tableName}\``;
 
@@ -482,8 +498,8 @@ const syncSqlStudents = asyncHandler(async (req, res) => {
       normalized = normalized.filter((student) => {
         // Course filter
         if (courses.length > 0) {
-          const studentCourse = isMeaningful(student.course) 
-            ? ensureString(student.course).toLowerCase().trim() 
+          const studentCourse = isMeaningful(student.course)
+            ? ensureString(student.course).toLowerCase().trim()
             : null;
           const matchesCourse = courses.some(filterCourse => {
             const normalizedFilter = ensureString(filterCourse).toLowerCase().trim();
@@ -494,8 +510,8 @@ const syncSqlStudents = asyncHandler(async (req, res) => {
 
         // Branch filter
         if (branches.length > 0) {
-          const studentBranch = isMeaningful(student.branch) 
-            ? ensureString(student.branch).trim() 
+          const studentBranch = isMeaningful(student.branch)
+            ? ensureString(student.branch).trim()
             : null;
           const matchesBranch = branches.some(filterBranch => {
             const normalizedFilter = ensureString(filterBranch).trim();
@@ -527,8 +543,8 @@ const syncSqlStudents = asyncHandler(async (req, res) => {
     if (normalized.length === 0) {
       res.json({
         ...summary,
-        message: hasFilters 
-          ? 'No students match the selected filters.' 
+        message: hasFilters
+          ? 'No students match the selected filters.'
           : 'No records found in MySQL table.',
       });
       return;
@@ -548,7 +564,7 @@ const syncSqlStudents = asyncHandler(async (req, res) => {
     // Filter valid students and separate into existing vs new
     const bulkOps = [];
     const newStudents = [];
-    
+
     // Pre-fetch all emails for new potential users to optimize uniqueness check
     // We'll do this after identifying which students are actually new
 
@@ -664,7 +680,7 @@ const syncSqlStudents = asyncHandler(async (req, res) => {
             previousPhoneNumber: existing.phoneNumber || '',
           });
           // Update the map wrapper so subsequent checks in same sync work (unlikely needed but good practice)
-          Object.assign(existing, updates); 
+          Object.assign(existing, updates);
         } else {
           summary.skipped += 1;
           summary.skippedDetails.push({
@@ -696,14 +712,14 @@ const syncSqlStudents = asyncHandler(async (req, res) => {
       const defaultPassword = getDefaultPassword();
       const studentIds = newStudents.map(s => s.studentId);
       const potentialEmails = studentIds.map(id => `${id}@${emailDomain}`.toLowerCase());
-      
+
       // Find which default emails are already taken
       const takenUsers = await User.find({ email: { $in: potentialEmails } }).select('email');
       const takenEmails = new Set(takenUsers.map(u => u.email));
 
       for (const student of newStudents) {
         let email = `${student.studentId}@${emailDomain}`.toLowerCase();
-        
+
         // If default email is taken, fallback to sequential search (slower but safe)
         if (takenEmails.has(email)) {
           let emailCounter = 1;
@@ -729,7 +745,7 @@ const syncSqlStudents = asyncHandler(async (req, res) => {
             },
           },
         });
-        
+
         summary.inserted += 1;
         summary.insertedDetails.push({
           studentId: student.studentId,
@@ -756,9 +772,9 @@ const syncSqlStudents = asyncHandler(async (req, res) => {
           });
         }
       } catch (error) {
-         if (error.writeErrors) {
+        if (error.writeErrors) {
           error.writeErrors.forEach((err) => {
-             summary.errors.push({
+            summary.errors.push({
               message: `Bulk write error (partial): ${err.errmsg}`,
             });
           });

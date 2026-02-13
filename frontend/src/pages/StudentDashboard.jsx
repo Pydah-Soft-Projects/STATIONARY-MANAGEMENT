@@ -17,13 +17,24 @@ const StudentDashboard = ({ currentUser }) => {
   // -- State --
   // Initialize from sessionStorage if available
   const getInitialState = (key, defaultValue) => {
-    const saved = sessionStorage.getItem(`dashboard_${key}`);
-    return saved ? JSON.parse(saved) : defaultValue;
+    try {
+      const saved = sessionStorage.getItem(`dashboard_${key}`);
+      return saved ? JSON.parse(saved) : defaultValue;
+    } catch (e) {
+      console.warn(`Failed to parse dashboard_${key} from sessionStorage`, e);
+      return defaultValue;
+    }
   };
 
-  const [courses, setCourses] = useState(() => getInitialState('courses', []));
-  const [branches, setBranches] = useState(() => getInitialState('branches', []));
-  const [students, setStudents] = useState(() => getInitialState('students', []));
+  const [courses, setCourses] = useState(() => {
+    const val = getInitialState('courses', []);
+    return Array.isArray(val) ? val : [];
+  });
+  const [branches, setBranches] = useState(() => {
+    const val = getInitialState('branches', []);
+    return Array.isArray(val) ? val : [];
+  });
+  const [students, setStudents] = useState([]);
 
   // Filters
   const [selectedCourse, setSelectedCourse] = useState(() => getInitialState('selectedCourse', ''));
@@ -48,16 +59,19 @@ const StudentDashboard = ({ currentUser }) => {
 
   // Persist state changes
   useEffect(() => {
-    sessionStorage.setItem('dashboard_courses', JSON.stringify(courses));
-    sessionStorage.setItem('dashboard_branches', JSON.stringify(branches));
-    sessionStorage.setItem('dashboard_students', JSON.stringify(students));
-    sessionStorage.setItem('dashboard_selectedCourse', JSON.stringify(selectedCourse));
-    sessionStorage.setItem('dashboard_selectedBranch', JSON.stringify(selectedBranch));
-    sessionStorage.setItem('dashboard_selectedYear', JSON.stringify(selectedYear));
-    sessionStorage.setItem('dashboard_selectedSemester', JSON.stringify(selectedSemester));
-    sessionStorage.setItem('dashboard_searchTerm', JSON.stringify(searchTerm));
-    sessionStorage.setItem('dashboard_pagination', JSON.stringify(pagination));
-  }, [courses, branches, students, selectedCourse, selectedBranch, selectedYear, selectedSemester, searchTerm, pagination]);
+    try {
+      sessionStorage.setItem('dashboard_courses', JSON.stringify(courses));
+      sessionStorage.setItem('dashboard_branches', JSON.stringify(branches));
+      sessionStorage.setItem('dashboard_selectedCourse', JSON.stringify(selectedCourse));
+      sessionStorage.setItem('dashboard_selectedBranch', JSON.stringify(selectedBranch));
+      sessionStorage.setItem('dashboard_selectedYear', JSON.stringify(selectedYear));
+      sessionStorage.setItem('dashboard_selectedSemester', JSON.stringify(selectedSemester));
+      sessionStorage.setItem('dashboard_searchTerm', JSON.stringify(searchTerm));
+      sessionStorage.setItem('dashboard_pagination', JSON.stringify(pagination));
+    } catch (e) {
+      console.warn('Failed to save dashboard state to sessionStorage', e);
+    }
+  }, [courses, branches, selectedCourse, selectedBranch, selectedYear, selectedSemester, searchTerm, pagination]);
 
   // -- Permissions --
   const isSuperAdmin = currentUser?.role === 'Administrator';
@@ -141,9 +155,10 @@ const StudentDashboard = ({ currentUser }) => {
         if (res.ok) {
           const data = await res.json();
           // Filter courses based on permissions if not super admin
-          let availableCourses = data;
-          if (allowedCourseNames !== null) {
-            availableCourses = data.filter(c => {
+          let availableCourses = Array.isArray(data) ? data : []; // Ensure array
+
+          if (availableCourses.length > 0 && allowedCourseNames !== null) {
+            availableCourses = availableCourses.filter(c => {
               // Check 1: Match by ID (New robust method)
               const idMatch = allowedCourseNames.includes(String(c.id));
               // Check 2: Match by Normalized Name (Legacy method)
@@ -153,6 +168,7 @@ const StudentDashboard = ({ currentUser }) => {
             });
           }
           // Only update if changed to prevent re-fetching students
+          // Use a simple length check or ID comparison to avoid deep equality if possible, but JSON stringify is safe enough for small lists
           if (JSON.stringify(availableCourses) !== JSON.stringify(courses)) {
             setCourses(availableCourses);
           }
@@ -162,7 +178,7 @@ const StudentDashboard = ({ currentUser }) => {
       }
     };
     if (isOnline) fetchCourses();
-  }, [isOnline, allowedCourseNames]);
+  }, [isOnline, allowedCourseNames]); // Removed 'courses' dependency to avoid loop if possible, but keeping logic consistent
 
   // 2. Fetch Branches when Course changes
   useEffect(() => {
@@ -176,7 +192,7 @@ const StudentDashboard = ({ currentUser }) => {
       try {
         // Find course ID from selected name/value if possible, currently using name match logic or passed value
         // The API expects courseId if we have it. Let's find the course object.
-        const courseObj = courses.find(c => String(c.id) === selectedCourse || c.name === selectedCourse);
+        const courseObj = (courses || []).find(c => String(c.id) === selectedCourse || c.name === selectedCourse);
         // Note: selectedCourse state holds the ID if using <select value={c.id}>, or name if logic requires.
         // Let's use ID for cleanliness.
 
@@ -185,15 +201,17 @@ const StudentDashboard = ({ currentUser }) => {
         const res = await fetch(apiUrl(`/api/sql/academic/branches?courseId=${courseObj.id}`));
         if (res.ok) {
           const data = await res.json();
-          if (JSON.stringify(data) !== JSON.stringify(branches)) {
-            setBranches(data);
+          const validBranches = Array.isArray(data) ? data : [];
+          if (JSON.stringify(validBranches) !== JSON.stringify(branches)) {
+            setBranches(validBranches);
           }
         }
       } catch (err) {
         console.error('Failed to fetch branches:', err);
+        setBranches([]);
       }
     };
-    if (isOnline && courses.length > 0) fetchBranches();
+    if (isOnline && (courses || []).length > 0) fetchBranches();
   }, [selectedCourse, isOnline, courses]);
 
   // 3. Debounce Search
@@ -232,8 +250,8 @@ const StudentDashboard = ({ currentUser }) => {
       // Need to send the NAME if the student table stores names, or ID if it stores IDs.
       // Migration doc says "Student details should be fetched dynamically from MySQL".
       // Assuming existing table has text values.
-      const courseObj = courses.find(c => String(c.id) === selectedCourse);
-      const branchObj = branches.find(b => String(b.id) === selectedBranch);
+      const courseObj = (courses || []).find(c => String(c.id) === selectedCourse);
+      const branchObj = (branches || []).find(b => String(b.id) === selectedBranch);
 
       const courseParam = courseObj ? courseObj.name : '';
       const branchParam = branchObj ? branchObj.name : '';
@@ -251,15 +269,18 @@ const StudentDashboard = ({ currentUser }) => {
       const res = await fetch(apiUrl(`/api/sql/students?${query.toString()}`));
       if (res.ok) {
         const data = await res.json();
-        setStudents(data.rows || []);
+        setStudents(Array.isArray(data.rows) ? data.rows : []);
         setPagination(prev => ({
           ...prev,
           totalRecords: data.count || 0,
           totalPages: data.pagination?.totalPages || 0
         }));
+      } else {
+        setStudents([]);
       }
     } catch (err) {
       console.error('Failed to fetch students:', err);
+      setStudents([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -275,7 +296,7 @@ const StudentDashboard = ({ currentUser }) => {
       if (students.length > 0) return;
     }
     fetchStudents();
-  }, [fetchStudents, students.length]);
+  }, [fetchStudents]);
 
   // Handlers
   const handlePageChange = (newPage) => {
