@@ -105,7 +105,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
     setItemCategories && setItemCategories(cats);
   }, [products, setItemCategories]);
 
-  const [productTypeFilter, setProductTypeFilter] = useState(''); // 'single', 'set', or ''
+  const [productTypeFilter, setProductTypeFilter] = useState('single'); // 'single', 'set', or ''
 
   const filteredProducts = useMemo(() => {
     return (products || []).filter(p => {
@@ -134,7 +134,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
       }
 
       return true;
-    });
+    }).sort((a, b) => a.name.localeCompare(b.name));
   }, [products, selectedCourse, selectedYear, searchQuery, productTypeFilter]);
 
   // Fetch college stock for sub-admins OR super-admins viewing specific college
