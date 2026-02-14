@@ -16,7 +16,7 @@ const CourseManagement = ({ currentUser }) => {
   const [error, setError] = useState('');
 
   const [selectedCollegeId, setSelectedCollegeId] = useState(null);
-  const [selectedCourseCodes, setSelectedCourseCodes] = useState(new Set());
+  const [selectedCourseIds, setSelectedCourseIds] = useState(new Set());
 
   // College Management State
   const [showCollegeModal, setShowCollegeModal] = useState(false);
@@ -66,22 +66,38 @@ const CourseManagement = ({ currentUser }) => {
   // Handle College Selection
   const handleSelectCollege = (college) => {
     setSelectedCollegeId(college._id);
+
     // Initialize checked state from college's existing courses
-    // stored as array of strings (course codes/names)
-    const existing = new Set(college.courses || []);
-    setSelectedCourseCodes(existing);
+    // stored as array of strings. 
+    // They can be IDs (valid) or Names (legacy)
+    const existing = new Set();
+
+    (college.courses || []).forEach(val => {
+      // Check if val is an existing ID
+      const isId = allCourses.some(c => String(c.id) === String(val));
+      if (isId) {
+        existing.add(String(val));
+      } else {
+        // It's likely a Name (legacy). Find ALL courses with this name and add their IDs
+        const legacyMatches = allCourses.filter(c => c.name === val);
+        legacyMatches.forEach(match => existing.add(String(match.id)));
+      }
+    });
+
+    setSelectedCourseIds(existing);
     setError('');
   };
 
   // Handle Checkbox Toggle
-  const toggleCourse = (courseName) => {
-    const next = new Set(selectedCourseCodes);
-    if (next.has(courseName)) {
-      next.delete(courseName);
+  const toggleCourse = (courseId) => {
+    const next = new Set(selectedCourseIds);
+    const idStr = String(courseId);
+    if (next.has(idStr)) {
+      next.delete(idStr);
     } else {
-      next.add(courseName);
+      next.add(idStr);
     }
-    setSelectedCourseCodes(next);
+    setSelectedCourseIds(next);
   };
 
   // Save Mapping
@@ -95,7 +111,7 @@ const CourseManagement = ({ currentUser }) => {
       const college = colleges.find(c => c._id === selectedCollegeId);
       if (!college) return;
 
-      const coursesArray = Array.from(selectedCourseCodes);
+      const coursesArray = Array.from(selectedCourseIds);
 
       const response = await fetch(apiUrl(`/api/stock-transfers/colleges/${selectedCollegeId}`), {
         method: 'PUT',
@@ -401,17 +417,25 @@ const CourseManagement = ({ currentUser }) => {
               <div className="p-6 flex-1 overflow-y-auto">
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                   {allCourses.map(course => {
-                    const isSelected = selectedCourseCodes.has(course.name);
+                    const isSelected = selectedCourseIds.has(String(course.id));
                     const courseName = course.displayName || course.name;
+
+                    // Check if this course is assigned to ANY OTHER college
+                    const assignedToOther = colleges.find(c =>
+                      c._id !== selectedCollegeId &&
+                      (c.courses || []).some(val => String(val) === String(course.id) || val === course.name)
+                    );
 
                     return (
                       <label
-                        key={course.name}
+                        key={course.id}
                         className={`
-                                 flex items-start gap-3 p-4 rounded-xl border transition-all cursor-pointer select-none
+                                 flex items-start gap-3 p-4 rounded-xl border transition-all cursor-pointer select-none relative
                                  ${isSelected
                             ? 'bg-blue-50 border-blue-200 shadow-sm ring-1 ring-blue-200'
-                            : 'bg-white border-gray-200 hover:border-blue-200 hover:bg-gray-50'}
+                            : assignedToOther
+                              ? 'bg-gray-50 border-gray-200 opacity-60'
+                              : 'bg-white border-gray-200 hover:border-blue-200 hover:bg-gray-50'}
                                `}
                       >
                         <div className={`mt-0.5 w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-colors
@@ -423,11 +447,11 @@ const CourseManagement = ({ currentUser }) => {
                           type="checkbox"
                           className="hidden"
                           checked={isSelected}
-                          onChange={() => canEdit && toggleCourse(course.name)}
+                          onChange={() => canEdit && toggleCourse(course.id)}
                           disabled={!canEdit}
                         />
-                        <div className="flex-1">
-                          <div className={`font-medium ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
+                        <div className="flex-1 min-w-0">
+                          <div className={`font-medium truncate ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
                             {courseName}
                           </div>
                           <div className="text-xs text-gray-500 mt-1 flex flex-wrap gap-1">
@@ -438,6 +462,14 @@ const CourseManagement = ({ currentUser }) => {
                               {(course.branches || []).length} Branches
                             </span>
                           </div>
+
+                          {/* Show assignment warning if assigned to another college */}
+                          {assignedToOther && !isSelected && (
+                            <div className="mt-2 text-xs text-amber-600 flex items-center gap-1 font-medium bg-amber-50 px-2 py-1 rounded border border-amber-100">
+                              <AlertCircle size={10} />
+                              Assigned to {assignedToOther.name}
+                            </div>
+                          )}
                         </div>
                       </label>
                     );
@@ -486,9 +518,9 @@ const CourseManagement = ({ currentUser }) => {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {allCourses.map(course => {
-                  const mappedColleges = colleges.filter(c => (c.courses || []).includes(course.name));
+                  const mappedColleges = colleges.filter(c => (c.courses || []).map(String).includes(String(course.id)));
                   return (
-                    <tr key={course.name} className="hover:bg-gray-50 transition-colors">
+                    <tr key={course.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-3 font-medium text-gray-900">{course.name}</td>
                       <td className="px-6 py-3 text-gray-600">{course.displayName || course.name}</td>
                       <td className="px-6 py-3 text-gray-600">

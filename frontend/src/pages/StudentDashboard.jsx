@@ -260,6 +260,7 @@ const StudentDashboard = ({ currentUser }) => {
         page: pagination.page,
         limit: pagination.limit,
         course: courseParam,
+        courseId: selectedCourse, // Pass ID for strict filtering
         branch: branchParam,
         year: selectedYear,
         semester: selectedSemester,

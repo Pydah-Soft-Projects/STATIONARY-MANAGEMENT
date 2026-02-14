@@ -125,6 +125,31 @@ const getSqlStudents = asyncHandler(async (req, res) => {
   if (course && course !== 'all') {
     conditions.push(`LOWER(course) = LOWER(?)`);
     params.push(course);
+
+    // Strict Filtering: If courseId is provided, restrict to allowed branches for that specific course ID
+    const { courseId } = req.query;
+    if (courseId) {
+      try {
+        // Use MySQL pool to find allowed branches for this course ID
+        const [branchRows] = await pool.query(
+          'SELECT name FROM course_branches WHERE course_id = ? AND is_active = 1',
+          [courseId]
+        );
+        
+        const allowedBranches = branchRows.map(b => b.name);
+
+        // Only apply strict filtering if specific branches are defined for the course
+        // AND the user hasn't already selected a specific branch (which handles itself)
+        if (allowedBranches.length > 0 && (!branch || branch === 'all')) {
+          const placeholders = allowedBranches.map(() => '?').join(',');
+          conditions.push(`branch IN (${placeholders})`);
+          params.push(...allowedBranches);
+        }
+      } catch (err) {
+        console.error('Error applying strict course filter (MySQL):', err);
+        // Fallback to name-only filtering if query fails
+      }
+    }
   }
 
   if (branch && branch !== 'all') {
