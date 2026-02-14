@@ -625,7 +625,7 @@ const StudentDue = ({ currentUser }) => {
           const student = record.student;
           // Substring length increased as we have more space now (105-22 = 82mm approx)
           const studentName = (student.name || 'N/A').substring(0, 45);
-          const studentId = (student.studentId || 'N/A');
+          const studentId = (student.pin || student.studentId || 'N/A');
 
           // Alternate row background
           if (index % 2 === 0) {
@@ -940,7 +940,7 @@ const StudentDue = ({ currentUser }) => {
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="flex flex-col">
                               <span className="text-sm font-medium text-gray-900">{student.name}</span>
-                              <span className="text-xs text-gray-500">{student.studentId}</span>
+                              <span className="text-xs text-gray-500">{student.pin || student.studentId}</span>
                               {student.phoneNumber && (
                                 <span className="text-xs text-gray-400 mt-0.5">{student.phoneNumber}</span>
                               )}

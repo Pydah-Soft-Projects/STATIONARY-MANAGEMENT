@@ -91,7 +91,7 @@ const getStudentDues = asyncHandler(async (req, res) => {
   
   // 1. Fetch ALL matching students (No Limit/Offset in SQL)
   // Optimization: Select only necessary columns
-  const sql = `SELECT id, admission_number, student_name, course, branch, current_year, current_semester, student_mobile, student_status FROM \`${tableName}\` ${whereClause} ORDER BY admission_number DESC`;
+  const sql = `SELECT id, admission_number, pin_no, student_name, course, branch, current_year, current_semester, student_mobile, student_status FROM \`${tableName}\` ${whereClause} ORDER BY admission_number DESC`;
   const sqlParams = [...params];
 
   // 2. Prepare Product Query (Mongo)
@@ -333,6 +333,7 @@ const getStudentDues = asyncHandler(async (req, res) => {
                   branch: student.branch,
                   year: student.year,
                   semester: student.semester,
+                  pin: student.pin,
                   phoneNumber: student.phoneNumber,
               },
               pendingItems,
