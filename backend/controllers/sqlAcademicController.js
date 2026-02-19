@@ -22,7 +22,12 @@ const getCourses = asyncHandler(async (req, res) => {
 
     // Map branches to courses
     const result = courses.map(course => {
-      const courseBranches = branches.filter(b => b.course_id === course.id).map(b => b.name);
+      const courseBranches = branches
+        .filter(b => b.course_id === course.id)
+        .map(b => ({
+          id: b.id,
+          name: b.name
+        }));
       
       // Generate years array [1, 2, ..., total_years]
       const years = Array.from({ length: course.total_years }, (_, i) => i + 1);

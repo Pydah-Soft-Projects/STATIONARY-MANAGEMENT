@@ -51,9 +51,11 @@ const normalizeStudentRow = (row) => {
   const preferredId = pin || secondaryId;
 
   const course = deriveValue(row, ['course', 'course_name', 'courseName', 'program', 'programme'], 'N/A');
+  const courseId = deriveValue(row, ['course_id', 'courseId', 'program_id', 'programId'], null);
   const yearValue = deriveValue(row, ['year', 'year_of_study', 'yearOfStudy', 'current_year', 'stud_year', 'semester_year'], null);
   const semesterValue = deriveValue(row, ['semester', 'current_semester', 'semester_no', 'sem', 'sem_no'], null);
   const branch = deriveValue(row, ['branch', 'department', 'dept', 'department_name'], 'N/A');
+  const branchId = deriveValue(row, ['branch_id', 'branchId', 'dept_id', 'department_id', 'departmentId'], null);
   const status = deriveValue(row, ['status', 'admission_status', 'admissionStatus', 'student_status', 'studentStatus', 'admission_state'], null);
   const phoneNumber = deriveValue(row, ['student_mobile', 'parent_mobile1', 'parent_mobile2', 'mobile', 'phone', 'contact'], '');
 
@@ -79,9 +81,11 @@ const normalizeStudentRow = (row) => {
     pin: pin || null,
     alternateId: secondaryId || null,
     course,
+    courseId,
     year,
     semester,
     branch,
+    branchId,
     status: status || null,
     phoneNumber: phoneNumber || '',
     _sourceRow: row,

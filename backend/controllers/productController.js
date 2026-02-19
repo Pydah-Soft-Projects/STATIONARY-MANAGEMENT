@@ -54,7 +54,7 @@ const createProduct = async (req, res) => {
     } catch (diagErr) {
       console.warn('Could not read Product schema year options:', diagErr);
     }
-    const { name, description, price, stock, imageUrl, forCourse, branch, years, year, remarks, isSet, setItems, lowStockThreshold, semesters, collegeId, applicabilityMode, applicableStudents } = req.body;
+    const { name, description, price, stock, imageUrl, forCourse, forCourseId, branch, branchIds, years, year, remarks, isSet, setItems, lowStockThreshold, semesters, collegeId, applicabilityMode, applicableStudents } = req.body;
     // Handle years array - if years is provided, use it; otherwise fallback to year for backward compatibility
     let parsedYears = [];
     if (years && Array.isArray(years)) {
@@ -100,7 +100,9 @@ const createProduct = async (req, res) => {
       stock: parsedStock,
       imageUrl,
       forCourse: forCourse || '',
+      forCourseId: forCourseId !== undefined && forCourseId !== '' ? Number(forCourseId) : null,
       branch: parsedBranches,
+      branchIds: Array.isArray(branchIds) ? branchIds.map(Number).filter(id => !isNaN(id)) : [],
       years: parsedYears,
       year: parsedYears.length === 1 ? parsedYears[0] : (parsedYears.length === 0 ? 0 : parsedYears[0]), // Backward compatibility
       remarks: remarks || '',
@@ -195,7 +197,7 @@ const updateProduct = async (req, res) => {
     // Track old name for updating transactions if name changes
     const oldName = product.name;
 
-    const { name, description, price, stock, imageUrl, forCourse, branch, years, year, remarks, isSet, setItems, lowStockThreshold, semesters, applicabilityMode, applicableStudents } = req.body;
+    const { name, description, price, stock, imageUrl, forCourse, forCourseId, branch, branchIds, years, year, remarks, isSet, setItems, lowStockThreshold, semesters, applicabilityMode, applicableStudents } = req.body;
     // Handle years array - if years is provided, use it; otherwise fallback to year for backward compatibility
     let parsedYears = undefined;
     if (years !== undefined && Array.isArray(years)) {
@@ -279,8 +281,14 @@ const updateProduct = async (req, res) => {
     }
     product.imageUrl = imageUrl ?? product.imageUrl;
     product.forCourse = forCourse ?? product.forCourse;
+    if (forCourseId !== undefined) {
+      product.forCourseId = forCourseId !== '' ? Number(forCourseId) : null;
+    }
     if (parsedBranches !== undefined) {
       product.branch = parsedBranches;
+    }
+    if (branchIds !== undefined) {
+      product.branchIds = Array.isArray(branchIds) ? branchIds.map(Number).filter(id => !isNaN(id)) : [];
     }
     if (parsedYears !== undefined) {
       product.years = parsedYears;

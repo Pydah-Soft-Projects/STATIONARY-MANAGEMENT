@@ -46,6 +46,15 @@ const userSchema = new mongoose.Schema(
       required: [true, 'Please provide your year of study'],
       min: [1, 'Year must be at least 1'],
     },
+    // New: Unique SQL IDs for course and branch
+    courseId: {
+      type: Number,
+      default: null,
+    },
+    branchId: {
+      type: Number,
+      default: null,
+    },
     // Items assigned to a student (key-value map of itemCategory -> boolean)
     items: {
       type: Object,

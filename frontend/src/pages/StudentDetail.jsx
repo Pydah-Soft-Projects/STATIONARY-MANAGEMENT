@@ -267,15 +267,21 @@ const StudentDetail = ({
   const avatarUrl = student?.avatarUrl || student?.profileImage || student?.photoUrl || student?.photo || '';
 
   const visibleItems = (products || []).filter(p => {
+    if (!student) return false;
+
     // 1. Specific Student Applicability: show to all students; mapped vs addon is decided in isAddOnProduct
     if (p.applicabilityMode === 'students') {
-      if (!student) return false;
       return true;
     }
 
     // 2. Rule-Based Applicability (Course/Year/Branch)
-    // Course filter: if product has forCourse, it must match student's course
-    if (p.forCourse && normalizeCourse(p.forCourse) !== studentCourseNormalized) return false;
+    // Course filter: prioritize forCourseId if available for exact match
+    if (p.forCourseId && student.courseId) {
+      if (p.forCourseId !== student.courseId) return false;
+    } else if (p.forCourse && normalizeCourse(p.forCourse) !== studentCourseNormalized) {
+      // Fallback to name-based matching for legacy products or students
+      return false;
+    }
 
     // Year filter: check both years (array) and year (single value) for backward compatibility
     const productYears = p.years || (p.year ? [p.year] : []);
@@ -286,14 +292,20 @@ const StudentDetail = ({
     }
     // If product has no years specified (empty array), it applies to all years (for that course)
 
-    // Branch filter: if product has branches, student's branch must be in the array
-    const productBranches = Array.isArray(p.branch)
-      ? p.branch
-      : (p.branch ? [p.branch] : []);
-    if (productBranches.length > 0) {
-      const studentBranchNormalized = normalizeCourse(student?.branch || '');
-      const normalizedProductBranches = productBranches.map(b => normalizeCourse(b));
-      if (!normalizedProductBranches.includes(studentBranchNormalized)) return false;
+    // Branch filter: prioritize branchIds if available
+    const productBranchIds = Array.isArray(p.branchIds) ? p.branchIds : [];
+    if (productBranchIds.length > 0 && student.branchId) {
+      if (!productBranchIds.includes(student.branchId)) return false;
+    } else {
+      // Fallback to name-based branch matching
+      const productBranches = Array.isArray(p.branch)
+        ? p.branch
+        : (p.branch ? [p.branch] : []);
+      if (productBranches.length > 0) {
+        const studentBranchNormalized = normalizeCourse(student?.branch || '');
+        const normalizedProductBranches = productBranches.map(b => normalizeCourse(b));
+        if (!normalizedProductBranches.includes(studentBranchNormalized)) return false;
+      }
     }
     // If product has no branches specified (empty array), it applies to all branches (for that course)
 

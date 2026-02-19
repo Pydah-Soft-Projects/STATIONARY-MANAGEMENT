@@ -31,6 +31,11 @@ const productSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    // New: Unique SQL ID for the course to resolve name ambiguity
+    forCourseId: {
+      type: Number,
+      default: null,
+    },
     // Which years this product applies to (array of years: [1,2,3,4]). Empty array means applies to all years
     years: {
       type: [Number],
@@ -59,6 +64,11 @@ const productSchema = new mongoose.Schema(
         },
         message: 'Branch must be an array of non-empty strings'
       }
+    },
+    // New: Unique SQL IDs for the branches
+    branchIds: {
+      type: [Number],
+      default: [],
     },
     // Optional semester applicability (e.g., 1, 2) - array for multiple semesters
     // If empty, applies to all semesters in the selected year(s)

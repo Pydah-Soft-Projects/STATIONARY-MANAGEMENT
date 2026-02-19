@@ -33,8 +33,10 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
     stock: 0,
     remarks: '',
     forCourse: selectedCourse || '',
+    forCourseId: null,
     years: [],
     branch: [],
+    branchIds: [],
     semesters: [],
     isSet: false,
     setItems: [],
@@ -253,6 +255,45 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
         }
       }
 
+      // Reverse lookup: Find the ID that matches this Name AND (matches branch OR is just a good guess)
+      let deducedCourseId = selectedProduct.forCourseId || null;
+      let deducedBranchIds = selectedProduct.branchIds || [];
+
+      if (normalizedCourse && config?.courses) {
+        const matchingCourses = config.courses.filter(c => c.name === normalizedCourse);
+        if (matchingCourses.length > 0) {
+          let bestMatch = null;
+          if (deducedCourseId) {
+            bestMatch = matchingCourses.find(c => c.id === deducedCourseId);
+          }
+
+          if (!bestMatch) {
+            // Find course that supports the current branches
+            const currentBranches = Array.isArray(selectedProduct.branch) ? selectedProduct.branch : (selectedProduct.branch ? [selectedProduct.branch] : []);
+            if (currentBranches.length > 0) {
+              bestMatch = matchingCourses.find(c => {
+                const configBranches = (c.branches || []).map(b => typeof b === 'object' ? b.name : b);
+                return currentBranches.some(b => configBranches.includes(b));
+              });
+            }
+          }
+
+          if (!bestMatch) bestMatch = matchingCourses[0];
+
+          deducedCourseId = bestMatch.id;
+
+          // Deduce branch IDs if missing
+          if (deducedBranchIds.length === 0) {
+            const currentBranches = Array.isArray(selectedProduct.branch) ? selectedProduct.branch : (selectedProduct.branch ? [selectedProduct.branch] : []);
+            const configBranches = bestMatch.branches || [];
+            deducedBranchIds = currentBranches.map(name => {
+              const bObj = configBranches.find(b => (typeof b === 'object' ? b.name : b) === name);
+              return typeof bObj === 'object' ? bObj.id : null;
+            }).filter(id => id !== null);
+          }
+        }
+      }
+
       setFormData({
         name: selectedProduct.name || '',
         description: selectedProduct.description || '',
@@ -260,9 +301,10 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
         stock: displayStockInfo.value || 0,
         remarks: selectedProduct.remarks || '',
         forCourse: normalizedCourse,
+        forCourseId: deducedCourseId,
         years: productYears,
-
         branch: Array.isArray(selectedProduct.branch) ? selectedProduct.branch : (selectedProduct.branch ? [selectedProduct.branch] : []),
+        branchIds: deducedBranchIds,
         semesters: selectedProduct.semesters || [],
         isSet: Boolean(selectedProduct.isSet),
         setItems: (selectedProduct.setItems || []).map(item => ({
@@ -277,29 +319,8 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
           : []).filter(s => s != null),
       });
 
-      // Reverse lookup: Find the ID that matches this Name AND (matches branch OR is just a good guess)
-      if (normalizedCourse && config?.courses) {
-        const matchingCourses = config.courses.filter(c => c.name === normalizedCourse);
-        if (matchingCourses.length > 0) {
-          // If only one match, easy
-          if (matchingCourses.length === 1) {
-            setSelectedConfigCourseId(matchingCourses[0].id);
-          } else {
-            // Multiple matches (e.g. duplicate names). Check branches.
-            // If the product has a saved branch, find the course that supports it.
-            const productBranch = (Array.isArray(selectedProduct.branch) ? selectedProduct.branch[0] : selectedProduct.branch) || '';
-            if (productBranch) {
-              const bestMatch = matchingCourses.find(c => (c.branches || []).includes(productBranch));
-              setSelectedConfigCourseId(bestMatch ? bestMatch.id : matchingCourses[0].id);
-            } else {
-              // No specific branch saved, just default to first one? Or leave empty?
-              // Defaulting to first match is safer than nothing.
-              setSelectedConfigCourseId(matchingCourses[0].id);
-            }
-          }
-        } else {
-          setSelectedConfigCourseId('');
-        }
+      if (deducedCourseId) {
+        setSelectedConfigCourseId(deducedCourseId);
       } else {
         setSelectedConfigCourseId('');
       }
@@ -356,9 +377,34 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
             ? (value === '' ? 0 : Number(value))
             : value,
       };
-      if (name === 'forCourse') {
+      if (name === 'forCourseId') {
+        const id = value === '' ? null : Number(value);
+        newData.forCourseId = id;
         newData.years = [];
-        newData.branch = []; // Reset branches when course changes
+        newData.branch = [];
+        newData.branchIds = [];
+
+        // Find selecting course from config to get the Name
+        const selected = (config?.courses || []).find(c => c.id === id);
+        newData.forCourse = selected ? selected.name : '';
+        if (selected) {
+          setSelectedConfigCourseId(selected.id);
+        } else {
+          setSelectedConfigCourseId('');
+        }
+      } else if (name === 'forCourse') {
+        newData.years = [];
+        newData.branch = [];
+        newData.branchIds = [];
+
+        // Find selecting course from config to get the ID
+        const selected = (config?.courses || []).find(c => c.name === value);
+        newData.forCourseId = selected ? selected.id : null;
+        if (selected) {
+          setSelectedConfigCourseId(selected.id);
+        } else {
+          setSelectedConfigCourseId('');
+        }
       }
       return newData;
     });
@@ -384,21 +430,37 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
     });
   };
 
-  const handleBranchToggle = (branch) => {
+  const handleBranchToggle = (branchName) => {
     setFormData(prev => {
       const currentBranches = prev.branch || [];
-      const isSelected = currentBranches.includes(branch);
+      const currentBranchIds = prev.branchIds || [];
+      const isSelected = currentBranches.includes(branchName);
+
+      // Find branch ID if available in config
+      const courseConfig = prev.forCourseId
+        ? (config?.courses || []).find(c => c.id === prev.forCourseId)
+        : (config?.courses || []).find(c => c.name === prev.forCourse);
+
+      const branchObj = courseConfig?.branches?.find(b => b === branchName || (typeof b === 'object' && b.name === branchName));
+      const branchId = typeof branchObj === 'object' ? branchObj.id : null;
 
       let newBranches;
+      let newBranchIds;
+
       if (isSelected) {
-        newBranches = currentBranches.filter(b => b !== branch);
+        newBranches = currentBranches.filter(b => b !== branchName);
+        if (branchId) newBranchIds = currentBranchIds.filter(id => id !== branchId);
+        else newBranchIds = currentBranchIds;
       } else {
-        newBranches = [...currentBranches, branch].sort((a, b) => a.localeCompare(b));
+        newBranches = [...currentBranches, branchName].sort((a, b) => a.localeCompare(b));
+        if (branchId) newBranchIds = [...currentBranchIds, branchId];
+        else newBranchIds = currentBranchIds;
       }
 
       return {
         ...prev,
-        branch: newBranches
+        branch: newBranches,
+        branchIds: newBranchIds
       };
     });
   };
@@ -633,6 +695,8 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             ...formData,
+            forCourseId: formData.forCourseId || undefined,
+            branchIds: formData.branchIds || [],
             setItems: formData.isSet
               ? (formData.setItems || []).map(item => ({
                 productId: item.productId,
@@ -670,8 +734,10 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
             stock: formData.stock || 0,
             remarks: formData.remarks || '',
             forCourse: formData.forCourse || undefined,
+            forCourseId: formData.forCourseId || undefined,
             years: formData.years || [],
             branch: formData.branch,
+            branchIds: formData.branchIds || [],
             semesters: formData.semesters || [],
             isSet: formData.isSet || undefined,
             setItems: formData.isSet
@@ -1631,15 +1697,20 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                       <label className="block text-sm font-semibold text-gray-700 mb-2">Course</label>
                       {isEditing ? (
                         <select
-                          name="forCourse"
-                          value={formData.forCourse}
+                          name="forCourseId"
+                          value={formData.forCourseId || ''}
                           onChange={handleFormChange}
                           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         >
                           <option value="">All Courses</option>
-                          {(config?.courses || []).map(c => (
-                            <option key={c.name} value={c.name}>{c.displayName}</option>
-                          ))}
+                          {(config?.courses || []).map(c => {
+                            const branchNames = (c.branches || []).map(b => typeof b === 'object' ? b.name : b);
+                            return (
+                              <option key={c.id} value={c.id}>
+                                {c.displayName}{branchNames.length > 0 ? ` (${branchNames.join(', ')})` : ''}
+                              </option>
+                            );
+                          })}
                         </select>
                       ) : (
                         <p className="text-gray-700 bg-gray-50 p-2 rounded-lg">{selectedProduct.forCourse || 'All Courses'}</p>
@@ -1652,30 +1723,40 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                       {isEditing ? (
                         <div className="bg-gray-50 border border-gray-300 rounded-lg p-4">
                           <div className="flex flex-wrap gap-3">
-                            {(config?.courses?.find(c => c.name === formData.forCourse)?.years || []).map(y => {
-                              const isChecked = (formData.years || []).includes(y);
-                              return (
-                                <label
-                                  key={y}
-                                  className="flex items-center gap-2 px-4 py-2 bg-white border-2 rounded-lg cursor-pointer transition-all hover:border-blue-400"
-                                  style={{
-                                    borderColor: isChecked ? '#3b82f6' : '#d1d5db',
-                                    backgroundColor: isChecked ? '#eff6ff' : 'white'
-                                  }}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={() => handleYearToggle(y)}
-                                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                                  />
-                                  <span className="font-medium text-gray-700">Year {y}</span>
-                                </label>
+                            {(() => {
+                              const courseConfig = formData.forCourseId
+                                ? config?.courses?.find(c => c.id === formData.forCourseId)
+                                : config?.courses?.find(c => c.name === formData.forCourse);
+                              return (courseConfig?.years || []).map(y => {
+                                const isChecked = (formData.years || []).includes(y);
+                                return (
+                                  <label
+                                    key={y}
+                                    className="flex items-center gap-2 px-4 py-2 bg-white border-2 rounded-lg cursor-pointer transition-all hover:border-blue-400"
+                                    style={{
+                                      borderColor: isChecked ? '#3b82f6' : '#d1d5db',
+                                      backgroundColor: isChecked ? '#eff6ff' : 'white'
+                                    }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => handleYearToggle(y)}
+                                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                    />
+                                    <span className="font-medium text-gray-700">Year {y}</span>
+                                  </label>
+                                );
+                              });
+                            })()}
+                            {(() => {
+                              const courseConfig = formData.forCourseId
+                                ? config?.courses?.find(c => c.id === formData.forCourseId)
+                                : config?.courses?.find(c => c.name === formData.forCourse);
+                              return (courseConfig?.years || []).length === 0 && (
+                                <p className="text-sm text-gray-500">Select a course to see available years</p>
                               );
-                            })}
-                            {(config?.courses?.find(c => c.name === formData.forCourse)?.years || []).length === 0 && (
-                              <p className="text-sm text-gray-500">Select a course to see available years</p>
-                            )}
+                            })()}
                           </div>
                           {(formData.years || []).length === 0 && (
                             <p className="text-xs text-gray-500 mt-2">No years selected - product applies to all years</p>
@@ -1700,30 +1781,41 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                       {isEditing ? (
                         <div className="bg-gray-50 border border-gray-300 rounded-lg p-4">
                           <div className="flex flex-wrap gap-3">
-                            {(config?.courses?.find(c => c.name === formData.forCourse)?.branches || []).map(branch => {
-                              const isChecked = (formData.branch || []).includes(branch);
-                              return (
-                                <label
-                                  key={branch}
-                                  className="flex items-center gap-2 px-4 py-2 bg-white border-2 rounded-lg cursor-pointer transition-all hover:border-blue-400"
-                                  style={{
-                                    borderColor: isChecked ? '#3b82f6' : '#d1d5db',
-                                    backgroundColor: isChecked ? '#eff6ff' : 'white'
-                                  }}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={() => handleBranchToggle(branch)}
-                                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                                  />
-                                  <span className="font-medium text-gray-700">{branch}</span>
-                                </label>
+                            {(() => {
+                              const courseConfig = formData.forCourseId
+                                ? config?.courses?.find(c => c.id === formData.forCourseId)
+                                : config?.courses?.find(c => c.name === formData.forCourse);
+                              return (courseConfig?.branches || []).map(branch => {
+                                const branchName = typeof branch === 'object' ? branch.name : branch;
+                                const isChecked = (formData.branch || []).includes(branchName);
+                                return (
+                                  <label
+                                    key={typeof branch === 'object' ? branch.id : branch}
+                                    className="flex items-center gap-2 px-4 py-2 bg-white border-2 rounded-lg cursor-pointer transition-all hover:border-blue-400"
+                                    style={{
+                                      borderColor: isChecked ? '#3b82f6' : '#d1d5db',
+                                      backgroundColor: isChecked ? '#eff6ff' : 'white'
+                                    }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => handleBranchToggle(branchName)}
+                                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                    />
+                                    <span className="font-medium text-gray-700">{branchName}</span>
+                                  </label>
+                                );
+                              });
+                            })()}
+                            {(() => {
+                              const courseConfig = formData.forCourseId
+                                ? config?.courses?.find(c => c.id === formData.forCourseId)
+                                : config?.courses?.find(c => c.name === formData.forCourse);
+                              return (courseConfig?.branches || []).length === 0 && (
+                                <p className="text-sm text-gray-500">Select a course to see available branches</p>
                               );
-                            })}
-                            {(config?.courses?.find(c => c.name === formData.forCourse)?.branches || []).length === 0 && (
-                              <p className="text-sm text-gray-500">Select a course to see available branches</p>
-                            )}
+                            })()}
                           </div>
                           {(formData.branch || []).length === 0 && (
                             <p className="text-xs text-gray-500 mt-2">No branches selected - product applies to all branches</p>
@@ -1735,9 +1827,13 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                             const productBranches = Array.isArray(selectedProduct.branch)
                               ? selectedProduct.branch
                               : (selectedProduct.branch ? [selectedProduct.branch] : []);
+
                             const branchesDisplay = productBranches.length === 0
                               ? 'All Branches'
-                              : productBranches.sort((a, b) => a.localeCompare(b)).join(', ');
+                              : productBranches
+                                .map(b => typeof b === 'object' ? b.name : b)
+                                .sort((a, b) => String(a).localeCompare(String(b)))
+                                .join(', ');
                             return <p className="text-gray-700 font-medium">{branchesDisplay}</p>;
                           })()}
                         </div>
