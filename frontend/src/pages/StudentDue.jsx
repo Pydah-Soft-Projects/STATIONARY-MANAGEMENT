@@ -485,14 +485,10 @@ const StudentDue = ({ currentUser }) => {
     try {
       setGeneratingReport(true);
       // Fetch ALL matching students for report (ignore client pagination)
-      // Use reportFilters state which holds the modal's selections
       const query = new URLSearchParams({
         page: 1,
         limit: 1000000, // Fetch effectively all
-        search: reportFilters.course ? '' : dueFilters.search, // Use search only if no specific course filter override? Or keep consistent? 
-        // User asked to "select filters". The modal filters should be prioritized.
-        // But if reportFilters are initialized from dueFilters, it's consistent.
-        // Let's use reportFilters completely.
+        search: reportFilters.course ? '' : dueFilters.search,
         course: reportFilters.course,
         branch: reportFilters.branch,
         year: reportFilters.year,
@@ -506,9 +502,28 @@ const StudentDue = ({ currentUser }) => {
       const data = await response.json();
       const filteredForReport = data.students || [];
 
-      // Calculate stats from the full dataset (backend returns totalDue)
-      const totalPendingAmount = filteredForReport.reduce((sum, record) => sum + (record.totalDue || 0), 0);
+      // Calculate global stats
+      const reportStats = data.stats || {};
+      const totalPendingAmount = reportStats.totalPendingAmount || filteredForReport.reduce((sum, record) => sum + (record.totalDue || 0), 0);
       const totalPendingStudents = filteredForReport.length;
+
+      const totalEnrolled = reportStats.totalEnrolled || totalPendingStudents;
+      const paidStudents = reportStats.paidStudents || 0;
+
+      // Group Data: Course -> Branch -> Year -> Students
+      const groupedData = {};
+
+      filteredForReport.forEach(record => {
+        const course = record.student.course ? record.student.course.toUpperCase() : 'UNKNOWN COURSE';
+        const branch = record.student.branch ? record.student.branch.toUpperCase() : 'COMMON / NO BRANCH';
+        const year = record.student.year ? `Year ${record.student.year}` : 'Unknown Year';
+
+        if (!groupedData[course]) groupedData[course] = {};
+        if (!groupedData[course][branch]) groupedData[course][branch] = {};
+        if (!groupedData[course][branch][year]) groupedData[course][branch][year] = [];
+
+        groupedData[course][branch][year].push(record);
+      });
 
       // Generate PDF
       const pdf = new jsPDF({
@@ -517,160 +532,167 @@ const StudentDue = ({ currentUser }) => {
         format: 'a4'
       });
 
-      // Header Section
-      pdf.setFontSize(16);
-      pdf.setTextColor(0, 0, 0);
-      pdf.setFont(undefined, 'bold');
+      // Helper to check page break
+      let yPos = 20;
+      const pageHeight = pdf.internal.pageSize.height;
 
-      // Find selected kit with proper ID comparison
-      const selectedKit = reportFilters.kit
-        ? normalizedProducts.find(p => String(p._id) === String(reportFilters.kit))
-        : null;
-      const reportTitle = selectedKit
-        ? `Stationary Pending List: ${selectedKit.name}`
-        : 'Stationary Pending Students List';
-
-      pdf.text(reportTitle, 105, 15, { align: 'center' });
-
-      // Draw line under header
-      pdf.setDrawColor(200, 200, 200);
-      pdf.line(20, 20, 190, 20);
-
-      let yPos = 28;
-
-      // Report Info Section (Condensed)
-      pdf.setFontSize(10);
-      pdf.setFont(undefined, 'bold');
-
-      const filterParts = [];
-      if (reportFilters.course) filterParts.push(`Course: ${reportFilters.course.toUpperCase()}`);
-      if (reportFilters.year) filterParts.push(`Year: ${reportFilters.year}`);
-      if (reportFilters.branch) filterParts.push(`Branch: ${reportFilters.branch}`);
-      if (reportFilters.semester) filterParts.push(`Semester: ${reportFilters.semester}`);
-      if (selectedKit) filterParts.push(`Kit: ${selectedKit.name}`);
-
-      // Just display filters without "Report Information" label
-      if (filterParts.length > 0) {
-        pdf.text(filterParts.join("   |   "), 105, yPos, { align: 'center' });
-        yPos += 5;
-      }
-
-      pdf.setFont(undefined, 'normal');
-      pdf.setFontSize(9);
-      yPos += 3;
-
-      // Student Details Table & Statistics Merged
-      if (filteredForReport.length > 0) {
-        pdf.setFontSize(10);
+      // Header Function
+      const drawHeader = () => {
+        pdf.setFontSize(16);
+        pdf.setTextColor(0, 0, 0);
         pdf.setFont(undefined, 'bold');
 
-        // Header Background
-        pdf.setFillColor(240, 240, 240);
-        pdf.rect(20, yPos - 4, 170, 6, 'F');
+        const selectedKit = reportFilters.kit
+          ? normalizedProducts.find(p => String(p._id) === String(reportFilters.kit))
+          : null;
+        const reportTitle = selectedKit
+          ? `Stationary Pending List: ${selectedKit.name}`
+          : 'Stationary Pending Students List';
 
-        // Left side: Title
-        pdf.text('Student Due Details', 20, yPos);
+        pdf.text(reportTitle, 105, 15, { align: 'center' });
 
-        // Right side: Statistics (Merged into same line)
+        // Stats in header
         if (reportFilters.includeSummary) {
-          // NEW SUMMARY FORMAT: Total Pending Students | Total Amount
-          const statsText = `Total Pending Students: ${totalPendingStudents} | Total Amount: ${formatCurrencyForPDF(totalPendingAmount)}`;
-
-          pdf.setFontSize(9); // Slightly smaller for stats
-          pdf.text(statsText, 190, yPos, { align: 'right' });
-          pdf.setFontSize(10); // Reset for next elements if needed
+          pdf.setFontSize(10);
+          pdf.setFont(undefined, 'normal');
+          const statsText = `Total Students: ${totalEnrolled} | Paid: ${paidStudents} | Unpaid: ${totalPendingStudents} | Total Due: ${formatCurrencyForPDF(totalPendingAmount)}`;
+          pdf.text(statsText, 105, 22, { align: 'center' });
         }
 
-        yPos += 7;
+        pdf.setDrawColor(200, 200, 200);
+        pdf.line(20, 25, 190, 25);
+        yPos = 35;
+      };
 
-        // Table Headers
-        pdf.setFontSize(9);
-        pdf.setFont(undefined, 'bold');
-        pdf.setFillColor(230, 230, 230);
-        pdf.rect(20, yPos - 3, 170, 6, 'F');
+      const checkPageBreak = (neededSpace) => {
+        if (yPos + neededSpace > pageHeight - 20) {
+          pdf.addPage();
+          yPos = 20;
+          return true;
+        }
+        return false;
+      };
 
-        // Define column positions (Adjusted for gap and narrower remarks)
-        const colName = 22;
-        const colRoll = 105; // Increased mainly to avoid overlap (was 85)
-        const colRemarks = 150; // Started later, making column narrower (was 130)
+      drawHeader();
 
-        pdf.text('Student Name', colName, yPos + 1);
-        pdf.text('Roll Number', colRoll, yPos + 1);
+      // Iterate and Render
+      const sortedCourses = Object.keys(groupedData).sort();
 
-        const remarksLabel = reportFilters.includeItemDetails ? 'Pending Items' : 'Remarks';
-        pdf.text(remarksLabel, colRemarks, yPos + 1);
-        yPos += 8;
+      sortedCourses.forEach((course, courseIndex) => {
+        const branches = groupedData[course];
+        const sortedBranches = Object.keys(branches).sort();
 
-        pdf.setFont(undefined, 'normal');
-        pdf.setFontSize(9);
-
-        filteredForReport.forEach((record, index) => {
-          // Check if we need a new page
-          if (yPos > 270) {
+        sortedBranches.forEach((branch, branchIndex) => {
+          // Force new page for every branch except the very first one of the first course
+          if (courseIndex > 0 || branchIndex > 0) {
             pdf.addPage();
-            yPos = 20;
-            // Redraw table headers on new page
+            drawHeader();
+          }
+
+          const years = branches[branch];
+          const sortedYears = Object.keys(years).sort();
+
+          sortedYears.forEach((year) => {
+            const studentsInGroup = years[year];
+
+            // Check if we need space for header + table header + 1 row
+            checkPageBreak(30);
+
+            // Combined Header: Course / Branch / Year
+            pdf.setFontSize(12);
+            pdf.setTextColor(0, 0, 0);
             pdf.setFont(undefined, 'bold');
+
+            const headerText = `Course: ${course}    Branch: ${branch}    ${year}`;
+            pdf.text(headerText, 20, yPos);
+            yPos += 8;
+
+            // Table Header
             pdf.setFontSize(9);
+            pdf.setTextColor(0, 0, 0);
+            pdf.setFont(undefined, 'bold');
             pdf.setFillColor(230, 230, 230);
             pdf.rect(20, yPos - 3, 170, 6, 'F');
+
+            const colName = 22;
+            const colRoll = 105;
+            const colRemarks = 150;
+
             pdf.text('Student Name', colName, yPos + 1);
             pdf.text('Roll Number', colRoll, yPos + 1);
-            pdf.text('Remarks', colRemarks, yPos + 1);
+            const remarksLabel = reportFilters.includeItemDetails ? 'Pending Items' : 'Total Due';
+            pdf.text(remarksLabel, colRemarks, yPos + 1);
             yPos += 8;
+
+            // Table Rows
             pdf.setFont(undefined, 'normal');
             pdf.setFontSize(9);
-          }
 
-          const student = record.student;
-          // Substring length increased as we have more space now (105-22 = 82mm approx)
-          const studentName = (student.name || 'N/A').substring(0, 45);
-          const studentId = (student.pin || student.studentId || 'N/A');
+            studentsInGroup.forEach((record, index) => {
+              const student = record.student;
+              const selectedKit = reportFilters.kit
+                ? normalizedProducts.find(p => String(p._id) === String(reportFilters.kit))
+                : null;
 
-          // Alternate row background
-          if (index % 2 === 0) {
-            pdf.setFillColor(250, 250, 250);
-            pdf.rect(20, yPos - 3, 170, 8, 'F');
-          }
+              // Determine row height based on content
+              let rowHeight = 8;
+              let splitItems = null;
 
-          pdf.text(studentName, colName, yPos + 2);
-          pdf.text(studentId, colRoll, yPos + 2);
-
-          if (reportFilters.includeItemDetails) {
-            // Show only items from the selected kit if a kit is filtered
-            let displayItems = record.pendingItems;
-            if (selectedKit) {
-              const kitKey = selectedKit._key;
-              if (selectedKit.isSet) {
-                const kitComponentsKeys = (selectedKit.setItems || []).map(si =>
-                  getItemKey(si.product?.name || si.productNameSnapshot)
-                );
-                displayItems = record.pendingItems.filter(pi =>
-                  pi._key === kitKey || kitComponentsKeys.includes(pi._key)
-                );
-              } else {
-                displayItems = record.pendingItems.filter(pi => pi._key === kitKey);
+              if (reportFilters.includeItemDetails) {
+                let displayItems = record.pendingItems;
+                if (selectedKit) {
+                  const kitKey = selectedKit._key;
+                  if (selectedKit.isSet) {
+                    const kitComponentsKeys = (selectedKit.setItems || []).map(si => getItemKey(si.product?.name || si.productNameSnapshot));
+                    displayItems = record.pendingItems.filter(pi => pi._key === kitKey || kitComponentsKeys.includes(pi._key));
+                  } else {
+                    displayItems = record.pendingItems.filter(pi => pi._key === kitKey);
+                  }
+                }
+                const itemNames = displayItems.map(pi => pi.name).join(', ');
+                splitItems = pdf.splitTextToSize(itemNames, 35);
+                if (splitItems.length > 1) {
+                  rowHeight += (splitItems.length - 1) * 4;
+                }
               }
-            }
 
-            const itemNames = displayItems.map(pi => pi.name).join(', ');
-            // Split text to fit in narrower column (190 - 150 = 40mm)
-            const splitItems = pdf.splitTextToSize(itemNames, 35);
-            pdf.text(splitItems, colRemarks, yPos + 2);
+              if (checkPageBreak(rowHeight)) {
+                // Redraw headers if page break
+                pdf.setFont(undefined, 'bold');
+                pdf.setFontSize(9);
+                pdf.setFillColor(230, 230, 230);
+                pdf.rect(20, yPos - 3, 170, 6, 'F');
+                pdf.text('Student Name', colName, yPos + 1);
+                pdf.text('Roll Number', colRoll, yPos + 1);
+                pdf.text(remarksLabel, colRemarks, yPos + 1);
+                yPos += 8;
+                pdf.setFont(undefined, 'normal');
+                pdf.setFontSize(9);
+              }
 
-            // Adjust yPos if items wrap
-            const lines = splitItems.length;
-            if (lines > 1) {
-              yPos += (lines - 1) * 4;
-            }
-          }
+              if (index % 2 === 0) {
+                pdf.setFillColor(250, 250, 250);
+                pdf.rect(20, yPos - 3, 170, rowHeight, 'F');
+              }
 
-          yPos += 8;
+              pdf.text((student.name || 'N/A').substring(0, 45), colName, yPos + 2);
+              pdf.text((student.pin || student.studentId || 'N/A'), colRoll, yPos + 2);
+
+              if (reportFilters.includeItemDetails && splitItems) {
+                pdf.text(splitItems, colRemarks, yPos + 2);
+              } else {
+                pdf.text(formatCurrencyForPDF(record.totalDue), colRemarks, yPos + 2);
+              }
+
+              yPos += rowHeight;
+            });
+
+            yPos += 5; // Spacing after year table
+          });
+          yPos += 2; // Spacing after branch section
         });
-      } else {
-        pdf.setFontSize(10);
-        pdf.text('No students found with pending items for the selected filters.', 20, yPos);
-      }
+        yPos += 5; // Extra spacing after course section
+      });
 
       // Footer
       const pageCount = pdf.internal.pages.length - 1;
