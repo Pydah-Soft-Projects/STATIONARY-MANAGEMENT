@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Home, PlusCircle, Users, List, Settings, LogOut, ChevronLeft, ChevronRight, Menu, UserPlus, X, User, GraduationCap, Receipt, ClipboardList, ClipboardCheck, ArrowRightLeft, ShoppingCart } from 'lucide-react';
+import { Home, PlusCircle, Users, List, Settings, LogOut, ChevronLeft, ChevronRight, Menu, UserPlus, X, User, GraduationCap, Receipt, ClipboardList, ClipboardCheck, ArrowRightLeft, ShoppingCart, Briefcase } from 'lucide-react';
 import { hasViewAccess } from './utils/permissions';
 
 const Sidebar = ({ onLogout, isMobile: isMobileProp, sidebarOpen, setSidebarOpen, currentUser }) => {
@@ -31,6 +31,7 @@ const Sidebar = ({ onLogout, isMobile: isMobileProp, sidebarOpen, setSidebarOpen
     { path: '/', label: 'Dashboard', icon: Home, exact: true, permissionKey: 'dashboard' },
     // { path: '/student-management', label: 'Manage Students', icon: Users, permissionKey: 'student-management' }, // REMOVED
     { path: '/students-dashboard', label: 'Student Dashboard', icon: GraduationCap, permissionKey: 'course-dashboard' },
+    { path: '/employees-dashboard', label: 'Employee Dashboard', icon: Briefcase, permissionKey: 'employee-dashboard' },
     { path: '/sub-admin-management', label: 'Manage Sub-Admins', icon: UserPlus, superAdminOnly: true },
     { path: '/courses', label: 'College and Courses', icon: GraduationCap, permissionKey: 'courses' },
     { path: '/manage-stock', label: 'Manage Stock', icon: List, permissionKeys: ['stock-products', 'stock-add', 'stock-entries', 'stock-vendors', 'manage-stock'] },

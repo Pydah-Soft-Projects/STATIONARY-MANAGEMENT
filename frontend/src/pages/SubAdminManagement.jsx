@@ -7,6 +7,7 @@ import { parsePermission, permissionsToObject, objectToPermissions } from '../ut
 const SIDEBAR_ITEMS = [
   { path: '/', label: 'Dashboard', key: 'dashboard' },
   { path: '/students-dashboard', label: 'Student Dashboard', key: 'course-dashboard' },
+  { path: '/employees-dashboard', label: 'Employee Dashboard', key: 'employee-dashboard' },
   {
     path: '/manage-stock',
     label: 'Manage Stock',

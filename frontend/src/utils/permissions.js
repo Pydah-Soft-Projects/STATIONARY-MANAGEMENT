@@ -164,9 +164,45 @@ export const hasCourseAccess = (permissions, courseName) => {
     return false;
   }
   
-  const normalizedCourse = normalizeCourseName(courseName);
-  const courseKey = `course-dashboard-${normalizedCourse}`;
-  
   return hasViewAccess(permissions, courseKey);
+};
+
+/**
+ * Get allowed departments for employee-dashboard permission
+ * @param {Array<string>} permissions - Array of permission strings
+ * @returns {Array<string>} - Array of department names that user has access to
+ */
+export const getAllowedDepartments = (permissions) => {
+  if (!permissions || !Array.isArray(permissions)) {
+    return [];
+  }
+  
+  const allowedDepartments = [];
+  permissions.forEach(perm => {
+    const { key } = parsePermission(perm);
+    if (key && key.startsWith('employee-dashboard-')) {
+      const deptName = key.replace('employee-dashboard-', '');
+      allowedDepartments.push(deptName);
+    }
+  });
+  
+  return allowedDepartments;
+};
+
+/**
+ * Check if user has access to a specific department in employee-dashboard
+ * @param {Array<string>} permissions - Array of permission strings
+ * @param {string} departmentName - Department name to check
+ * @returns {boolean} - True if user has access to this department
+ */
+export const hasDepartmentAccess = (permissions, departmentName) => {
+  if (!permissions || !Array.isArray(permissions) || !departmentName) {
+    return false;
+  }
+  
+  const normalizedDept = normalizeCourseName(departmentName); // Reuse normalization
+  const deptKey = `employee-dashboard-${normalizedDept}`;
+  
+  return hasViewAccess(permissions, deptKey);
 };
 

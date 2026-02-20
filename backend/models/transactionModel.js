@@ -9,10 +9,10 @@ const transactionSchema = new mongoose.Schema(
       unique: true,
       trim: true,
     },
-    // Transaction type: 'student', 'branch_transfer' (legacy), 'college_transfer'
+    // Transaction type: 'student', 'branch_transfer' (legacy), 'college_transfer', 'employee'
     transactionType: {
       type: String,
-      enum: ['student', 'branch_transfer', 'college_transfer'],
+      enum: ['student', 'branch_transfer', 'college_transfer', 'employee'],
       default: 'student',
     },
     // The college where this transaction took place (deduct stock from here)
@@ -45,6 +45,14 @@ const transactionSchema = new mongoose.Schema(
       year: { type: Number, required: function() { return this.transactionType === 'student'; } },
       branch: { type: String, default: '' },
       semester: { type: Number, default: null },
+    },
+    employee: {
+      id: { type: String, required: function() { return this.transactionType === 'employee'; } },
+      name: { type: String, required: function() { return this.transactionType === 'employee'; } },
+      empNo: { type: String, required: function() { return this.transactionType === 'employee'; } },
+      division: { type: String },
+      department: { type: String },
+      designation: { type: String },
     },
     // College transfer details
     collegeTransfer: {

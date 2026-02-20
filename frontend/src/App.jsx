@@ -18,6 +18,8 @@ const StudentDue = lazy(() => import('./pages/StudentDue.jsx'));
 const AuditLogs = lazy(() => import('./pages/AuditLogs.jsx'));
 const StockTransfers = lazy(() => import('./pages/StockTransfers.jsx'));
 const GeneralPurchase = lazy(() => import('./pages/GeneralPurchase.jsx'));
+const EmployeeDashboard = lazy(() => import('./pages/EmployeeDashboard.jsx'));
+const EmployeeDetail = lazy(() => import('./pages/EmployeeDetail.jsx'));
 import ProtectedRoute from './components/ProtectedRoute';
 import { apiUrl } from './utils/api';
 import useOnlineStatus from './hooks/useOnlineStatus';
@@ -35,6 +37,7 @@ const resolveDefaultPath = (user) => {
     // { key: 'add-student', path: '/add-student' }, // REMOVED
     // { key: 'student-management', path: '/student-management' }, // REMOVED
     { key: 'course-dashboard', path: '/students-dashboard' },
+    { key: 'employee-dashboard', path: '/employees-dashboard' },
     { key: 'courses', path: '/courses' },
     { key: 'manage-stock', path: '/manage-stock' },
     { key: 'transactions', path: '/transactions' },
@@ -117,15 +120,51 @@ function App() {
 
   const fetchProductsData = useCallback(async () => {
     try {
-      const res = await fetch(apiUrl('/api/products'));
-      if (!res.ok) throw new Error(`Server responded with ${res.status}`);
-      const data = await res.json();
-      setProducts(data || []);
-      saveJSON('productsCache', data || []);
+      // Determine college ID based on current user
+      let collegeId = null;
+      if (currentUser?.assignedCollege) {
+        collegeId = typeof currentUser.assignedCollege === 'object'
+          ? currentUser.assignedCollege._id
+          : currentUser.assignedCollege;
+      } else if (currentUser?.assignedBranch) {
+        collegeId = typeof currentUser.assignedBranch === 'object'
+          ? currentUser.assignedBranch._id
+          : currentUser.assignedBranch;
+      }
+
+      const productsRes = await fetch(apiUrl('/api/products'));
+      if (!productsRes.ok) throw new Error(`Server responded with ${productsRes.status}`);
+      const globalProducts = await productsRes.json();
+
+      if (collegeId) {
+        // Fetch college-specific stock
+        const stockRes = await fetch(apiUrl(`/api/stock-transfers/colleges/${collegeId}/stock`));
+        if (stockRes.ok) {
+          const stockData = await stockRes.json();
+          const collegeStockMap = {};
+          (stockData.stock || []).forEach(item => {
+            const pId = typeof item.product === 'object' ? item.product._id : item.product;
+            collegeStockMap[pId] = item.quantity;
+          });
+
+          const productsWithCollegeStock = (globalProducts || []).map(product => ({
+            ...product,
+            stock: collegeStockMap[product._id] !== undefined ? collegeStockMap[product._id] : 0
+          }));
+          setProducts(productsWithCollegeStock);
+          saveJSON('productsCache', productsWithCollegeStock);
+        } else {
+          setProducts(globalProducts || []);
+          saveJSON('productsCache', globalProducts || []);
+        }
+      } else {
+        setProducts(globalProducts || []);
+        saveJSON('productsCache', globalProducts || []);
+      }
     } catch (err) {
       console.warn('Could not fetch products on app load:', err);
     }
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     if (isAuthenticated && isOnline) {
@@ -519,6 +558,22 @@ function App() {
                     element={
                       <ProtectedRoute currentUser={currentUser} requiredPermission="general-purchase">
                         <GeneralPurchase currentUser={currentUser} />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/employees-dashboard"
+                    element={
+                      <ProtectedRoute currentUser={currentUser} requiredPermissions={["employee-dashboard"]}>
+                        <EmployeeDashboard currentUser={currentUser} />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/employees/:id"
+                    element={
+                      <ProtectedRoute currentUser={currentUser} requiredPermissions={["employee-dashboard"]}>
+                        <EmployeeDetail products={products} setProducts={setProducts} currentUser={currentUser} isOnline={isOnline} />
                       </ProtectedRoute>
                     }
                   />

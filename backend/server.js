@@ -15,6 +15,8 @@ const sqlStudentRoutes = require("./routes/sqlStudentRoutes");
 const generalProductRoutes = require("./routes/generalProductRoutes");
 const generalPurchaseRoutes = require("./routes/generalPurchaseRoutes");
 const generalDistributionRoutes = require("./routes/generalDistributionRoutes");
+const employeeRoutes = require("./routes/employeeRoutes");
+const { connectEmployeeDB } = require("./config/employeeDb");
 
 dotenv.config();
 
@@ -24,6 +26,8 @@ const app = express();
 connectDB();
 // Connect to MySQL
 connectMySQL();
+// Connect to HRMS MongoDB
+connectEmployeeDB();
 
 // CORS configuration
 const allowedOrigins = [
@@ -153,6 +157,7 @@ app.use("/api/sql", sqlStudentRoutes);
 app.use("/api/general-products", generalProductRoutes);
 app.use("/api/general-purchases", generalPurchaseRoutes);
 app.use("/api/general-distributions", generalDistributionRoutes);
+app.use("/api/employees", employeeRoutes);
 
 // SQL Academic Routes (Courses, Branches)
 const sqlAcademicRoutes = require("./routes/sqlAcademicRoutes");

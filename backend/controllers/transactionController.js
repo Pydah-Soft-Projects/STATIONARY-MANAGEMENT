@@ -5,6 +5,7 @@ const { College } = require('../models/collegeModel');
 const { SubAdmin } = require('../models/subAdminModel');
 const { StockTransfer } = require('../models/stockTransferModel');
 const asyncHandler = require('express-async-handler');
+const mongoose = require('mongoose');
 
 // Helpers for stock management (supports set products)
 const accumulateStockChange = (changeMap, productId, delta) => {
@@ -142,7 +143,7 @@ const DEFAULT_STUDENT_TABLE = 'students';
  * @access  Public
  */
 const createTransaction = asyncHandler(async (req, res) => {
-  const { studentId, items, paymentMethod, isPaid, remarks } = req.body;
+  const { studentId, employeeId, items, paymentMethod, isPaid, remarks } = req.body;
   let { collegeId, branchId } = req.body;
   
   // Consolidate to collegeId
@@ -150,76 +151,138 @@ const createTransaction = asyncHandler(async (req, res) => {
     collegeId = branchId;
   }
 
-  if (!studentId || !items || !Array.isArray(items) || items.length === 0) {
+  if ((!studentId && !employeeId) || !items || !Array.isArray(items) || items.length === 0) {
     res.status(400);
-    throw new Error('Student ID and items are required');
+    throw new Error('Student/Employee ID and items are required');
   }
 
-  // Find the student via MySQL
-  const pool = getMySqlPool();
-  if (!pool) {
-    res.status(500);
-    throw new Error('MySQL pool is not configured.');
-  }
+  const transactionType = employeeId ? 'employee' : 'student';
 
-  const tableName = process.env.DB_STUDENTS_TABLE || DEFAULT_STUDENT_TABLE;
-  let studentData = null;
+  let transactionEntity = null; // Will hold either student or employee record for transaction object
 
-  try {
-    const [rows] = await pool.query(
-      `SELECT * FROM ${tableName} WHERE id = ? LIMIT 1`,
-      [studentId]
-    );
+  if (transactionType === 'student') {
+    // Find the student via MySQL
+    const pool = getMySqlPool();
+    if (!pool) {
+      res.status(500);
+      throw new Error('MySQL pool is not configured.');
+    }
 
-    if (rows.length > 0) {
-      studentData = rows[0];
-    } else {
-      // Fallback: search by admission_number, admission_no, or pin_no
-      const [rowsFallback] = await pool.query(
-        `SELECT * FROM ${tableName} WHERE admission_number = ? OR admission_no = ? OR pin_no = ? LIMIT 1`,
-        [studentId, studentId, studentId]
+    const tableName = process.env.DB_STUDENTS_TABLE || DEFAULT_STUDENT_TABLE;
+    let studentData = null;
+
+    try {
+      const [rows] = await pool.query(
+        `SELECT * FROM ${tableName} WHERE id = ? LIMIT 1`,
+        [studentId]
       );
-      if (rowsFallback.length > 0) {
-        studentData = rowsFallback[0];
+
+      if (rows.length > 0) {
+        studentData = rows[0];
+      } else {
+        // Fallback: search by admission_number, admission_no, or pin_no
+        const [rowsFallback] = await pool.query(
+          `SELECT * FROM ${tableName} WHERE admission_number = ? OR admission_no = ? OR pin_no = ? LIMIT 1`,
+          [studentId, studentId, studentId]
+        );
+        if (rowsFallback.length > 0) {
+          studentData = rowsFallback[0];
+        }
       }
+    } catch (error) {
+      console.error('MySQL Error during student lookup:', error);
+      res.status(500);
+      throw new Error('Database error during student lookup');
     }
-  } catch (error) {
-    console.error('MySQL Error during student lookup:', error);
-    res.status(500);
-    throw new Error('Database error during student lookup');
-  }
 
-  if (!studentData) {
-    res.status(404);
-    throw new Error('Student not found');
-  }
+    if (!studentData) {
+      res.status(404);
+      throw new Error('Student not found');
+    }
 
-  // Construct student object for transaction
-  // Helper to safely get value from multiple possible keys (similar to sqlStudentController)
-  const deriveValue = (record, possibleKeys, fallback = null) => {
-    for (const key of possibleKeys) {
-      if (key in record && record[key] !== null && record[key] !== undefined) {
-        return record[key];
+    // Construct student object for transaction
+    const deriveValue = (record, possibleKeys, fallback = null) => {
+      for (const key of possibleKeys) {
+        if (key in record && record[key] !== null && record[key] !== undefined) {
+          return record[key];
+        }
       }
-    }
-    return fallback;
-  };
+      return fallback;
+    };
 
-  const name =
-    deriveValue(studentData, ['name', 'student_name', 'studentName', 'full_name', 'fullName']) ||
-    'Unknown';
-  
-  const studentAdmissionNo = 
-     deriveValue(studentData, ['admission_number', 'admission_no', 'student_id', 'studentId', 'roll_no', 'rollNo', 'pin_no', 'pinNo']) || 
-     'N/A';
-     
-  const course = deriveValue(studentData, ['course', 'course_name', 'courseName', 'program', 'programme'], 'N/A');
-  const yearValue = deriveValue(studentData, ['year', 'year_of_study', 'yearOfStudy', 'current_year', 'stud_year', 'semester_year'], 'N/A');
-  const branch = deriveValue(studentData, ['branch', 'department', 'dept', 'department_name'], 'N/A');
-  const semesterValue = deriveValue(studentData, ['semester', 'current_semester', 'semester_no', 'sem', 'sem_no'], null);
+    transactionEntity = {
+      sqlId: String(studentData.id),
+      name: deriveValue(studentData, ['name', 'student_name', 'studentName', 'full_name', 'fullName']) || 'Unknown',
+      studentId: deriveValue(studentData, ['admission_number', 'admission_no', 'student_id', 'studentId', 'roll_no', 'rollNo', 'pin_no', 'pinNo']) || 'N/A',
+      course: deriveValue(studentData, ['course', 'course_name', 'courseName', 'program', 'programme'], 'N/A'),
+      year: parseInt(deriveValue(studentData, ['year', 'year_of_study', 'yearOfStudy', 'current_year', 'stud_year', 'semester_year'], 1)) || 1,
+      branch: deriveValue(studentData, ['branch', 'department', 'dept', 'department_name'], 'N/A'),
+      semester: parseInt(deriveValue(studentData, ['semester', 'current_semester', 'semester_no', 'sem', 'sem_no'], null)) || null,
+    };
+  } else {
+    // Handle Employee lookup from MongoDB
+    const { getEmployeeConnection } = require('../config/employeeDb');
+    const conn = getEmployeeConnection();
+    if (!conn) {
+      res.status(500);
+      throw new Error('Employee database connection not established.');
+    }
+    const Employee = conn.models.Employee || conn.model('Employee', new mongoose.Schema({}, { strict: false, collection: 'employees' }));
+    
+    // Use aggregation to resolve metadata names
+    const pipeline = [
+      { $match: { _id: new mongoose.Types.ObjectId(employeeId) } },
+      {
+        $lookup: {
+          from: 'departments',
+          localField: 'department_id', // Corrected from department
+          foreignField: '_id',
+          as: 'dept_info'
+        }
+      },
+      {
+        $lookup: {
+          from: 'designations',
+          localField: 'designation_id', // Corrected from designation
+          foreignField: '_id',
+          as: 'desig_info'
+        }
+      },
+      {
+        $lookup: {
+          from: 'divisions',
+          localField: 'division_id', // Corrected from division
+          foreignField: '_id',
+          as: 'div_info'
+        }
+      },
+      { $unwind: { path: '$dept_info', preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: '$desig_info', preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: '$div_info', preserveNullAndEmptyArrays: true } }
+    ];
+
+    const results = await Employee.aggregate(pipeline);
+    
+    if (results.length === 0) {
+      res.status(404);
+      throw new Error('Employee not found');
+    }
+
+    const emp = results[0];
+    const dynamic = emp.dynamicFields || {};
+    transactionEntity = {
+      id: String(emp._id),
+      name: emp.employee_name || 'Unknown',
+      empNo: emp.emp_no || 'N/A',
+      division: (emp.div_info && emp.div_info.name) || dynamic.division_name || emp.division_name || 'N/A',
+      department: (emp.dept_info && emp.dept_info.name) || dynamic.department_name || emp.department_name || 'N/A',
+      designation: (emp.desig_info && emp.desig_info.name) || dynamic.designation_name || emp.designation_name || 'N/A',
+    };
+  }
 
   // Determine College context
   let targetCollegeId = collegeId;
+  const entityCourse = transactionType === 'student' ? transactionEntity.course : null;
 
   // If no collegeId in body, and we have a user (staff) in request
   if (!targetCollegeId && req.user && req.user.assignedCollege) {
@@ -235,9 +298,9 @@ const createTransaction = asyncHandler(async (req, res) => {
   }
 
   // Backup: If still no collegeId, find college associated with student's course
-  if (!targetCollegeId && course) {
-    console.log('[DEBUG] createTransaction: Attempting backup lookup for course:', course);
-    const backupCollege = await College.findOne({ courses: course });
+  if (!targetCollegeId && entityCourse) {
+    console.log('[DEBUG] createTransaction: Attempting backup lookup for course:', entityCourse);
+    const backupCollege = await College.findOne({ courses: entityCourse });
     if (backupCollege) {
       console.log('[DEBUG] createTransaction: Backup found college:', backupCollege.name);
       targetCollegeId = backupCollege._id;
@@ -367,20 +430,10 @@ const createTransaction = asyncHandler(async (req, res) => {
   const transactionId = `TXN-${timestamp}-${randomStr}`;
 
   // Create transaction
-  const transaction = await Transaction.create({
+  const transactionData = {
     transactionId,
-    transactionType: 'student', // Explicitly set for student transactions
-    collegeId: targetCollegeId, // Record the college
-    student: {
-      userId: null, // Legacy ID removed
-      sqlId: String(studentData.id), // Store MySQL ID
-      name: name,
-      studentId: studentAdmissionNo,
-      course: course,
-      year: yearValue !== 'N/A' ? parseInt(yearValue) || 1 : 1,
-      branch: branch || '',
-      semester: semesterValue ? parseInt(semesterValue) || null : null,
-    },
+    transactionType,
+    collegeId: targetCollegeId,
     items: validatedItems,
     totalAmount,
     paymentMethod: paymentMethod || 'cash',
@@ -389,7 +442,15 @@ const createTransaction = asyncHandler(async (req, res) => {
     stockDeducted: (isPaid && stockChanges.size > 0 && Array.from(stockChanges.values()).every(v => v < 0)) || false, 
     transactionDate: new Date(),
     remarks: remarks || '',
-  });
+  };
+
+  if (transactionType === 'student') {
+    transactionData.student = transactionEntity;
+  } else if (transactionType === 'employee') {
+    transactionData.employee = transactionEntity;
+  }
+
+  const transaction = await Transaction.create(transactionData);
 
   // Updated student items are NOT saved to MongoDB anymore.
   // They are calculated dynamically by sqlStudentController.
@@ -429,16 +490,20 @@ const getAllTransactions = asyncHandler(async (req, res) => {
     }
   }
   
-  // Only apply student-related filters if transaction type is student or not specified
-  if (!transactionType || transactionType === 'student') {
+  if (transactionType === 'employee') {
+    if (studentId) {
+      filter.$or = [
+        { 'employee.id': studentId },
+        { 'employee.empNo': studentId }
+      ];
+    }
+  } else if (!transactionType || transactionType === 'student') {
     if (course) {
       filter['student.course'] = course;
     }
     
     if (studentId) {
       // Logic update: 'studentId' param can be either sqlId, legacy userId, or the string studentId (Admission No)
-      // Since we are decoupling from User, we shouldn't do User.findById(studentId).
-      // We'll search by sqlId or studentId string in the Transaction.student object.
       filter.$or = [
         { 'student.sqlId': studentId },
         { 'student.studentId': studentId },
