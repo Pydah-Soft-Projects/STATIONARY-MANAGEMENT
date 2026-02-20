@@ -285,11 +285,13 @@ const StudentDue = ({ currentUser }) => {
       // Collect all branches
       const branches = new Set();
       courses.forEach(c => {
-        (c.branches || []).forEach(b => branches.add(b));
+        (c.branches || []).forEach(b => {
+          const branchName = typeof b === 'object' ? b.name : b;
+          if (branchName) branches.add(branchName);
+        });
       });
       return Array.from(branches).sort();
     }
-    // Specific course branches
     // Specific course branches
     const matchingCourses = courses.filter(c =>
       (c.name && c.name.toLowerCase() === dueFilters.course.toLowerCase()) ||
@@ -298,7 +300,10 @@ const StudentDue = ({ currentUser }) => {
 
     const specificBranches = new Set();
     matchingCourses.forEach(c => {
-      (c.branches || []).forEach(b => specificBranches.add(b));
+      (c.branches || []).forEach(b => {
+        const branchName = typeof b === 'object' ? b.name : b;
+        if (branchName) specificBranches.add(branchName);
+      });
     });
     return Array.from(specificBranches).sort();
   }, [courses, dueFilters.course]);
