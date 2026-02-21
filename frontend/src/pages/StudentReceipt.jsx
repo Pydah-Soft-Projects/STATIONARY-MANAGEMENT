@@ -294,7 +294,7 @@ const StudentReceiptModal = ({
         </div>
         <div class="thermal-info">
           <p><span>Name:</span> <span>${student?.name || 'N/A'}</span></p>
-          <p><span>ID:</span> <span>${student?.studentId || 'N/A'}</span></p>
+          <p><span>ID:</span> <span>${student?.pin || student?.studentId || 'N/A'}</span></p>
           <p><span>Course:</span> <span>${student?.course?.toUpperCase() || 'N/A'}</span></p>
           <p><span>Year:</span> <span>${student?.year || 'N/A'}</span></p>
           ${student?.branch ? `<p><span>Branch:</span> <span>${student.branch}</span></p>` : ''}
@@ -1030,7 +1030,7 @@ const StudentReceiptModal = ({
               {/* Student Info */}
               <div className="thermal-info">
                 <p><span>Name:</span> <span>{student?.name || 'N/A'}</span></p>
-                <p><span>ID:</span> <span>{student?.studentId || 'N/A'}</span></p>
+                <p><span>ID:</span> <span>{student?.pin || student?.studentId || 'N/A'}</span></p>
                 <p><span>Course:</span> <span>{student?.course?.toUpperCase() || 'N/A'}</span></p>
                 <p><span>Year:</span> <span>{student?.year || 'N/A'}</span></p>
                 {student?.branch && <p><span>Branch:</span> <span>{student.branch}</span></p>}
