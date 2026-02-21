@@ -389,7 +389,6 @@ const EmployeeDetail = ({ products = [], setProducts, currentUser, isOnline }) =
 
                                                         <div className="thermal-header">
                                                             <h2>{receiptConfig.receiptHeader}</h2>
-                                                            <p>{receiptConfig.receiptSubheader}</p>
                                                             <p style={{ marginTop: '1mm', fontSize: '8px' }}>
                                                                 {new Date(transaction.createdAt).toLocaleDateString('en-IN', {
                                                                     day: '2-digit',
@@ -403,8 +402,10 @@ const EmployeeDetail = ({ products = [], setProducts, currentUser, isOnline }) =
 
                                                         <div className="thermal-info">
                                                             <p><span>NAME:</span> <span>{employee.name}</span></p>
-                                                            <p><span>EMP ID:</span> <span>{employee.empNo}</span></p>
-                                                            <p><span>DEPT:</span> <span>{employee.department}</span></p>
+                                                            <p>
+                                                                <span>ID: {employee.empNo}</span>
+                                                                <span>DEPT: {employee.department}</span>
+                                                            </p>
                                                         </div>
 
                                                         <div className="thermal-items">
@@ -431,24 +432,30 @@ const EmployeeDetail = ({ products = [], setProducts, currentUser, isOnline }) =
                                                         </div>
 
                                                         <div className="thermal-total">
-                                                            <span>TOTAL:</span>
-                                                            <span>₹{transaction.totalAmount.toFixed(2)}</span>
+                                                            <div style={{ display: 'flex', borderBottom: '1px dashed #000', paddingBottom: '1mm', marginBottom: '1mm', fontSize: '8px' }}>
+                                                                <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', paddingRight: '2mm', borderRight: '1px solid #000' }}>
+                                                                    <span>METHOD:</span>
+                                                                    <span style={{ fontWeight: 700 }}>{transaction.paymentMethod?.toUpperCase()}</span>
+                                                                </div>
+                                                                <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', paddingLeft: '2mm' }}>
+                                                                    <span>STATUS:</span>
+                                                                    <span style={{ fontWeight: 700 }}>{transaction.isPaid ? 'PAID' : 'UNPAID'}</span>
+                                                                </div>
+                                                            </div>
+                                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 900, paddingTop: '1mm' }}>
+                                                                <span>TOTAL:</span>
+                                                                <span>₹{transaction.totalAmount.toFixed(2)}</span>
+                                                            </div>
                                                         </div>
-
-                                                        <div className="thermal-payment">
-                                                            <p><span>PAYMENT:</span> <span className="uppercase">{transaction.paymentMethod}</span></p>
-                                                            <p><span>STATUS:</span> <span className="uppercase">{transaction.isPaid ? 'PAID' : 'UNPAID'}</span></p>
-                                                            {transaction.remarks && (
-                                                                <p style={{ display: 'block', marginTop: '1mm' }}>
-                                                                    <span>NOTE: {transaction.remarks}</span>
-                                                                </p>
-                                                            )}
-                                                        </div>
+                                                        {transaction.remarks && (
+                                                            <p style={{ display: 'block', marginTop: '1mm' }}>
+                                                                <span>NOTE: {transaction.remarks}</span>
+                                                            </p>
+                                                        )}
 
                                                         <div className="thermal-footer">
                                                             <p>--------------------------------</p>
-                                                            <p>Thank you for your purchase!</p>
-                                                            <p>Keep this receipt for records</p>
+                                                            <p>Thank you PydahSoft ❤️</p>
                                                             <p>--------------------------------</p>
                                                         </div>
                                                     </div>
@@ -465,20 +472,22 @@ const EmployeeDetail = ({ products = [], setProducts, currentUser, isOnline }) =
                 </div>
             </div>
 
-            {showTransactionModal && (
-                <EmployeeReceiptModal
-                    employee={employee}
-                    products={products}
-                    currentUser={currentUser}
-                    isOnline={isOnline}
-                    onClose={() => setShowTransactionModal(false)}
-                    onTransactionSaved={() => {
-                        fetchEmployeeTransactions(true);
-                    }}
-                    onProductsUpdated={refreshProducts}
-                />
-            )}
-        </div>
+            {
+                showTransactionModal && (
+                    <EmployeeReceiptModal
+                        employee={employee}
+                        products={products}
+                        currentUser={currentUser}
+                        isOnline={isOnline}
+                        onClose={() => setShowTransactionModal(false)}
+                        onTransactionSaved={() => {
+                            fetchEmployeeTransactions(true);
+                        }}
+                        onProductsUpdated={refreshProducts}
+                    />
+                )
+            }
+        </div >
     );
 };
 

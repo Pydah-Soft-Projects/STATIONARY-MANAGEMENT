@@ -174,17 +174,14 @@ const EmployeeReceiptModal = ({
           border-top: 2px solid #000 !important;
           padding-top: 2mm !important;
           margin-top: 2mm !important;
-          display: flex !important;
-          justify-content: space-between !important;
-          font-weight: 900 !important;
-          font-size: 12px !important;
         }
+        .thermal-total-row { display: flex !important; justify-content: space-between !important; width: 100% !important; margin-bottom: 1mm !important; font-weight: 700 !important; font-size: 8px !important; }
+        .thermal-total-row.grand-total { font-size: 13px !important; border-top: 1px dashed #000 !important; padding-top: 1mm !important; margin-top: 1mm !important; }
         .thermal-payment {
           margin-top: 2mm !important;
-          padding-top: 2mm !important;
-          border-top: 2px solid #000 !important;
+          padding-top: 1.5mm !important;
+          border-top: 1px dashed #000 !important;
           font-size: 10px !important;
-          font-weight: 700 !important;
         }
         .thermal-payment p {
           margin: 1mm 0 !important;
@@ -218,8 +215,10 @@ const EmployeeReceiptModal = ({
         </div>
         <div class="thermal-info">
           <p><span>Name:</span> <span>${employee?.name || 'N/A'}</span></p>
-          <p><span>ID:</span> <span>${employee?.empNo || 'N/A'}</span></p>
-          <p><span>Dept:</span> <span>${employee?.department || 'N/A'}</span></p>
+          <div style="display: flex; justify-content: space-between; font-size: 10px; font-weight: 700; margin: 1mm 0;">
+            <p style="margin: 0 !important;"><span>ID:</span> <span>${employee?.empNo || 'N/A'}</span></p>
+            <p style="margin: 0 !important;"><span>Dept:</span> <span>${employee?.department || 'N/A'}</span></p>
+          </div>
         </div>
         <div class="thermal-items">
           <table>
@@ -244,18 +243,25 @@ const EmployeeReceiptModal = ({
           </table>
         </div>
         <div class="thermal-total">
-          <span>TOTAL:</span>
-          <span>₹${total.toFixed(2)}</span>
+          <div class="thermal-total-row" style="border-bottom: 1px dashed #000; padding-bottom: 1mm; margin-bottom: 1mm; font-size: 8px;">
+            <div style="flex: 1; display: flex; justify-content: space-between; padding-right: 2mm; border-right: 1px solid #000;">
+              <span>METHOD:</span>
+              <span style="font-weight: 700;">${method.toUpperCase()}</span>
+            </div>
+            <div style="flex: 1; display: flex; justify-content: space-between; padding-left: 2mm;">
+              <span>STATUS:</span>
+              <span style="font-weight: 700;">${paid ? 'PAID' : 'UNPAID'}</span>
+            </div>
+          </div>
+          <div class="thermal-total-row" style="font-size: 13px; font-weight: 900; padding-top: 1mm;">
+            <span>TOTAL:</span>
+            <span>₹${total.toFixed(2)}</span>
+          </div>
         </div>
-        <div class="thermal-payment">
-          <p><span>Payment:</span> <span>${method === 'cash' ? 'CASH' : 'ONLINE'}</span></p>
-          <p><span>Status:</span> <span>${paid ? 'PAID' : 'UNPAID'}</span></p>
-          ${note ? `<p style="display: block"><span>Note: ${note}</span></p>` : ''}
-        </div>
+        ${note ? `<div class="thermal-payment" style="border-top: 1px dashed #000; margin-top: 2mm; padding-top: 1mm;"><p style="display: block"><span>Note: ${note}</span></p></div>` : ''}
         <div class="thermal-footer">
           <p>--------------------------------</p>
-          <p>Thank you for your purchase!</p>
-          <p>Keep this receipt for records</p>
+          <p>Thank you PydahSoft ❤️</p>
           <p>--------------------------------</p>
         </div>
       </div>
@@ -642,93 +648,96 @@ const EmployeeReceiptModal = ({
 
                         {/* Right Column - Receipt Preview */}
                         {(transactionItems.length > 0 || savedTransactionItems.length > 0) && (
-                            <div className="flex flex-col gap-4 no-print">
-                                <div className="bg-white rounded-xl border border-blue-100 p-8 shadow-sm sticky top-4 overflow-hidden" ref={pdfRef}>
-                                    {/* Header in PDF Only - Simple and clean */}
-                                    <div className="hidden show-in-pdf mb-8 border-b-2 border-blue-700 pb-4 text-center">
-                                        <h2 className="text-3xl font-black text-blue-900 uppercase tracking-tight">{receiptConfig.receiptHeader}</h2>
-                                        <p className="text-base text-blue-700 font-bold mt-1 tracking-widest">{receiptConfig.receiptSubheader}</p>
+                            <div className="flex flex-col gap-4 no-print h-full">
+                                <div className="bg-white border-2 border-dashed border-gray-300 p-6 flex flex-col shadow-sm sticky top-0" ref={pdfRef}>
+                                    {/* Header in PDF Only */}
+                                    <div className="hidden show-in-pdf mb-6 text-center border-b-2 border-black pb-4">
+                                        <h2 className="text-2xl font-black text-black uppercase tracking-tight">{receiptConfig.receiptHeader}</h2>
+                                        <p className="text-xs text-gray-800 font-bold mt-1 uppercase">{receiptConfig.receiptSubheader}</p>
                                     </div>
 
-                                    <h3 className="text-xl font-black mb-6 flex items-center gap-2 no-print text-gray-800 border-b border-gray-100 pb-2 uppercase tracking-tighter" data-html2canvas-ignore="true">
-                                        <Receipt size={24} className="text-blue-600" />
-                                        Receipt Preview
-                                    </h3>
-
-                                    {/* Employee Details in PDF */}
-                                    <div className="hidden show-in-pdf grid grid-cols-2 gap-6 mb-8 bg-blue-50/40 p-5 rounded-2xl border border-blue-100">
-                                        <div className="space-y-1">
-                                            <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Employee Name</p>
-                                            <p className="text-base font-black text-gray-900 uppercase">{employee?.name || 'N/A'}</p>
+                                    {/* Employee Details - Compact */}
+                                    <div className="grid grid-cols-1 gap-y-2 mb-6 text-[11px] bg-gray-50/50 p-3 rounded-lg border border-gray-100">
+                                        <div className="flex justify-between border-b border-gray-100 pb-1.5">
+                                            <span className="text-gray-400 font-bold uppercase tracking-wider block leading-none">Name</span>
+                                            <span className="font-black text-gray-900 uppercase block leading-none">{employee?.name || 'N/A'}</span>
                                         </div>
-                                        <div className="space-y-1 text-right">
-                                            <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Employee ID</p>
-                                            <p className="text-base font-black text-gray-900">{employee?.empNo || 'N/A'}</p>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Department</p>
-                                            <p className="text-base font-black text-gray-800 uppercase">{employee?.department || 'N/A'}</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-6">
-                                        <div className="border-b border-gray-200 pb-5">
-                                            <h4 className="text-[11px] font-black text-blue-400 mb-4 uppercase tracking-[0.2em]">Items Issued</h4>
-                                            <div className="space-y-4">
-                                                {(transactionItems.length > 0 ? transactionItems : savedTransactionItems).map((item, idx) => (
-                                                    <div key={idx} className="flex flex-col py-4 px-5 bg-gray-50 rounded-2xl border border-gray-100/50">
-                                                        <div className="flex justify-between items-center">
-                                                            <div className="flex-1 min-w-0 pr-5">
-                                                                <span className="font-black text-gray-900 text-base truncate block">{item.name}</span>
-                                                                <span className="text-gray-500 text-sm font-bold tracking-tight">Quantity: {item.quantity} × ₹{item.price}</span>
-                                                            </div>
-                                                            <span className="font-black text-blue-900 text-lg whitespace-nowrap">₹{item.total.toFixed(2)}</span>
-                                                        </div>
-                                                    </div>
-                                                ))}
+                                        <div className="flex justify-between items-center pt-0.5">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-gray-400 font-bold uppercase tracking-wider text-[9px]">ID:</span>
+                                                <span className="font-black text-gray-900">{employee?.empNo || 'N/A'}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-gray-400 font-bold uppercase tracking-wider text-[9px]">Dept:</span>
+                                                <span className="font-black text-gray-800 uppercase">{employee?.department || 'N/A'}</span>
                                             </div>
                                         </div>
+                                        <div className="text-right pt-1 border-t border-gray-100 mt-1">
+                                            <span className="text-gray-400 font-bold uppercase tracking-wider text-[9px] mr-2">Date:</span>
+                                            <span className="font-black text-gray-800">{new Date().toLocaleDateString('en-GB')}</span>
+                                        </div>
+                                    </div>
 
-                                        {/* Total */}
-                                        <div className="flex justify-between items-center py-6 px-8 bg-blue-600 rounded-3xl shadow-xl shadow-blue-100 border-4 border-blue-500/20">
-                                            <span className="text-sm font-black text-white uppercase tracking-[0.4em]">Total Amount</span>
-                                            <span className="text-3xl font-black text-white tracking-tighter">
+                                    {/* Items Table - Compact */}
+                                    <div className="flex-1">
+                                        <table className="w-full border-collapse">
+                                            <thead>
+                                                <tr className="border-b-2 border-black">
+                                                    <th className="text-left py-2 text-[10px] font-black uppercase text-gray-500">Item</th>
+                                                    <th className="text-center py-2 text-[10px] font-black uppercase text-gray-500">Qty</th>
+                                                    <th className="text-right py-2 text-[10px] font-black uppercase text-gray-500">Rate</th>
+                                                    <th className="text-right py-2 text-[10px] font-black uppercase text-gray-500">Total</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
+                                                {(transactionItems.length > 0 ? transactionItems : savedTransactionItems).map((item, idx) => (
+                                                    <tr key={idx} className="group">
+                                                        <td className="py-2.5 text-xs font-bold text-gray-800 pr-2">
+                                                            {item.name}
+                                                        </td>
+                                                        <td className="py-2.5 text-xs font-black text-gray-900 text-center">{item.quantity}</td>
+                                                        <td className="py-2.5 text-xs font-bold text-gray-600 text-right">₹{item.price.toFixed(0)}</td>
+                                                        <td className="py-2.5 text-sm font-black text-gray-900 text-right">₹{item.total.toFixed(0)}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    {/* Summary Section */}
+                                    <div className="mt-6 pt-4 border-t-2 border-black border-dashed">
+                                        <div className="flex justify-between items-center mb-4">
+                                            <span className="text-xs font-black text-gray-500 uppercase tracking-widest leading-none">Total Amount</span>
+                                            <span className="text-2xl font-black text-gray-900 tracking-tighter leading-none">
                                                 ₹{(transactionItems.length > 0 ? totalAmount : savedPaymentInfo.totalAmount).toFixed(2)}
                                             </span>
                                         </div>
 
-                                        {/* Payment Info */}
-                                        <div className="pt-4 grid grid-cols-2 gap-6 px-2">
-                                            <div className="space-y-1.5 p-3 rounded-xl bg-blue-50/30">
-                                                <span className="text-blue-400 font-black text-[9px] uppercase tracking-[0.2em]">Method</span>
-                                                <p className="text-blue-900 font-black capitalize text-xs">
+                                        <div className="flex justify-between items-center bg-gray-50 p-2.5 rounded-md border border-gray-100">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-gray-400 font-bold text-[9px] uppercase tracking-wider">Method:</span>
+                                                <span className="text-gray-900 font-black uppercase text-[10px]">
                                                     {transactionItems.length > 0 ? paymentMethod : savedPaymentInfo.paymentMethod}
-                                                </p>
+                                                </span>
                                             </div>
-                                            <div className="space-y-1.5 p-3 rounded-xl bg-blue-50/30 text-right">
-                                                <span className="text-blue-400 font-black text-[9px] uppercase tracking-[0.2em]">Status</span>
-                                                <p className={`font-black text-xs ${(transactionItems.length > 0 ? isPaid : savedPaymentInfo.isPaid) ? 'text-green-600' : 'text-red-600'}`}>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-gray-400 font-bold text-[9px] uppercase tracking-wider">Status:</span>
+                                                <span className={`font-black text-[10px] ${(transactionItems.length > 0 ? isPaid : savedPaymentInfo.isPaid) ? 'text-green-600' : 'text-red-600'}`}>
                                                     {(transactionItems.length > 0 ? isPaid : savedPaymentInfo.isPaid) ? 'PAID' : 'UNPAID'}
-                                                </p>
+                                                </span>
                                             </div>
                                         </div>
 
                                         {(transactionItems.length > 0 ? remarks : savedPaymentInfo.remarks) && (
-                                            <div className="pt-4 border-t border-blue-50/50 px-2">
-                                                <span className="text-blue-400 font-black text-[9px] uppercase tracking-[0.2em]">Remarks</span>
-                                                <p className="text-blue-900 mt-2 text-xs font-bold leading-relaxed italic border-l-4 border-blue-500/20 pl-4 py-1">
-                                                    {transactionItems.length > 0 ? remarks : savedPaymentInfo.remarks}
-                                                </p>
+                                            <div className="mt-4 p-3 bg-yellow-50/50 border-l-2 border-yellow-200 text-[10px] text-gray-600 italic font-bold">
+                                                {transactionItems.length > 0 ? remarks : savedPaymentInfo.remarks}
                                             </div>
                                         )}
+                                    </div>
 
-                                        {/* Date */}
-                                        <div className="pt-6 border-t border-gray-100 flex justify-between items-center px-2">
-                                            <div className="text-[9px] text-gray-400 font-black uppercase tracking-widest">Issued On</div>
-                                            <p className="text-xs text-blue-600 font-black tracking-tighter">
-                                                {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-                                            </p>
-                                        </div>
+                                    {/* Footer */}
+                                    <div className="mt-8 text-center border-t border-gray-100 pt-4 flex flex-col gap-1 items-center">
+                                        <p className="text-[10px] text-gray-900 font-black uppercase tracking-tight">Thank you PydahSoft ❤️</p>
                                     </div>
                                 </div>
                             </div>
@@ -741,7 +750,6 @@ const EmployeeReceiptModal = ({
                             {/* Thermal Header */}
                             <div className="thermal-header">
                                 <h2>{receiptConfig.receiptHeader}</h2>
-                                <p>{receiptConfig.receiptSubheader}</p>
                                 <p style={{ marginTop: '2mm', fontSize: '8px' }}>
                                     {new Date().toLocaleDateString('en-IN', {
                                         day: '2-digit',
@@ -756,8 +764,10 @@ const EmployeeReceiptModal = ({
                             {/* Employee Info */}
                             <div className="thermal-info">
                                 <p><span>Name:</span> <span>{employee?.name || 'N/A'}</span></p>
-                                <p><span>ID:</span> <span>{employee?.empNo || 'N/A'}</span></p>
-                                <p><span>Dept:</span> <span>{employee?.department || 'N/A'}</span></p>
+                                <p>
+                                    <span>ID: {employee?.empNo || 'N/A'}</span>
+                                    <span>Dept: {employee?.department || 'N/A'}</span>
+                                </p>
                             </div>
 
                             {/* Items Table */}
@@ -786,32 +796,33 @@ const EmployeeReceiptModal = ({
 
                             {/* Total */}
                             <div className="thermal-total">
-                                <span>TOTAL:</span>
-                                <span>₹{(transactionItems.length > 0 ? totalAmount : savedPaymentInfo.totalAmount).toFixed(2)}</span>
+                                <div style={{ display: 'flex', borderBottom: '1px dashed #000', paddingBottom: '1mm', marginBottom: '1mm', fontSize: '8px' }}>
+                                    <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', paddingRight: '2mm', borderRight: '1px solid #000' }}>
+                                        <span>METHOD:</span>
+                                        <span style={{ fontWeight: 700 }}>{(transactionItems.length > 0 ? paymentMethod : savedPaymentInfo.paymentMethod)?.toUpperCase()}</span>
+                                    </div>
+                                    <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', paddingLeft: '2mm' }}>
+                                        <span>STATUS:</span>
+                                        <span style={{ fontWeight: 700 }}>{(transactionItems.length > 0 ? isPaid : savedPaymentInfo.isPaid) ? 'PAID' : 'UNPAID'}</span>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 900, paddingTop: '1mm' }}>
+                                    <span>TOTAL:</span>
+                                    <span>₹{(transactionItems.length > 0 ? totalAmount : savedPaymentInfo.totalAmount).toFixed(2)}</span>
+                                </div>
                             </div>
-
-                            {/* Payment Info */}
-                            <div className="thermal-payment">
-                                <p>
-                                    <span>Payment:</span>
-                                    <span>{(transactionItems.length > 0 ? paymentMethod : savedPaymentInfo.paymentMethod) === 'cash' ? 'CASH' : 'ONLINE'}</span>
-                                </p>
-                                <p>
-                                    <span>Status:</span>
-                                    <span>{(transactionItems.length > 0 ? isPaid : savedPaymentInfo.isPaid) ? 'PAID' : 'UNPAID'}</span>
-                                </p>
-                                {(transactionItems.length > 0 ? remarks : savedPaymentInfo.remarks) && (
+                            {(transactionItems.length > 0 ? remarks : savedPaymentInfo.remarks) && (
+                                <div className="thermal-payment" style={{ borderTop: '1px dashed #000', marginTop: '2mm', paddingTop: '1mm' }}>
                                     <p style={{ display: 'block' }}>
                                         <span>Note: {transactionItems.length > 0 ? remarks : savedPaymentInfo.remarks}</span>
                                     </p>
-                                )}
-                            </div>
+                                </div>
+                            )}
 
                             {/* Footer */}
                             <div className="thermal-footer">
                                 <p>--------------------------------</p>
-                                <p>Thank you for your purchase!</p>
-                                <p>Keep this receipt for records</p>
+                                <p>Thank you PydahSoft ❤️</p>
                                 <p>--------------------------------</p>
                             </div>
                         </div>
