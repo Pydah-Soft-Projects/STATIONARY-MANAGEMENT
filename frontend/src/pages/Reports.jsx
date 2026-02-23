@@ -475,6 +475,9 @@ const Reports = ({ currentUser }) => {
 
     // Calculate statistics
     const totalAmount = revenueTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
+    const regularTransactions = revenueTransactions.filter(t => !t.transactionType || t.transactionType === 'student');
+    const cashAmount = regularTransactions.filter(t => t.isPaid && t.paymentMethod === 'cash').reduce((sum, t) => sum + (t.totalAmount || 0), 0);
+    const onlineAmount = regularTransactions.filter(t => t.isPaid && t.paymentMethod === 'online').reduce((sum, t) => sum + (t.totalAmount || 0), 0);
     const paidCount = revenueTransactions.filter(t => t.isPaid).length;
     const paidAmount = revenueTransactions.filter(t => t.isPaid).reduce((sum, t) => sum + (t.totalAmount || 0), 0);
     const totalItemsSold = itemsSold.reduce((sum, item) => sum + item.quantity, 0);
@@ -484,6 +487,8 @@ const Reports = ({ currentUser }) => {
       statistics: {
         totalTransactions: revenueTransactions.length,
         totalAmount,
+        cashAmount,
+        onlineAmount,
         paidCount,
         paidAmount,
         totalItemsSold,
@@ -1071,6 +1076,8 @@ const Reports = ({ currentUser }) => {
         pdf.setFont(undefined, 'normal');
         pdf.setFontSize(7);
         pdf.text(`Total Items Sold: ${salesSummary.statistics.totalItemsSold}`, 16, yPos);
+        pdf.text(`Cash: ${formatCurrencyForPDF(salesSummary.statistics.cashAmount)}`, 50, yPos);
+        pdf.text(`Online: ${formatCurrencyForPDF(salesSummary.statistics.onlineAmount)}`, 90, yPos);
         yPos += 4;
 
         // Show top items (limit to fit on page)
@@ -3495,6 +3502,8 @@ const Reports = ({ currentUser }) => {
                   {salesSummaryData.filters.course && <p>Course: {salesSummaryData.filters.course.toUpperCase()}</p>}
                   <p>Total Transactions: {salesSummaryData.statistics.totalTransactions}</p>
                   <p>Total Items Sold: {salesSummaryData.statistics.totalItemsSold}</p>
+                  <p>Cash Amount: {formatCurrency(salesSummaryData.statistics.cashAmount)}</p>
+                  <p>Online Amount: {formatCurrency(salesSummaryData.statistics.onlineAmount)}</p>
                   <p>Total Amount: {formatCurrency(salesSummaryData.statistics.totalAmount)}</p>
                 </div>
               </div>
@@ -3638,6 +3647,10 @@ const Reports = ({ currentUser }) => {
                   <p>
                     <span>Transactions: {salesSummaryData.statistics.totalTransactions}</span>
                     <span>Amount: ₹{Number(salesSummaryData.statistics.totalAmount).toFixed(2)}</span>
+                  </p>
+                  <p>
+                    <span>Cash: ₹{Number(salesSummaryData.statistics.cashAmount).toFixed(2)}</span>
+                    <span>Online: ₹{Number(salesSummaryData.statistics.onlineAmount).toFixed(2)}</span>
                   </p>
                   {salesSummaryData.filters.course && (
                     <p><span>Course:</span> <span>{salesSummaryData.filters.course.toUpperCase()}</span></p>
