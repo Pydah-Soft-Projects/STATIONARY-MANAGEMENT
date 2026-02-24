@@ -859,7 +859,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                   >
                     <option value="">Select Course</option>
                     {(config?.courses || []).map(c => (
-                      <option key={c.name} value={c.name}>{c.displayName}</option>
+                      <option key={c.id} value={c.name}>{c.displayName}</option>
                     ))}
                   </select>
                 </div>
@@ -883,9 +883,13 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                     disabled={!studentFilters.course}
                   >
                     <option value="">Select Branch</option>
-                    {studentFilters.course && (config?.courses?.find(c => c.name === studentFilters.course)?.branches || []).map(b => (
-                      <option key={b} value={b}>{b}</option>
-                    ))}
+                    {studentFilters.course && (config?.courses?.find(c => c.name === studentFilters.course)?.branches || []).map(b => {
+                      const branchText = typeof b === 'object' ? b.name : b;
+                      const branchKey = typeof b === 'object' ? b.id : b;
+                      return (
+                        <option key={branchKey} value={branchText}>{branchText}</option>
+                      );
+                    })}
                   </select>
                 </div>
                 <div className="flex items-end">
@@ -1071,7 +1075,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
             >
               <option value="">All Courses</option>
               {(config?.courses || []).map(c => (
-                <option key={c.name} value={c.name}>{c.displayName}</option>
+                <option key={c.id} value={c.name}>{c.displayName}</option>
               ))}
             </select>
           </div>
@@ -2275,11 +2279,14 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm"
                               >
                                 <option value="">All Courses</option>
-                                {(config?.courses || []).map((course) => (
-                                  <option key={course.id} value={course.id}>
-                                    {course.name} {course.branches?.length > 0 ? `(${course.branches.join(', ')})` : ''}
-                                  </option>
-                                ))}
+                                {(config?.courses || []).map((course) => {
+                                  const branchNames = (course.branches || []).map(b => typeof b === 'object' ? b.name : b);
+                                  return (
+                                    <option key={course.id} value={course.id}>
+                                      {course.name} {branchNames.length > 0 ? `(${branchNames.join(', ')})` : ''}
+                                    </option>
+                                  );
+                                })}
                               </select>
                             </div>
 
@@ -2327,19 +2334,21 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                                     <p className="text-sm text-gray-500">Select a course to see available branches.</p>
                                   ) : (
                                     (config?.courses?.find(c => String(c.id) === String(selectedConfigCourseId))?.branches || []).map(branch => {
-                                      const isChecked = (formData.branch || []).includes(branch);
+                                      const branchName = typeof branch === 'object' ? branch.name : branch;
+                                      const branchKey = typeof branch === 'object' ? branch.id : branch;
+                                      const isChecked = (formData.branch || []).includes(branchName);
                                       return (
                                         <label
-                                          key={branch}
+                                          key={branchKey}
                                           className={`flex items-center gap-2 px-3.5 py-1.5 border-2 rounded-lg cursor-pointer transition-all ${isChecked ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-gray-200 bg-white text-gray-600 hover:border-purple-300'}`}
                                         >
                                           <input
                                             type="checkbox"
                                             checked={isChecked}
-                                            onChange={() => handleBranchToggle(branch)}
+                                            onChange={() => handleBranchToggle(branchName)}
                                             className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
                                           />
-                                          <span className="font-medium text-sm">{branch}</span>
+                                          <span className="font-medium text-sm">{branchName}</span>
                                         </label>
                                       );
                                     })
