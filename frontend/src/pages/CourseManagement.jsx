@@ -525,20 +525,27 @@ const CourseManagement = ({ currentUser }) => {
                       <td className="px-6 py-3 text-gray-600">{course.displayName || course.name}</td>
                       <td className="px-6 py-3 text-gray-600">
                         <div className="flex flex-wrap gap-1">
-                          {(course.years || []).map(y => (
-                            <span key={y} className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-green-50 text-green-700 border border-green-100">
-                              Year {y}
-                            </span>
-                          ))}
+                          {(course.years || []).map(y => {
+                            const yearValue = typeof y === 'object' ? (y.id || y.year || JSON.stringify(y)) : y;
+                            return (
+                              <span key={yearValue} className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-green-50 text-green-700 border border-green-100">
+                                Year {yearValue}
+                              </span>
+                            );
+                          })}
                         </div>
                       </td>
                       <td className="px-6 py-3 text-gray-600">
                         <div className="flex flex-wrap gap-1">
-                          {(course.branches || []).map(b => (
-                            <span key={b} className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-700 border border-blue-100">
-                              {b}
-                            </span>
-                          ))}
+                          {(course.branches || []).map(b => {
+                            const branchName = typeof b === 'object' ? b.name : b;
+                            const branchKey = typeof b === 'object' ? b.id : b;
+                            return (
+                              <span key={branchKey} className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-700 border border-blue-100">
+                                {branchName}
+                              </span>
+                            );
+                          })}
                         </div>
                       </td>
                       <td className="px-6 py-3 text-right">
