@@ -125,8 +125,16 @@ const transactionSchema = new mongoose.Schema(
     paymentMethod: {
       type: String,
       required: true,
-      enum: ['cash', 'online', 'transfer'],
+      enum: ['cash', 'online', 'transfer', 'split'],
       default: 'cash',
+    },
+    cashAmount: {
+      type: Number,
+      default: 0,
+    },
+    onlineAmount: {
+      type: Number,
+      default: 0,
     },
     isPaid: {
       type: Boolean,

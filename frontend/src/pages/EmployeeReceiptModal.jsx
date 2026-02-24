@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
-import { Printer, X, Download, Save, Plus, Minus, Package, CreditCard, Receipt, Loader2, Search } from 'lucide-react';
+import { Printer, X, Download, Save, Plus, Minus, Package, CreditCard, Receipt, Loader2, Search, IndianRupee } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { useReactToPrint } from 'react-to-print';
 import jsPDF from 'jspdf';
@@ -22,8 +22,10 @@ const EmployeeReceiptModal = ({
     const [isPaid, setIsPaid] = useState(true);
     const [saving, setSaving] = useState(false);
     const [remarks, setRemarks] = useState('');
+    const [cashAmount, setCashAmount] = useState(0);
+    const [onlineAmount, setOnlineAmount] = useState(0);
     const [savedTransactionItems, setSavedTransactionItems] = useState([]);
-    const [savedPaymentInfo, setSavedPaymentInfo] = useState({ paymentMethod: 'cash', isPaid: true, remarks: '', totalAmount: 0 });
+    const [savedPaymentInfo, setSavedPaymentInfo] = useState({ paymentMethod: 'cash', isPaid: true, remarks: '', totalAmount: 0, cashAmount: 0, onlineAmount: 0 });
     const [statusMsg, setStatusMsg] = useState({ type: '', message: '' });
     const [receiptConfig, setReceiptConfig] = useState({
         receiptHeader: 'PYDAH GROUP OF INSTITUTIONS',
@@ -374,6 +376,18 @@ const EmployeeReceiptModal = ({
         return transactionItems.reduce((sum, item) => sum + item.total, 0);
     }, [transactionItems]);
 
+    useEffect(() => {
+        if (paymentMethod === 'split') {
+            if (cashAmount + onlineAmount !== totalAmount) {
+                setCashAmount(totalAmount);
+                setOnlineAmount(0);
+            }
+        } else {
+            setCashAmount(paymentMethod === 'cash' ? totalAmount : 0);
+            setOnlineAmount(paymentMethod === 'online' ? totalAmount : 0);
+        }
+    }, [totalAmount, paymentMethod]);
+
     const handleQuantityChange = (productId, delta) => {
         setSelectedItems(prev => {
             const current = prev[productId] || 0;
@@ -407,6 +421,8 @@ const EmployeeReceiptModal = ({
                     paymentMethod,
                     isPaid,
                     remarks,
+                    cashAmount,
+                    onlineAmount,
                     createdBy: currentUser?.id,
                     collegeId: (typeof currentUser?.assignedCollege === 'object' ? currentUser.assignedCollege._id : currentUser?.assignedCollege) ||
                         (typeof currentUser?.assignedBranch === 'object' ? currentUser.assignedBranch._id : currentUser?.assignedBranch) ||
@@ -427,7 +443,9 @@ const EmployeeReceiptModal = ({
                 paymentMethod,
                 isPaid,
                 remarks,
-                totalAmount
+                totalAmount,
+                cashAmount,
+                onlineAmount
             });
 
             if (onTransactionSaved) {
@@ -620,6 +638,10 @@ const EmployeeReceiptModal = ({
                                                     onClick={() => setPaymentMethod('online')}
                                                     className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all ${paymentMethod === 'online' ? 'bg-blue-600 text-white shadow-md' : 'text-blue-700 hover:bg-blue-50'}`}
                                                 >ONLINE</button>
+                                                <button
+                                                    onClick={() => setPaymentMethod('split')}
+                                                    className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all ${paymentMethod === 'split' ? 'bg-blue-600 text-white shadow-md' : 'text-blue-700 hover:bg-blue-50'}`}
+                                                >SPLIT</button>
                                             </div>
                                         </div>
                                         <div>
@@ -632,6 +654,44 @@ const EmployeeReceiptModal = ({
                                             </div>
                                         </div>
                                     </div>
+
+                                    {/* Split Payment Amounts */}
+                                    {paymentMethod === 'split' && (
+                                        <div className="grid grid-cols-2 gap-4 bg-white p-3 rounded-xl border border-blue-100 shadow-sm">
+                                            <div>
+                                                <label className="block text-[10px] font-black text-blue-800 uppercase tracking-wider mb-1.5 ml-1">Cash</label>
+                                                <div className="relative">
+                                                    <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={12} />
+                                                    <input
+                                                        type="number"
+                                                        value={cashAmount}
+                                                        onChange={(e) => {
+                                                            const val = Math.min(totalAmount, Math.max(0, parseFloat(e.target.value) || 0));
+                                                            setCashAmount(val);
+                                                            setOnlineAmount(totalAmount - val);
+                                                        }}
+                                                        className="w-full pl-8 pr-3 py-2 bg-gray-50 border border-blue-50 rounded-lg text-xs font-black focus:ring-2 focus:ring-blue-500 outline-none"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] font-black text-blue-800 uppercase tracking-wider mb-1.5 ml-1">Online</label>
+                                                <div className="relative">
+                                                    <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={12} />
+                                                    <input
+                                                        type="number"
+                                                        value={onlineAmount}
+                                                        onChange={(e) => {
+                                                            const val = Math.min(totalAmount, Math.max(0, parseFloat(e.target.value) || 0));
+                                                            setOnlineAmount(val);
+                                                            setCashAmount(totalAmount - val);
+                                                        }}
+                                                        className="w-full pl-8 pr-3 py-2 bg-gray-50 border border-blue-50 rounded-lg text-xs font-black focus:ring-2 focus:ring-blue-500 outline-none"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
 
                                     <div>
                                         <label className="block text-[10px] font-black text-blue-800 uppercase tracking-wider mb-1 ml-1">Remarks</label>
@@ -720,6 +780,18 @@ const EmployeeReceiptModal = ({
                                                     {transactionItems.length > 0 ? paymentMethod : savedPaymentInfo.paymentMethod}
                                                 </span>
                                             </div>
+                                            {(transactionItems.length > 0 ? paymentMethod : savedPaymentInfo.paymentMethod) === 'split' && (
+                                                <div className="flex flex-col gap-1 pr-2 border-r border-gray-200">
+                                                    <div className="flex items-center gap-1.5 justify-end">
+                                                        <span className="text-gray-400 font-bold text-[8px] uppercase">Cash:</span>
+                                                        <span className="text-gray-800 font-black text-[9px]">₹{(transactionItems.length > 0 ? cashAmount : savedPaymentInfo.cashAmount).toFixed(0)}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 justify-end">
+                                                        <span className="text-gray-400 font-bold text-[8px] uppercase">Online:</span>
+                                                        <span className="text-gray-800 font-black text-[9px]">₹{(transactionItems.length > 0 ? onlineAmount : savedPaymentInfo.onlineAmount).toFixed(0)}</span>
+                                                    </div>
+                                                </div>
+                                            )}
                                             <div className="flex items-center gap-2">
                                                 <span className="text-gray-400 font-bold text-[9px] uppercase tracking-wider">Status:</span>
                                                 <span className={`font-black text-[10px] ${(transactionItems.length > 0 ? isPaid : savedPaymentInfo.isPaid) ? 'text-green-600' : 'text-red-600'}`}>
@@ -797,11 +869,25 @@ const EmployeeReceiptModal = ({
                             {/* Total */}
                             <div className="thermal-total">
                                 <div style={{ display: 'flex', borderBottom: '1px dashed #000', paddingBottom: '1mm', marginBottom: '1mm', fontSize: '8px' }}>
-                                    <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', paddingRight: '2mm', borderRight: '1px solid #000' }}>
-                                        <span>METHOD:</span>
-                                        <span style={{ fontWeight: 700 }}>{(transactionItems.length > 0 ? paymentMethod : savedPaymentInfo.paymentMethod)?.toUpperCase()}</span>
+                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.5mm', paddingRight: '2mm', borderRight: '1px solid #000' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <span>METHOD:</span>
+                                            <span style={{ fontWeight: 700 }}>{(transactionItems.length > 0 ? paymentMethod : savedPaymentInfo.paymentMethod)?.toUpperCase()}</span>
+                                        </div>
+                                        {(transactionItems.length > 0 ? paymentMethod : savedPaymentInfo.paymentMethod) === 'split' && (
+                                            <div style={{ fontSize: '7px', display: 'flex', flexDirection: 'column', gap: '0.2mm' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <span>Cash:</span>
+                                                    <span>₹{(transactionItems.length > 0 ? cashAmount : savedPaymentInfo.cashAmount).toFixed(0)}</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <span>Online:</span>
+                                                    <span>₹{(transactionItems.length > 0 ? onlineAmount : savedPaymentInfo.onlineAmount).toFixed(0)}</span>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
-                                    <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', paddingLeft: '2mm' }}>
+                                    <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', paddingLeft: '2mm', alignItems: 'center' }}>
                                         <span>STATUS:</span>
                                         <span style={{ fontWeight: 700 }}>{(transactionItems.length > 0 ? isPaid : savedPaymentInfo.isPaid) ? 'PAID' : 'UNPAID'}</span>
                                     </div>

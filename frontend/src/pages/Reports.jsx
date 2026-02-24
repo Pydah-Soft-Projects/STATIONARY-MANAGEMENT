@@ -476,8 +476,16 @@ const Reports = ({ currentUser }) => {
     // Calculate statistics
     const totalAmount = revenueTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
     const regularTransactions = revenueTransactions.filter(t => !t.transactionType || t.transactionType === 'student');
-    const cashAmount = regularTransactions.filter(t => t.isPaid && t.paymentMethod === 'cash').reduce((sum, t) => sum + (t.totalAmount || 0), 0);
-    const onlineAmount = regularTransactions.filter(t => t.isPaid && t.paymentMethod === 'online').reduce((sum, t) => sum + (t.totalAmount || 0), 0);
+    const cashAmount = regularTransactions.filter(t => t.isPaid).reduce((sum, t) => {
+      if (t.paymentMethod === 'cash') return sum + (t.totalAmount || 0);
+      if (t.paymentMethod === 'split') return sum + (t.cashAmount || 0);
+      return sum;
+    }, 0);
+    const onlineAmount = regularTransactions.filter(t => t.isPaid).reduce((sum, t) => {
+      if (t.paymentMethod === 'online') return sum + (t.totalAmount || 0);
+      if (t.paymentMethod === 'split') return sum + (t.onlineAmount || 0);
+      return sum;
+    }, 0);
     const paidCount = revenueTransactions.filter(t => t.isPaid).length;
     const paidAmount = revenueTransactions.filter(t => t.isPaid).reduce((sum, t) => sum + (t.totalAmount || 0), 0);
     const totalItemsSold = itemsSold.reduce((sum, item) => sum + item.quantity, 0);
@@ -1850,6 +1858,7 @@ const Reports = ({ currentUser }) => {
                     <option value="">All Payment Methods</option>
                     <option value="cash">Cash</option>
                     <option value="online">Online</option>
+                    <option value="split">Split</option>
                     <option value="transfer">Transfer</option>
                   </select>
 
@@ -2114,9 +2123,11 @@ const Reports = ({ currentUser }) => {
                                         ? 'bg-green-100 text-green-800'
                                         : transaction.paymentMethod === 'online'
                                           ? 'bg-blue-100 text-blue-800'
-                                          : 'bg-purple-100 text-purple-800'
+                                          : transaction.paymentMethod === 'split'
+                                            ? 'bg-indigo-100 text-indigo-800'
+                                            : 'bg-purple-100 text-purple-800'
                                         }`}>
-                                        {transaction.paymentMethod === 'cash' ? 'Cash' : transaction.paymentMethod === 'online' ? 'Online' : 'Transfer'}
+                                        {transaction.paymentMethod === 'cash' ? 'Cash' : transaction.paymentMethod === 'online' ? 'Online' : transaction.paymentMethod === 'split' ? 'Split' : 'Transfer'}
                                       </span>
                                     )}
                                   </td>

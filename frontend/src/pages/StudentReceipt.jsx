@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
-import { Printer, X, Download, Save, Plus, Minus, Package, CreditCard, Receipt, Loader2, Search } from 'lucide-react';
+import { Printer, X, Download, Save, Plus, Minus, Package, CreditCard, Receipt, Loader2, Search, IndianRupee } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { useReactToPrint } from 'react-to-print';
 import jsPDF from 'jspdf';
@@ -29,8 +29,10 @@ const StudentReceiptModal = ({
   const [isPaid, setIsPaid] = useState(true);
   const [saving, setSaving] = useState(false);
   const [remarks, setRemarks] = useState('');
+  const [cashAmount, setCashAmount] = useState(0);
+  const [onlineAmount, setOnlineAmount] = useState(0);
   const [savedTransactionItems, setSavedTransactionItems] = useState([]);
-  const [savedPaymentInfo, setSavedPaymentInfo] = useState({ paymentMethod: 'cash', isPaid: false, remarks: '', totalAmount: 0 });
+  const [savedPaymentInfo, setSavedPaymentInfo] = useState({ paymentMethod: 'cash', isPaid: false, remarks: '', totalAmount: 0, cashAmount: 0, onlineAmount: 0 });
   const [statusMsg, setStatusMsg] = useState({ type: '', message: '' });
   const [receiptConfig, setReceiptConfig] = useState({
     receiptHeader: 'PYDAH GROUP OF INSTITUTIONS',
@@ -465,6 +467,18 @@ const StudentReceiptModal = ({
     return transactionItems.reduce((sum, item) => sum + item.total, 0);
   }, [transactionItems]);
 
+  useEffect(() => {
+    if (paymentMethod === 'split') {
+      if (cashAmount + onlineAmount !== totalAmount) {
+        setCashAmount(totalAmount);
+        setOnlineAmount(0);
+      }
+    } else {
+      setCashAmount(paymentMethod === 'cash' ? totalAmount : 0);
+      setOnlineAmount(paymentMethod === 'online' ? totalAmount : 0);
+    }
+  }, [totalAmount, paymentMethod]);
+
   const handleQuantityChange = (productId, delta) => {
     setSelectedItems(prev => {
       const current = prev[productId] || 0;
@@ -523,6 +537,8 @@ const StudentReceiptModal = ({
             paymentMethod,
             isPaid,
             remarks,
+            cashAmount,
+            onlineAmount,
           },
         };
 
@@ -536,6 +552,8 @@ const StudentReceiptModal = ({
           isPaid,
           remarks,
           totalAmount,
+          cashAmount,
+          onlineAmount,
         });
 
         setSelectedItems({});
@@ -559,13 +577,15 @@ const StudentReceiptModal = ({
           isPaid,
           remarks,
           createdBy: currentUser?.id,
-          collegeId: (typeof currentUser?.assignedCollege === 'object' ? currentUser.assignedCollege._id : currentUser?.assignedCollege) ||
-            (typeof currentUser?.assignedBranch === 'object' ? currentUser.assignedBranch._id : currentUser?.assignedBranch) ||
+          collegeId: (currentUser?.assignedCollege && typeof currentUser.assignedCollege === 'object' ? currentUser.assignedCollege._id : currentUser?.assignedCollege) ||
+            (currentUser?.assignedBranch && typeof currentUser.assignedBranch === 'object' ? currentUser.assignedBranch._id : currentUser?.assignedBranch) ||
             undefined,
           // Support for legacy assignment
-          branchId: (typeof currentUser?.assignedCollege === 'object' ? currentUser.assignedCollege._id : currentUser?.assignedCollege) ||
-            (typeof currentUser?.assignedBranch === 'object' ? currentUser.assignedBranch._id : currentUser?.assignedBranch) ||
+          branchId: (currentUser?.assignedCollege && typeof currentUser.assignedCollege === 'object' ? currentUser.assignedCollege._id : currentUser?.assignedCollege) ||
+            (currentUser?.assignedBranch && typeof currentUser.assignedBranch === 'object' ? currentUser.assignedBranch._id : currentUser?.assignedBranch) ||
             undefined,
+          cashAmount,
+          onlineAmount,
         }),
       });
 
@@ -583,6 +603,8 @@ const StudentReceiptModal = ({
         isPaid,
         remarks,
         totalAmount,
+        cashAmount,
+        onlineAmount,
       });
 
       // Fetch updated student data
@@ -878,6 +900,16 @@ const StudentReceiptModal = ({
                         >
                           Online
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => setPaymentMethod('split')}
+                          className={`relative flex-1 px-3 py-2 rounded-md text-xs font-semibold transition-all ${paymentMethod === 'split'
+                            ? 'bg-blue-600 text-white shadow'
+                            : 'text-blue-700 hover:bg-blue-50'
+                            }`}
+                        >
+                          Split
+                        </button>
                       </div>
                     </div>
 
@@ -898,6 +930,44 @@ const StudentReceiptModal = ({
                       </div>
                     </div>
                   </div>
+
+                  {/* Split Payment Amounts */}
+                  {paymentMethod === 'split' && (
+                    <div className="mt-3 grid grid-cols-2 gap-3 p-3 bg-white rounded-lg border border-blue-200">
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">Cash Amount</label>
+                        <div className="relative">
+                          <IndianRupee className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" size={12} />
+                          <input
+                            type="number"
+                            value={cashAmount}
+                            onChange={(e) => {
+                              const val = Math.min(totalAmount, Math.max(0, parseFloat(e.target.value) || 0));
+                              setCashAmount(val);
+                              setOnlineAmount(totalAmount - val);
+                            }}
+                            className="w-full pl-7 pr-2 py-1.5 border border-gray-200 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none font-bold"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">Online Amount</label>
+                        <div className="relative">
+                          <IndianRupee className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" size={12} />
+                          <input
+                            type="number"
+                            value={onlineAmount}
+                            onChange={(e) => {
+                              const val = Math.min(totalAmount, Math.max(0, parseFloat(e.target.value) || 0));
+                              setOnlineAmount(val);
+                              setCashAmount(totalAmount - val);
+                            }}
+                            className="w-full pl-7 pr-2 py-1.5 border border-gray-200 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none font-bold"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Remarks */}
                   <div className="mt-3 col-span-2">
@@ -983,6 +1053,18 @@ const StudentReceiptModal = ({
                           {transactionItems.length > 0 ? paymentMethod : savedPaymentInfo.paymentMethod}
                         </span>
                       </div>
+                      {(transactionItems.length > 0 ? paymentMethod : savedPaymentInfo.paymentMethod) === 'split' && (
+                        <div className="pl-4 space-y-1">
+                          <div className="flex justify-between text-[10px]">
+                            <span className="text-blue-600">Cash:</span>
+                            <span className="text-blue-800 font-semibold">₹{(transactionItems.length > 0 ? cashAmount : savedPaymentInfo.cashAmount).toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between text-[10px]">
+                            <span className="text-blue-600">Online:</span>
+                            <span className="text-blue-800 font-semibold">₹{(transactionItems.length > 0 ? onlineAmount : savedPaymentInfo.onlineAmount).toFixed(2)}</span>
+                          </div>
+                        </div>
+                      )}
                       <div className="flex justify-between">
                         <span className="text-blue-700 font-medium text-xs">Status:</span>
                         <span className={`font-semibold text-xs ${(transactionItems.length > 0 ? isPaid : savedPaymentInfo.isPaid) ? 'text-green-600' : 'text-red-600'}`}>
@@ -1081,7 +1163,12 @@ const StudentReceiptModal = ({
               <div className="thermal-payment">
                 <p>
                   <span>Payment:</span>
-                  <span>{(transactionItems.length > 0 ? paymentMethod : savedPaymentInfo.paymentMethod) === 'cash' ? 'CASH' : 'ONLINE'}</span>
+                  <span>
+                    {(transactionItems.length > 0 ? paymentMethod : savedPaymentInfo.paymentMethod) === 'split'
+                      ? `SPLIT (Cash: ₹${(transactionItems.length > 0 ? cashAmount : savedPaymentInfo.cashAmount).toFixed(0)}, Online: ₹${(transactionItems.length > 0 ? onlineAmount : savedPaymentInfo.onlineAmount).toFixed(0)})`
+                      : (transactionItems.length > 0 ? paymentMethod : savedPaymentInfo.paymentMethod).toUpperCase()
+                    }
+                  </span>
                 </p>
                 <p>
                   <span>Status:</span>

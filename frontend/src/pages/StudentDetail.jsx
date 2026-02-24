@@ -994,9 +994,13 @@ const StudentDetail = ({
                                   )}
                                   <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${transaction.paymentMethod === 'cash'
                                     ? 'bg-blue-100 text-blue-700 border border-blue-200'
-                                    : 'bg-indigo-100 text-indigo-700 border border-indigo-200'
+                                    : transaction.paymentMethod === 'split'
+                                      ? 'bg-purple-100 text-purple-700 border border-purple-200'
+                                      : 'bg-indigo-100 text-indigo-700 border border-indigo-200'
                                     }`}>
-                                    {transaction.paymentMethod === 'cash' ? 'Cash' : 'Online'}
+                                    {transaction.paymentMethod === 'split'
+                                      ? `Split (C: ₹${(transaction.cashAmount || 0).toFixed(0)}, O: ₹${(transaction.onlineAmount || 0).toFixed(0)})`
+                                      : transaction.paymentMethod === 'cash' ? 'Cash' : 'Online'}
                                   </span>
                                 </div>
                                 <div className="flex items-center gap-3 text-xs text-gray-700">
@@ -1348,8 +1352,19 @@ const StudentDetail = ({
                             </table>
 
                             <div className="thermal-total">
-                              <span>TOTAL ({transaction.paymentMethod === 'cash' ? 'CASH' : 'ONLINE'}):</span>
-                              <span>₹{Number(transaction.totalAmount).toFixed(2)}</span>
+                              <span>TOTAL:</span>
+                              <span>₹{Number(transaction.totalAmount || 0).toFixed(2)}</span>
+                            </div>
+
+                            <div className="thermal-payment" style={{ borderTop: '1px dashed #000', marginTop: '1mm', paddingTop: '1mm' }}>
+                              <p>
+                                <span>Method:</span>
+                                <span>
+                                  {transaction.paymentMethod === 'split'
+                                    ? `SPLIT (Cash: ₹${(transaction.cashAmount || 0).toFixed(0)}, Online: ₹${(transaction.onlineAmount || 0).toFixed(0)})`
+                                    : transaction.paymentMethod?.toUpperCase()}
+                                </span>
+                              </p>
                             </div>
 
                             {transaction.remarks && (

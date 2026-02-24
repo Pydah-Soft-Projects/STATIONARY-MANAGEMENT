@@ -143,7 +143,7 @@ const DEFAULT_STUDENT_TABLE = 'students';
  * @access  Public
  */
 const createTransaction = asyncHandler(async (req, res) => {
-  const { studentId, employeeId, items, paymentMethod, isPaid, remarks } = req.body;
+  const { studentId, employeeId, items, paymentMethod, isPaid, remarks, cashAmount, onlineAmount } = req.body;
   let { collegeId, branchId } = req.body;
   
   // Consolidate to collegeId
@@ -442,6 +442,8 @@ const createTransaction = asyncHandler(async (req, res) => {
     stockDeducted: (isPaid && stockChanges.size > 0 && Array.from(stockChanges.values()).every(v => v < 0)) || false, 
     transactionDate: new Date(),
     remarks: remarks || '',
+    cashAmount: paymentMethod === 'split' ? (Number(cashAmount) || 0) : (paymentMethod === 'cash' ? totalAmount : 0),
+    onlineAmount: paymentMethod === 'split' ? (Number(onlineAmount) || 0) : (paymentMethod === 'online' ? totalAmount : 0),
   };
 
   if (transactionType === 'student') {
@@ -598,7 +600,7 @@ const updateTransaction = asyncHandler(async (req, res) => {
     throw new Error('Transaction not found');
   }
 
-  const { items, paymentMethod, isPaid, remarks } = req.body;
+  const { items, paymentMethod, isPaid, remarks, cashAmount, onlineAmount } = req.body;
 
   // If items are being updated, recalculate total and handle stock
   if (items && Array.isArray(items) && items.length > 0) {
@@ -861,6 +863,25 @@ const updateTransaction = asyncHandler(async (req, res) => {
 
   if (remarks !== undefined) {
     transaction.remarks = remarks;
+  }
+
+  if (cashAmount !== undefined || onlineAmount !== undefined || paymentMethod !== undefined) {
+    const finalMethod = paymentMethod !== undefined ? paymentMethod : transaction.paymentMethod;
+    const finalTotal = items ? transaction.totalAmount : transaction.totalAmount; // totalAmount was updated above if items was provided
+
+    if (finalMethod === 'split') {
+      if (cashAmount !== undefined) transaction.cashAmount = Number(cashAmount) || 0;
+      if (onlineAmount !== undefined) transaction.onlineAmount = Number(onlineAmount) || 0;
+    } else if (finalMethod === 'cash') {
+      transaction.cashAmount = transaction.totalAmount;
+      transaction.onlineAmount = 0;
+    } else if (finalMethod === 'online') {
+      transaction.cashAmount = 0;
+      transaction.onlineAmount = transaction.totalAmount;
+    } else {
+      transaction.cashAmount = 0;
+      transaction.onlineAmount = 0;
+    }
   }
 
   const updatedTransaction = await transaction.save();

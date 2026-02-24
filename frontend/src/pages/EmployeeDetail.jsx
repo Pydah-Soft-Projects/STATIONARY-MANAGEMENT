@@ -300,9 +300,11 @@ const EmployeeDetail = ({ products = [], setProducts, currentUser, isOnline }) =
                                                                     }`}>
                                                                     {transaction.isPaid ? 'Paid' : 'Unpaid'}
                                                                 </span>
-                                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${transaction.paymentMethod === 'cash' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'
+                                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${transaction.paymentMethod === 'cash' ? 'bg-amber-100 text-amber-700' : transaction.paymentMethod === 'split' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
                                                                     }`}>
-                                                                    {transaction.paymentMethod}
+                                                                    {transaction.paymentMethod === 'split'
+                                                                        ? `Split (C: ₹${(transaction.cashAmount || 0).toFixed(0)}, O: ₹${(transaction.onlineAmount || 0).toFixed(0)})`
+                                                                        : transaction.paymentMethod}
                                                                 </span>
                                                             </div>
                                                             <div className="flex items-center gap-4 text-xs text-gray-600">
@@ -433,9 +435,23 @@ const EmployeeDetail = ({ products = [], setProducts, currentUser, isOnline }) =
 
                                                         <div className="thermal-total">
                                                             <div style={{ display: 'flex', borderBottom: '1px dashed #000', paddingBottom: '1mm', marginBottom: '1mm', fontSize: '8px' }}>
-                                                                <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', paddingRight: '2mm', borderRight: '1px solid #000' }}>
-                                                                    <span>METHOD:</span>
-                                                                    <span style={{ fontWeight: 700 }}>{transaction.paymentMethod?.toUpperCase()}</span>
+                                                                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.5mm', paddingRight: '2mm', borderRight: '1px solid #000' }}>
+                                                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                                        <span>METHOD:</span>
+                                                                        <span style={{ fontWeight: 700 }}>{transaction.paymentMethod?.toUpperCase()}</span>
+                                                                    </div>
+                                                                    {transaction.paymentMethod === 'split' && (
+                                                                        <div style={{ fontSize: '7px', display: 'flex', flexDirection: 'column', gap: '0.2mm' }}>
+                                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                                                <span>Cash:</span>
+                                                                                <span>₹{(transaction.cashAmount || 0).toFixed(0)}</span>
+                                                                            </div>
+                                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                                                <span>Online:</span>
+                                                                                <span>₹{(transaction.onlineAmount || 0).toFixed(0)}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                                 <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', paddingLeft: '2mm' }}>
                                                                     <span>STATUS:</span>
