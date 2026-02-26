@@ -143,8 +143,10 @@ function App() {
           const stockData = await stockRes.json();
           const collegeStockMap = {};
           (stockData.stock || []).forEach(item => {
-            const pId = typeof item.product === 'object' ? item.product._id : item.product;
-            collegeStockMap[pId] = item.quantity;
+            if (item.product) {
+              const pId = typeof item.product === 'object' ? item.product._id : item.product;
+              collegeStockMap[pId] = item.quantity;
+            }
           });
 
           const productsWithCollegeStock = (globalProducts || []).map(product => ({

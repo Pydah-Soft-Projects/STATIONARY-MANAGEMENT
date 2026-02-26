@@ -155,8 +155,10 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
         const data = await res.json();
         const map = {};
         (data.stock || []).forEach(item => {
-          const pId = typeof item.product === 'object' ? item.product._id : item.product;
-          map[pId] = item.quantity;
+          if (item.product) {
+            const pId = typeof item.product === 'object' ? item.product._id : item.product;
+            map[pId] = item.quantity;
+          }
         });
         setCollegeStockMap(map);
       }
