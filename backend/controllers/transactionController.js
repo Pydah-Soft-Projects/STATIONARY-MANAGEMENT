@@ -220,6 +220,7 @@ const createTransaction = asyncHandler(async (req, res) => {
       year: parseInt(deriveValue(studentData, ['year', 'year_of_study', 'yearOfStudy', 'current_year', 'stud_year', 'semester_year'], 1)) || 1,
       branch: deriveValue(studentData, ['branch', 'department', 'dept', 'department_name'], 'N/A'),
       semester: parseInt(deriveValue(studentData, ['semester', 'current_semester', 'semester_no', 'sem', 'sem_no'], null)) || null,
+      pin: deriveValue(studentData, ['pin', 'pin_no', 'pinNo', 'university_id'], ''),
     };
   } else {
     // Handle Employee lookup from MongoDB

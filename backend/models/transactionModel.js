@@ -45,6 +45,7 @@ const transactionSchema = new mongoose.Schema(
       year: { type: Number, required: function() { return this.transactionType === 'student'; } },
       branch: { type: String, default: '' },
       semester: { type: Number, default: null },
+      pin: { type: String, default: '' },
     },
     employee: {
       id: { type: String, required: function() { return this.transactionType === 'employee'; } },
