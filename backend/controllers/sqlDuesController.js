@@ -192,10 +192,9 @@ const getStudentDues = asyncHandler(async (req, res) => {
 
             if (txn.items) {
                 txn.items.forEach(item => {
-                    // Logic Update: Count 'partial' items as Received for DUES purposes.
-                    // If the transaction is PAID, the student does not owe money for this item,
-                    // even if they haven't collected all components yet.
-                    // if (item.status === 'partial') return; // REMOVED checking partial status
+                    // Logic Update: Only count fulfilled items as Received.
+                    // If an item is 'partial' (due to zero stock), it should still be considered a DUE.
+                    if (item.status === 'partial') return;
 
                     // Add to BOTH keys to ensure we find it regardless of which ID the student record has
                     if (sqlId) {

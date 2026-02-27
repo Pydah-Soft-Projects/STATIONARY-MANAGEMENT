@@ -16,6 +16,7 @@ const generalProductRoutes = require("./routes/generalProductRoutes");
 const generalPurchaseRoutes = require("./routes/generalPurchaseRoutes");
 const generalDistributionRoutes = require("./routes/generalDistributionRoutes");
 const employeeRoutes = require("./routes/employeeRoutes");
+const dashboardRoutes = require("./routes/dashboardRoutes");
 const { connectEmployeeDB } = require("./config/employeeDb");
 
 dotenv.config();
@@ -158,6 +159,7 @@ app.use("/api/general-products", generalProductRoutes);
 app.use("/api/general-purchases", generalPurchaseRoutes);
 app.use("/api/general-distributions", generalDistributionRoutes);
 app.use("/api/employees", employeeRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 // SQL Academic Routes (Courses, Branches)
 const sqlAcademicRoutes = require("./routes/sqlAcademicRoutes");

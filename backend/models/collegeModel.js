@@ -12,7 +12,6 @@ const collegeStockSchema = new mongoose.Schema(
       type: Number,
       required: true,
       default: 0,
-      min: [0, 'Stock cannot be negative'],
     },
   },
   { _id: false }
@@ -62,7 +61,7 @@ const collegeSchema = new mongoose.Schema(
   }
 );
 
-collegeSchema.index({ name: 1 }, { unique: true });
+
 collegeSchema.index({ isActive: 1 });
 collegeSchema.index({ 'stock.product': 1 });
 collegeSchema.index({ 'generalStock.product': 1 });

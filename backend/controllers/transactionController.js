@@ -49,17 +49,15 @@ const applyStockChanges = async (changeMap, collegeId) => {
   // Apply changes
   changeMap.forEach((delta, productId) => {
     const current = collegeStockMap.get(productId) || 0;
-    const newQty = Math.max(0, current + delta); // Prevent negative
+    const newQty = current + delta; // Allow negative
     collegeStockMap.set(productId, newQty);
   });
 
   // Re-construct the stock array
   const updatedStock = [];
   collegeStockMap.forEach((qty, productId) => {
-    if (qty > 0) { // Optional: remove items with 0 stock to keep array clean? Or keep as 0? 
-      // Keeping as 0 allows tracking out-of-stock items explicitly if needed, but removing saves space.
-      updatedStock.push({ product: productId, quantity: qty });
-    }
+    // Keep items in the array even if stock is 0 or negative
+    updatedStock.push({ product: productId, quantity: qty });
   });
 
   college.stock = updatedStock;
@@ -210,9 +208,13 @@ const createTransaction = asyncHandler(async (req, res) => {
       return fallback;
     };
 
+    const firstName = deriveValue(studentData, ['first_name', 'firstName', 'fname', 'first']);
+    const lastName = deriveValue(studentData, ['last_name', 'lastName', 'lname', 'last']);
+    const combinedName = [firstName, lastName].filter(Boolean).join(' ').trim();
+
     transactionEntity = {
       sqlId: String(studentData.id),
-      name: deriveValue(studentData, ['name', 'student_name', 'studentName', 'full_name', 'fullName']) || 'Unknown',
+      name: deriveValue(studentData, ['name', 'student_name', 'studentName', 'full_name', 'fullName']) || combinedName || 'Unknown',
       studentId: deriveValue(studentData, ['admission_number', 'admission_no', 'student_id', 'studentId', 'roll_no', 'rollNo', 'pin_no', 'pinNo']) || 'N/A',
       course: deriveValue(studentData, ['course', 'course_name', 'courseName', 'program', 'programme'], 'N/A'),
       year: parseInt(deriveValue(studentData, ['year', 'year_of_study', 'yearOfStudy', 'current_year', 'stud_year', 'semester_year'], 1)) || 1,
@@ -340,7 +342,7 @@ const createTransaction = asyncHandler(async (req, res) => {
 
     const requestedQuantity = Number(item.quantity);
 
-    let itemStatus = 'fulfilled';
+    let itemStatus = item.status || 'fulfilled';
     let componentDetails = [];
 
     if (product.isSet) {
@@ -367,11 +369,12 @@ const createTransaction = asyncHandler(async (req, res) => {
 
           if (available < required) {
             taken = false;
-            itemStatus = 'partial';
+            if (itemStatus !== 'fulfilled') itemStatus = 'partial';
             reason = `Insufficient stock at college (required ${required}, available ${Math.max(available, 0)})`;
-          } else {
-            accumulateStockChange(stockChanges, componentId, -required);
-          }
+          } 
+          
+          // Always deduct stock if paid, even if it goes negative
+          accumulateStockChange(stockChanges, componentId, -required);
 
           componentDetails.push({
             productId: component._id,
@@ -392,10 +395,9 @@ const createTransaction = asyncHandler(async (req, res) => {
     } else {
       // CHECK COLLEGE STOCK IF PAID
       if (isPaid) {
-        if (getProjectedStock(productId, collegeStockMap, stockChanges) >= requestedQuantity) {
-          accumulateStockChange(stockChanges, productId, -requestedQuantity);
-        } else {
-          itemStatus = 'partial'; // Mark as partial if stock is insufficient even if paid
+        accumulateStockChange(stockChanges, productId, -requestedQuantity);
+        if (getProjectedStock(productId, collegeStockMap, new Map()) < requestedQuantity) {
+          if (itemStatus !== 'fulfilled') itemStatus = 'partial'; // Mark as partial if stock is insufficient even if paid
         }
       }
     }
@@ -672,7 +674,7 @@ const updateTransaction = asyncHandler(async (req, res) => {
 
       const requestedQuantity = Number(item.quantity);
 
-      let itemStatus = 'fulfilled';
+      let itemStatus = item.status || 'fulfilled';
       let componentDetails = [];
 
       if (product.isSet) {
@@ -714,16 +716,15 @@ const updateTransaction = asyncHandler(async (req, res) => {
           let reason = desiredComponent?.reason;
 
           if (taken) {
-            // ONLY check and deduct stock if PAID
+            // ALWAYS deduct stock if PAID, even if insufficient (allow negative)
             if (targetIsPaid) {
-              if (getProjectedStock(componentId, newStockMap, stockChanges) >= required) {
+              if (getProjectedStock(componentId, newStockMap, stockChanges) < required) {
+                if (itemStatus !== 'fulfilled') itemStatus = 'partial';
+              }
               accumulateStockChange(stockChanges, componentId, -required);
-            } else {
-              itemStatus = 'partial';
-            }
             }
           } else {
-            itemStatus = 'partial';
+            if (itemStatus !== 'fulfilled') itemStatus = 'partial';
             if (!reason) {
               reason = hasTakenFlag ? 'Marked as not taken' : 'Insufficient stock at issuance';
             }
@@ -739,10 +740,9 @@ const updateTransaction = asyncHandler(async (req, res) => {
         }
       } else {
         if (targetIsPaid) {
-          if (getProjectedStock(productId, newStockMap, stockChanges) >= requestedQuantity) {
-            accumulateStockChange(stockChanges, productId, -requestedQuantity);
-          } else {
-            itemStatus = 'partial';
+          accumulateStockChange(stockChanges, productId, -requestedQuantity);
+          if (getProjectedStock(productId, newStockMap, new Map()) < requestedQuantity) {
+            if (itemStatus !== 'fulfilled') itemStatus = 'partial';
           }
         }
       }
@@ -814,14 +814,17 @@ const updateTransaction = asyncHandler(async (req, res) => {
               if (!comp.taken) continue;
               const compId = comp.productId.toString();
               const req = Number(comp.quantity) || 0;
-              if (getProjectedStock(compId, stockMap, stockChanges) >= req) {
-                accumulateStockChange(stockChanges, compId, -req);
+              
+              // Always deduct even if insufficient
+              if (getProjectedStock(compId, stockMap, stockChanges) < req) {
+                 // Note: we can't easily change item status here without more logic, 
+                 // but the stock deduction is the priority
               }
+              accumulateStockChange(stockChanges, compId, -req);
             }
           } else {
-            if (getProjectedStock(productId, stockMap, stockChanges) >= item.quantity) {
-              accumulateStockChange(stockChanges, productId, -item.quantity);
-            }
+            // Always deduct even if insufficient
+            accumulateStockChange(stockChanges, productId, -item.quantity);
           }
         }
 

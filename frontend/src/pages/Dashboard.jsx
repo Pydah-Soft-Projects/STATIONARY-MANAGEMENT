@@ -67,246 +67,33 @@ const Dashboard = () => {
       setLoading(true);
 
       try {
-        // Prepare promises based on selection
-        const promises = [
-          fetch(apiUrl('/api/users')),
-          fetch(apiUrl('/api/transactions')),
-          fetch(apiUrl('/api/vendors')),
-          fetch(apiUrl('/api/products')),
-          // Stock depends on selection
-          selectedCollege
-            ? fetch(apiUrl(`/api/stock-transfers/colleges/${selectedCollege}/stock`))
-            : Promise.resolve(null)
-        ];
+        const statsUrl = selectedCollege
+          ? apiUrl(`/api/dashboard/stats?collegeId=${selectedCollege}&t=${Date.now()}`)
+          : apiUrl(`/api/dashboard/stats?t=${Date.now()}`);
 
-        const [
-          studentsRes,
-          transactionsRes,
-          vendorsRes,
-          productsRes,
-          stockRes
-        ] = await Promise.all(promises);
+        const res = await fetch(statsUrl);
+        if (!res.ok) throw new Error('Failed to fetch dashboard stats');
 
-        // --- Active College for Course Filtering ---
-        let activeCollegeCourses = null;
-        if (selectedCollege) {
-          const activeCol = colleges.find(c => c._id === selectedCollege);
-          if (activeCol && activeCol.courses && activeCol.courses.length > 0) {
-            // Normalize courses for comparison
-            activeCollegeCourses = new Set(activeCol.courses.map(c => c.toLowerCase().trim()));
-          }
-        }
+        const data = await res.json();
 
-        // --- Process Students ---
-        let totalStudents = 0;
-        let paidStudents = 0;
-        let unpaidStudents = 0;
-        let studentsData = [];
-        const allStudentsMap = new Map();
+        setStats(data);
+        if (data.zeroStockDuesData) setZeroStockDuesData(data.zeroStockDuesData);
+        if (data.recentTransactions) setRecentTransactions(data.recentTransactions);
 
-        if (studentsRes.ok) {
-          studentsData = await studentsRes.json();
-          // Filter students if a college is selected (by course)
-          const studentsForProcessing = activeCollegeCourses
-            ? studentsData.filter(s => s.course && activeCollegeCourses.has(s.course.toLowerCase().trim()))
-            : studentsData;
+        // Fetch products and vendors (small lists)
+        const [productsRes, vendorsRes] = await Promise.all([
+          fetch(apiUrl(`/api/products?t=${Date.now()}`)),
+          fetch(apiUrl(`/api/vendors?t=${Date.now()}`))
+        ]);
 
-          totalStudents = studentsForProcessing.length;
-          studentsForProcessing.forEach(student => {
-            if (student.paid) paidStudents += 1;
-            else unpaidStudents += 1;
-          });
+        if (productsRes.ok) setProducts(await productsRes.json());
+        if (vendorsRes.ok) setVendors(await vendorsRes.json());
 
-          // All students map for transaction analysis
-          studentsData.forEach(s => allStudentsMap.set(String(s._id), s));
-        }
 
-        // --- Process Transactions ---
-        let totalTransactions = 0;
-        let totalRevenue = 0;
-        let pendingRevenue = 0;
-        let todayTransactions = 0;
-        let todayRevenue = 0;
-        let zeroStockDuesStudents = 0;
-        const recent = [];
-        const zeroStockMap = new Map(); // studentId -> { student, items: Set, transactionDate }
+        // Cleanup Part 1
 
-        if (transactionsRes.ok) {
-          let allTransactions = await transactionsRes.json();
-          const transactionsData = Array.isArray(allTransactions) ? allTransactions : [];
 
-          let filteredTransactions = transactionsData;
 
-          if (selectedCollege) {
-            filteredTransactions = transactionsData.filter(t => {
-              // Ensure ID comparison matches regardless of type (string vs object)
-              const tColId = t.collegeId ? (typeof t.collegeId === 'object' ? t.collegeId._id : t.collegeId) : null;
-              const selId = selectedCollege;
-
-              if (tColId && String(tColId) === String(selId)) return true;
-
-              // Also check transfer destination
-              if (t.transactionType === 'college_transfer') {
-                const transferColId = t.collegeTransfer?.collegeId ? (typeof t.collegeTransfer.collegeId === 'object' ? t.collegeTransfer.collegeId._id : t.collegeTransfer.collegeId) : null;
-                if (transferColId && String(transferColId) === String(selId)) return true;
-              }
-
-              return false;
-            });
-          }
-
-          totalTransactions = filteredTransactions.length;
-
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-
-          filteredTransactions.forEach(transaction => {
-            const isStudentSale = transaction.transactionType === 'student';
-            const isPaidTransfer = (transaction.transactionType === 'college_transfer' || transaction.transactionType === 'branch_transfer') && transaction.isPaid;
-            const isRevenueTransaction = isStudentSale || isPaidTransfer;
-
-            if (isRevenueTransaction) {
-              if (transaction.isPaid) {
-                totalRevenue += transaction.totalAmount || 0;
-
-                // Track Zero-Stock Dues (student transactions only)
-                if (isStudentSale) {
-                  let hasPartial = false;
-                  const partialItems = [];
-
-                  (transaction.items || []).forEach(item => {
-                    const key = (item.name || '').toLowerCase().replace(/\s+/g, '_');
-                    const studentId = String(transaction.student?.userId?._id || transaction.student?.userId);
-                    const studentRecord = allStudentsMap.get(studentId);
-
-                    if (item.status === 'partial') {
-                      if (studentRecord && (!studentRecord.items || !studentRecord.items[key])) {
-                        hasPartial = true;
-                        partialItems.push(item.name);
-                      }
-                    } else if (item.isSet && Array.isArray(item.setComponents)) {
-                      const missingComponents = item.setComponents.filter(c => !c.taken);
-                      if (missingComponents.length > 0) {
-                        if (studentRecord && (!studentRecord.items || !studentRecord.items[key])) {
-                          hasPartial = true;
-                          missingComponents.forEach(c => partialItems.push(c.name));
-                        }
-                      }
-                    }
-                  });
-
-                  if (hasPartial) {
-                    const sId = String(transaction.student?.userId?._id || transaction.student?.userId);
-
-                    if (sId && sId !== 'undefined' && sId !== 'null') {
-                      if (!zeroStockMap.has(sId)) {
-                        zeroStockMap.set(sId, {
-                          student: transaction.student,
-                          studentId: sId,
-                          items: new Set(partialItems),
-                          transactionDate: transaction.transactionDate
-                        });
-                      } else {
-                        partialItems.forEach(name => zeroStockMap.get(sId).items.add(name));
-                      }
-                    }
-                  }
-                }
-              } else if (isStudentSale) {
-                pendingRevenue += transaction.totalAmount || 0;
-              }
-
-              const transDate = new Date(transaction.transactionDate);
-              if (transDate >= today) {
-                todayTransactions++;
-                if (transaction.isPaid) {
-                  todayRevenue += transaction.totalAmount || 0;
-                }
-              }
-            }
-
-            // Get recent 5 transactions
-            if (recent.length < 5) {
-              recent.push(transaction);
-            }
-          });
-
-          recent.sort((a, b) => new Date(b.transactionDate) - new Date(a.transactionDate));
-          setRecentTransactions(recent.slice(0, 5));
-
-          const zeroStockList = Array.from(zeroStockMap.values()).map(entry => ({
-            ...entry,
-            items: Array.from(entry.items)
-          }));
-          setZeroStockDuesData(zeroStockList);
-          zeroStockDuesStudents = zeroStockList.length;
-        }
-
-        // --- Process Products / Stock ---
-        let totalProducts = 0;
-        let totalStockValue = 0;
-        let lowStockItems = 0;
-        let productsData = [];
-
-        if (productsRes.ok) {
-          const allProducts = await productsRes.json();
-          productsData = Array.isArray(allProducts) ? allProducts : [];
-
-          if (selectedCollege && stockRes && stockRes.ok) {
-            // College Stock Response: { _id, name, stock: [{ product: {...}, quantity: 10 }] }
-            const stockRaw = await stockRes.json();
-
-            // Map college stock for quick lookup
-            const collegeStockMap = new Map();
-            if (stockRaw.stock && Array.isArray(stockRaw.stock)) {
-              stockRaw.stock.forEach(item => {
-                const pId = item.product ? (item.product._id || item.product) : null;
-                if (pId) collegeStockMap.set(String(pId), item.quantity);
-              });
-            }
-
-            // Update products with college stock
-            productsData = productsData.map(product => ({
-              ...product,
-              stock: collegeStockMap.get(String(product._id)) || 0
-            }));
-          }
-
-          setProducts(productsData);
-          totalProducts = productsData.length;
-          productsData.forEach(product => {
-            const stockValue = (product.stock || 0) * (product.price || 0);
-            totalStockValue += stockValue;
-            const threshold = typeof product.lowStockThreshold === 'number' ? product.lowStockThreshold : 10;
-            if ((product.stock || 0) < threshold) {
-              lowStockItems++;
-            }
-          });
-        }
-
-        // --- Process Vendors ---
-        let totalVendors = 0;
-        if (vendorsRes.ok) {
-          const vendorsData = await vendorsRes.json();
-          setVendors(Array.isArray(vendorsData) ? vendorsData : []);
-          totalVendors = vendorsData.length;
-        }
-
-        setStats({
-          totalStudents,
-          paidStudents,
-          unpaidStudents,
-          totalTransactions,
-          totalRevenue,
-          pendingRevenue,
-          totalProducts,
-          totalStockValue,
-          lowStockItems,
-          totalVendors,
-          todayTransactions,
-          todayRevenue,
-          zeroStockDuesStudents,
-        });
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
       } finally {

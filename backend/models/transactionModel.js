@@ -167,7 +167,7 @@ const transactionSchema = new mongoose.Schema(
 // Index for faster queries
 transactionSchema.index({ 'student.userId': 1 });
 transactionSchema.index({ 'student.course': 1 });
-transactionSchema.index({ transactionId: 1 });
+
 transactionSchema.index({ transactionDate: -1 });
 transactionSchema.index({ transactionType: 1 });
 transactionSchema.index({ 'branchTransfer.branchId': 1 });

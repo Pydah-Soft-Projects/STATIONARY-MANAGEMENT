@@ -574,6 +574,101 @@ const StudentDetail = ({
     [isOnline, fetchStudentTransactions, refreshProducts]
   );
 
+  const handleMarkItemFulfilled = useCallback(
+    async (transaction, item) => {
+      if (!isOnline) {
+        setComponentUpdateStatus({
+          type: 'error',
+          message: 'Re-connect to the network before marking items as fulfilled.',
+        });
+        return;
+      }
+
+      const normalizeId = (value) => {
+        if (!value) return '';
+        if (typeof value === 'string') return value;
+        if (value._id) return String(value._id);
+        if (value.id) return String(value.id);
+        if (typeof value === 'object' && value.toString) return value.toString();
+        return String(value);
+      };
+
+      const transactionId = transaction._id || transaction.id;
+      const itemProductId = normalizeId(item.productId || item._id);
+
+      if (!transactionId || !itemProductId) {
+        setComponentUpdateStatus({
+          type: 'error',
+          message: 'Unable to determine item identifiers for this transaction.',
+        });
+        return;
+      }
+
+      const updateKey = `fulfill:${transactionId}:${itemProductId}`;
+      setComponentUpdating(updateKey);
+      setComponentUpdateStatus({ type: '', message: '' });
+
+      try {
+        const payloadItems = transaction.items.map((txItem) => {
+          const txItemProductId = normalizeId(txItem.productId || txItem._id);
+          const isTarget = txItemProductId === itemProductId;
+
+          const baseItem = {
+            productId: txItemProductId,
+            quantity: Number(txItem.quantity) || 0,
+            price: Number(txItem.price) || 0,
+            name: txItem.name,
+            status: isTarget ? 'fulfilled' : (txItem.status || 'fulfilled'),
+          };
+
+          if (txItem.isSet) {
+            baseItem.setComponents = (txItem.setComponents || []).map((comp) => ({
+              productId: normalizeId(comp.productId || comp._id || comp.id) || undefined,
+              name: comp.name,
+              quantity: Number(comp.quantity) || 1,
+              taken: comp.taken !== undefined ? comp.taken : true,
+              reason: comp.reason || '',
+            }));
+          }
+
+          return baseItem;
+        });
+
+        const response = await fetch(apiUrl(`/api/transactions/${transactionId}`), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items: payloadItems,
+            paymentMethod: transaction.paymentMethod || 'cash',
+            isPaid: Boolean(transaction.isPaid),
+            remarks: transaction.remarks || '',
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(errorText || 'Failed to update transaction.');
+        }
+
+        await fetchStudentTransactions(true); // Force refresh after update
+        await refreshProducts();
+        setComponentUpdateStatus({
+          type: 'success',
+          message: `${item.name} marked as fulfilled successfully.`,
+        });
+      } catch (error) {
+        console.error('Failed to mark item as fulfilled:', error);
+        setComponentUpdateStatus({
+          type: 'error',
+          message: error.message || 'Unable to mark item as fulfilled.',
+        });
+      } finally {
+        setComponentUpdating('');
+      }
+    },
+    [isOnline, fetchStudentTransactions, refreshProducts]
+  );
+
   const transactions = useMemo(
     () => rawTransactions.map(enrichTransaction),
     [rawTransactions, enrichTransaction]
@@ -1061,8 +1156,8 @@ const StudentDetail = ({
                                           ×{item.quantity} • ₹{Number(item.total).toFixed(2)}
                                         </div>
                                       </div>
-                                      {(item.isSet || item.status === 'partial') && (
-                                        <div className="flex items-center justify-between mt-1 text-[11px]">
+                                      <div className="flex items-center justify-between mt-1 text-[11px]">
+                                        <div className="flex items-center gap-2">
                                           <span className="text-gray-600 font-medium">
                                             Status:
                                             <span
@@ -1072,8 +1167,23 @@ const StudentDetail = ({
                                               {item.status === 'partial' ? 'Partial' : 'Fulfilled'}
                                             </span>
                                           </span>
+
+                                          {item.status === 'partial' && !item.isSet && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleMarkItemFulfilled(transaction, item)}
+                                              disabled={!isOnline || componentUpdating === `fulfill:${transaction._id || transaction.id}:${String(item.productId?._id || item.productId || item._id)}`}
+                                              className="ml-2 px-2 py-0.5 rounded border border-amber-200 bg-amber-50 text-amber-700 font-bold hover:bg-amber-100 transition-colors disabled:opacity-50"
+                                            >
+                                              {componentUpdating === `fulfill:${transaction._id || transaction.id}:${String(item.productId?._id || item.productId || item._id)}` ? (
+                                                <Loader2 size={10} className="animate-spin" />
+                                              ) : (
+                                                'Mark as Fulfilled'
+                                              )}
+                                            </button>
+                                          )}
                                         </div>
-                                      )}
+                                      </div>
                                       {item.isSet && item.setComponents?.length > 0 && (
                                         <div className="mt-1 border-t border-blue-100 pt-1">
                                           <p className="text-[11px] font-semibold text-gray-800 mb-1">
