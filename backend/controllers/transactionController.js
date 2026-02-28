@@ -343,7 +343,8 @@ const createTransaction = asyncHandler(async (req, res) => {
 
     const requestedQuantity = Number(item.quantity);
 
-    let itemStatus = item.status || 'fulfilled';
+    const explicitStatus = item.status;
+    let itemStatus = explicitStatus || 'fulfilled';
     let componentDetails = [];
 
     if (product.isSet) {
@@ -370,7 +371,7 @@ const createTransaction = asyncHandler(async (req, res) => {
 
           if (available < required) {
             taken = false;
-            if (itemStatus !== 'fulfilled') itemStatus = 'partial';
+            if (explicitStatus !== 'fulfilled') itemStatus = 'partial';
             reason = `Insufficient stock at college (required ${required}, available ${Math.max(available, 0)})`;
           } 
           
@@ -398,7 +399,7 @@ const createTransaction = asyncHandler(async (req, res) => {
       if (isPaid) {
         accumulateStockChange(stockChanges, productId, -requestedQuantity);
         if (getProjectedStock(productId, collegeStockMap, new Map()) < requestedQuantity) {
-          if (itemStatus !== 'fulfilled') itemStatus = 'partial'; // Mark as partial if stock is insufficient even if paid
+          if (explicitStatus !== 'fulfilled') itemStatus = 'partial'; // Mark as partial if stock is insufficient even if paid
         }
       }
     }
@@ -675,8 +676,10 @@ const updateTransaction = asyncHandler(async (req, res) => {
 
       const requestedQuantity = Number(item.quantity);
 
-      let itemStatus = item.status || 'fulfilled';
+      const explicitStatus = item.status;
+      let itemStatus = 'fulfilled'; // optimistic default
       let componentDetails = [];
+      let anyComponentNotTaken = false;
 
       if (product.isSet) {
         if (!product.setItems || product.setItems.length === 0) {
@@ -717,15 +720,11 @@ const updateTransaction = asyncHandler(async (req, res) => {
           let reason = desiredComponent?.reason;
 
           if (taken) {
-            // ALWAYS deduct stock if PAID, even if insufficient (allow negative)
             if (targetIsPaid) {
-              if (getProjectedStock(componentId, newStockMap, stockChanges) < required) {
-                if (itemStatus !== 'fulfilled') itemStatus = 'partial';
-              }
               accumulateStockChange(stockChanges, componentId, -required);
             }
           } else {
-            if (itemStatus !== 'fulfilled') itemStatus = 'partial';
+            anyComponentNotTaken = true;
             if (!reason) {
               reason = hasTakenFlag ? 'Marked as not taken' : 'Insufficient stock at issuance';
             }
@@ -739,11 +738,20 @@ const updateTransaction = asyncHandler(async (req, res) => {
             reason: taken ? undefined : reason,
           });
         }
+        
+        // Auto-upgrade logic for sets
+        if (explicitStatus === 'fulfilled') {
+          itemStatus = 'fulfilled';
+        } else if (anyComponentNotTaken) {
+          itemStatus = 'partial';
+        } else {
+          itemStatus = 'fulfilled';
+        }
       } else {
         if (targetIsPaid) {
           accumulateStockChange(stockChanges, productId, -requestedQuantity);
           if (getProjectedStock(productId, newStockMap, new Map()) < requestedQuantity) {
-            if (itemStatus !== 'fulfilled') itemStatus = 'partial';
+            if (explicitStatus !== 'fulfilled') itemStatus = 'partial';
           }
         }
       }

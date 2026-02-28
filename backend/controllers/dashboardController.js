@@ -87,8 +87,11 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     { 
       $match: { 
         ...filter, 
-        isPaid: true, 
-        'items.status': 'partial' 
+        isPaid: true,
+        $or: [
+          { 'items.status': 'partial' },
+          { 'items': { $elemMatch: { isSet: true, 'setComponents.taken': false } } }
+        ]
       } 
     },
     {
@@ -107,9 +110,26 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     const sId = txn.student?.sqlId || txn.student?.studentId;
     if (!sId) return;
 
-    const partialItems = (txn.items || [])
-      .filter(i => i.status === 'partial')
-      .map(i => i.name);
+    const partialItems = [];
+    (txn.items || []).forEach(item => {
+      // Include item if it's explicitly partial, OR if it's a set with missing components
+      const hasMissingComponents = item.isSet && item.setComponents && item.setComponents.some(c => c.taken === false);
+      
+      if (item.status === 'partial' || hasMissingComponents) {
+        if (item.isSet && item.setComponents && item.setComponents.length > 0) {
+          const missingComps = item.setComponents.filter(c => c.taken === false).map(c => c.name);
+          if (missingComps.length > 0) {
+            // Even if the set status might say 'fulfilled', if we caught it via hasMissingComponents, list it.
+            // If it's a legacy partial with no known missing components, just show the set name.
+            partialItems.push(`${item.name} (Missing: ${missingComps.join(', ')})`);
+          } else {
+            partialItems.push(item.name);
+          }
+        } else {
+          partialItems.push(item.name);
+        }
+      }
+    });
 
     if (partialItems.length === 0) return;
 

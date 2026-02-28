@@ -519,6 +519,7 @@ const StudentDetail = ({
             quantity: Number(txItem.quantity) || 0,
             price: Number(txItem.price) || 0,
             name: txItem.name,
+            status: txItem.status,
           };
 
           if (txItem.isSet) {
