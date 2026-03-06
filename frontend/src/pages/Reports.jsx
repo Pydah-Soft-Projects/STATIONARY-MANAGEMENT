@@ -504,22 +504,32 @@ const Reports = ({ currentUser }) => {
     };
   }, []);
 
-  // Calculate statistics from filtered transactions (revenue includes paid college/branch transfers)
+  // Calculate statistics from filtered transactions (regular sales only for monetary totals)
   const statistics = useMemo(() => {
-    const revenueTransactions = revenueEligibleTransactions;
+    const allRevenueTxs = revenueEligibleTransactions;
+    const isTransfer = (t) => t.transactionType === 'college_transfer' || t.transactionType === 'branch_transfer';
 
-    const totalAmount = revenueTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
-    const paidTransactions = revenueTransactions.filter(t => t.isPaid);
-    const unpaidTransactions = revenueTransactions.filter(t => !t.isPaid);
+    // Regular sales for main totals
+    const regularTxs = allRevenueTxs.filter(t => !isTransfer(t));
+    const transferTxs = allRevenueTxs.filter(t => isTransfer(t));
+
+    const totalAmount = regularTxs.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
+    const paidTransactions = regularTxs.filter(t => t.isPaid);
+    const unpaidTransactions = regularTxs.filter(t => !t.isPaid);
     const paidAmount = paidTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
     const unpaidAmount = unpaidTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
 
+    // Track transfers separately
+    const transferAmount = transferTxs.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
+
     // Calculate items sold using existing function (pass revenue-eligible for amounts; items sold = student only inside)
-    const salesData = calculateDayEndSales(revenueTransactions);
+    const salesData = calculateDayEndSales(allRevenueTxs);
 
     return {
-      totalTransactions: revenueTransactions.length,
+      totalTransactions: regularTxs.length,
+      transferTransactions: transferTxs.length,
       totalAmount,
+      transferAmount,
       paidCount: paidTransactions.length,
       paidAmount,
       unpaidCount: unpaidTransactions.length,
@@ -558,13 +568,19 @@ const Reports = ({ currentUser }) => {
 
       const monthData = monthMap.get(monthKey);
       monthData.transactions.push(transaction);
-      monthData.totalAmount += transaction.totalAmount || 0;
-      if (transaction.isPaid) {
-        monthData.paidAmount += transaction.totalAmount || 0;
-        monthData.paidCount++;
-      } else {
-        monthData.unpaidAmount += transaction.totalAmount || 0;
-        monthData.unpaidCount++;
+
+      const isTransfer = transaction.transactionType === 'college_transfer' || transaction.transactionType === 'branch_transfer';
+
+      // Only add to main revenue if it's not a transfer
+      if (!isTransfer) {
+        monthData.totalAmount += transaction.totalAmount || 0;
+        if (transaction.isPaid) {
+          monthData.paidAmount += transaction.totalAmount || 0;
+          monthData.paidCount++;
+        } else {
+          monthData.unpaidAmount += transaction.totalAmount || 0;
+          monthData.unpaidCount++;
+        }
       }
 
       // Calculate day-wise breakdown for this month
@@ -583,13 +599,17 @@ const Reports = ({ currentUser }) => {
       }
       const dayData = monthData.dayWiseBreakdown.get(dayKey);
       dayData.transactions.push(transaction);
-      dayData.totalAmount += transaction.totalAmount || 0;
-      if (transaction.isPaid) {
-        dayData.paidAmount += transaction.totalAmount || 0;
-        dayData.paidCount++;
-      } else {
-        dayData.unpaidAmount += transaction.totalAmount || 0;
-        dayData.unpaidCount++;
+
+      // Only add to daily revenue if it's not a transfer
+      if (!isTransfer) {
+        dayData.totalAmount += transaction.totalAmount || 0;
+        if (transaction.isPaid) {
+          dayData.paidAmount += transaction.totalAmount || 0;
+          dayData.paidCount++;
+        } else {
+          dayData.unpaidAmount += transaction.totalAmount || 0;
+          dayData.unpaidCount++;
+        }
       }
 
       // Calculate items sold for this day
@@ -703,79 +723,72 @@ const Reports = ({ currentUser }) => {
     }
   }, [activeTab, monthlyReportSubTab, monthlyStats]);
 
-  // Enhanced Monthly Sales Report - Comprehensive table with all items and months (revenue includes paid college/branch transfers)
+  // Enhanced Monthly Sales Report - Comprehensive table with all items and months
   const comprehensiveMonthlyReport = useMemo(() => {
-    const revenueTransactions = revenueEligibleTransactions;
+    const allTransactions = revenueEligibleTransactions;
+    const itemMonthMap = new Map(); // itemName -> { monthKey -> quantity }
+    const allMonthsSet = new Set();
+    const monthlyRevenue = new Map();
+    const monthlyTransferRevenue = new Map(); // Track transfers separately
+    const monthlyTotals = new Map();
+    const itemMonthlySales = new Map();
 
-    // Get all months from transactions
-    const allMonths = new Set();
-    const itemMonthlySales = new Map(); // itemName -> { monthKey -> quantity }
-    const allItems = new Set();
+    // Process all transactions
+    allTransactions.forEach((transaction) => {
+      const transDate = getReportDate(transaction);
+      // Ensure transDate is a Date object if getReportDate returns a string or similar
+      const d = transDate instanceof Date ? transDate : new Date(transDate);
+      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      allMonthsSet.add(monthKey);
 
-    revenueTransactions.forEach(transaction => {
-      const date = getReportDate(transaction);
-      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      const monthName = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-      allMonths.add(monthKey);
+      const isTransfer = transaction.transactionType === 'branch_transfer' || transaction.transactionType === 'college_transfer';
 
-      // Process items in transaction
+      // Items Breakdown (All transactions that have items)
       if (transaction.items && Array.isArray(transaction.items)) {
-        transaction.items.forEach(item => {
-          const setQuantity = Number(item.quantity) || 0;
-          const setComponents = Array.isArray(item.setComponents) ? item.setComponents : [];
-          const isSet = item.isSet || setComponents.length > 0;
-
-          if (isSet && setComponents.length > 0) {
-            // Expand set into components
-            setComponents.forEach(component => {
-              const componentName = component.name || component.productNameSnapshot || 'N/A';
-              const componentQty = Number(component.quantity) || 1;
-              const totalQuantity = componentQty * setQuantity;
-
-              allItems.add(componentName);
-              if (!itemMonthlySales.has(componentName)) {
-                itemMonthlySales.set(componentName, new Map());
-              }
-              const itemMap = itemMonthlySales.get(componentName);
-              const currentQty = itemMap.get(monthKey) || 0;
-              itemMap.set(monthKey, currentQty + totalQuantity);
-            });
-          } else {
-            // Regular item
-            const itemName = item.name || 'N/A';
-            allItems.add(itemName);
-            if (!itemMonthlySales.has(itemName)) {
-              itemMonthlySales.set(itemName, new Map());
-            }
-            const itemMap = itemMonthlySales.get(itemName);
-            const currentQty = itemMap.get(monthKey) || 0;
-            itemMap.set(monthKey, currentQty + setQuantity);
+        const salesData = calculateDayEndSales([transaction]);
+        salesData.itemsSold.forEach((item) => {
+          if (!itemMonthMap.has(item.name)) {
+            itemMonthMap.set(item.name, new Map());
           }
+          const monthMap = itemMonthMap.get(item.name);
+          const currentQty = monthMap.get(monthKey) || 0;
+          monthMap.set(monthKey, currentQty + item.quantity);
+
+          // Item Monthly Sales
+          if (!itemMonthlySales.has(item.name)) {
+            itemMonthlySales.set(item.name, new Map());
+          }
+          const itemSalesMap = itemMonthlySales.get(item.name);
+          const currentItemQty = itemSalesMap.get(monthKey) || 0;
+          itemSalesMap.set(monthKey, currentItemQty + item.quantity);
         });
+      }
+
+      // Revenue Breakdown (Only paid transactions)
+      if (transaction.isPaid && transaction.totalAmount) {
+        if (isTransfer) {
+          // Paid transfers go to a separate pool
+          const currentTransferRev = monthlyTransferRevenue.get(monthKey) || 0;
+          monthlyTransferRevenue.set(monthKey, currentTransferRev + transaction.totalAmount);
+        } else {
+          // Regular sales (student/employee) go to monthly income
+          const currentRev = monthlyRevenue.get(monthKey) || 0;
+          monthlyRevenue.set(monthKey, currentRev + transaction.totalAmount);
+        }
       }
     });
 
     // Convert to sorted arrays
-    const sortedMonths = Array.from(allMonths).sort((a, b) => a.localeCompare(b));
-    const sortedItems = Array.from(allItems).sort();
+    const sortedMonths = Array.from(allMonthsSet).sort((a, b) => a.localeCompare(b));
+    const sortedItems = Array.from(itemMonthMap.keys()).sort();
 
     // Calculate monthly totals (quantities)
-    const monthlyTotals = new Map();
     sortedMonths.forEach(monthKey => {
       let total = 0;
       itemMonthlySales.forEach((salesMap) => {
         total += salesMap.get(monthKey) || 0;
       });
       monthlyTotals.set(monthKey, total);
-    });
-
-    // Calculate monthly revenue/income
-    const monthlyRevenue = new Map();
-    revenueTransactions.forEach(transaction => {
-      const date = getReportDate(transaction);
-      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      const currentRevenue = monthlyRevenue.get(monthKey) || 0;
-      monthlyRevenue.set(monthKey, currentRevenue + (transaction.totalAmount || 0));
     });
 
     // Format month names
@@ -790,13 +803,14 @@ const Reports = ({ currentUser }) => {
     });
 
     return {
-      items: sortedItems,
       months: monthNames,
-      itemMonthlySales: itemMonthlySales,
-      monthlyTotals: monthlyTotals,
-      monthlyRevenue: monthlyRevenue
+      items: sortedItems,
+      itemMonthlySales,
+      monthlyRevenue,
+      monthlyTransferRevenue,
+      monthlyTotals,
     };
-  }, [revenueEligibleTransactions, getReportDate]);
+  }, [revenueEligibleTransactions, getReportDate, calculateDayEndSales]);
 
   // Get product price for an item name
   const getProductPrice = useCallback((itemName) => {
@@ -827,8 +841,11 @@ const Reports = ({ currentUser }) => {
       const dayName = new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       allDays.add(dayKey);
       const txs = day.transactions || [];
-      const dayRev = txs.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
+      // Filter out transfers for dailyRevenue (DAILY INCOME row)
+      const nonTransferTxs = txs.filter(t => t.transactionType !== 'college_transfer' && t.transactionType !== 'branch_transfer');
+      const dayRev = nonTransferTxs.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
       dailyRevenue.set(dayKey, dayRev);
+
       const transferRev = txs
         .filter(t => t.transactionType === 'college_transfer' || t.transactionType === 'branch_transfer')
         .reduce((sum, t) => sum + (t.totalAmount || 0), 0);
@@ -2598,7 +2615,7 @@ const Reports = ({ currentUser }) => {
                           </thead>
                           <tbody className="bg-white divide-y divide-gray-200">
                             {/* Monthly Revenue/Income Summary Row */}
-                            <tr className="bg-gradient-to-r from-green-50 to-emerald-50 font-bold border-b-2 border-green-300">
+                            <tr className="bg-gradient-to-r from-green-50 to-emerald-50 font-bold border-b border-green-200">
                               <td colSpan={2} className="px-4 py-3 text-gray-900 border-r border-gray-300">
                                 MONTHLY INCOME
                               </td>
@@ -2618,6 +2635,32 @@ const Reports = ({ currentUser }) => {
                                 {formatCurrency(
                                   Array.from(comprehensiveMonthlyReport.monthlyRevenue.values()).reduce(
                                     (sum, revenue) => sum + revenue,
+                                    0
+                                  )
+                                )}
+                              </td>
+                            </tr>
+                            {/* College Transfers row per month */}
+                            <tr className="bg-amber-50/80 font-bold border-b-2 border-amber-300">
+                              <td colSpan={2} className="px-4 py-3 text-amber-800 border-r border-gray-300">
+                                COLLEGE TRANSFERS
+                              </td>
+                              {comprehensiveMonthlyReport.months.map((month, monthIdx) => {
+                                const transferRev = comprehensiveMonthlyReport.monthlyTransferRevenue.get(month.key) || 0;
+                                return (
+                                  <td
+                                    key={month.key}
+                                    className={`px-3 py-3 whitespace-nowrap text-right text-amber-700 font-bold ${monthIdx < comprehensiveMonthlyReport.months.length - 1 ? 'border-r border-gray-300' : ''
+                                      }`}
+                                  >
+                                    {transferRev > 0 ? formatCurrency(transferRev) : '-'}
+                                  </td>
+                                );
+                              })}
+                              <td className="px-4 py-3 whitespace-nowrap text-right text-amber-800 font-bold bg-amber-100/50">
+                                {formatCurrency(
+                                  Array.from(comprehensiveMonthlyReport.monthlyTransferRevenue.values()).reduce(
+                                    (sum, rev) => sum + rev,
                                     0
                                   )
                                 )}
