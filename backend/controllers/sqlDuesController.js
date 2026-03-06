@@ -357,7 +357,7 @@ const getStudentDues = asyncHandler(async (req, res) => {
         console.timeEnd('TotalDuration'); // This was mismatching.
         console.timeEnd(timerLabel);
 
-        // 5. Calculate Stats (Global for this filter)
+        // 5. Calculate Stats (Global and Branch-wise)
         const totalStudentsWithDues = dueReports.length;
         const totalEnrolled = allStudents.length;
         const paidStudents = totalEnrolled - totalStudentsWithDues;
@@ -365,6 +365,27 @@ const getStudentDues = asyncHandler(async (req, res) => {
         const totalPendingAmount = dueReports.reduce((sum, r) => sum + r.totalDue, 0);
         const totalPendingItems = dueReports.reduce((sum, r) => sum + r.itemsCount, 0);
         const impactedCourses = new Set(dueReports.map(r => r.course)).size;
+
+        // NEW: Calculate Branch-wise Stats
+        const branchStatsMap = {};
+        
+        allStudents.forEach(s => {
+            const b = (s.branch || 'Common / No Branch').toUpperCase();
+            if (!branchStatsMap[b]) branchStatsMap[b] = { total: 0, unpaid: 0, paid: 0 };
+            branchStatsMap[b].total++;
+        });
+
+        dueReports.forEach(r => {
+            const b = (r.student.branch || 'Common / No Branch').toUpperCase();
+            if (branchStatsMap[b]) {
+                branchStatsMap[b].unpaid++;
+            }
+        });
+
+        // Calculate paid for each branch
+        Object.keys(branchStatsMap).forEach(b => {
+            branchStatsMap[b].paid = branchStatsMap[b].total - branchStatsMap[b].unpaid;
+        });
 
         // 6. Paginate Results
         let paginatedReports = [];
@@ -390,7 +411,8 @@ const getStudentDues = asyncHandler(async (req, res) => {
                 unpaidStudents: totalStudentsWithDues, // New: Alias for clarity
                 totalPendingItems,
                 totalPendingAmount,
-                impactedCourses
+                impactedCourses,
+                branchStats: branchStatsMap
             },
             page: parseInt(page),
             totalPages: totalPages

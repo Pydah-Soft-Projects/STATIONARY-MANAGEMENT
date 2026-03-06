@@ -555,6 +555,7 @@ const StudentDue = ({ currentUser }) => {
 
       const totalEnrolled = reportStats.totalEnrolled || totalPendingStudents;
       const paidStudents = reportStats.paidStudents || 0;
+      const branchStats = reportStats.branchStats || {};
 
       // Group Data: Course -> Branch -> Year -> Students
       const groupedData = {};
@@ -654,7 +655,18 @@ const StudentDue = ({ currentUser }) => {
 
             const headerText = `Course: ${course}    Branch: ${branch}    ${year}`;
             pdf.text(headerText, 20, yPos);
-            yPos += 8;
+            yPos += 5;
+
+            // Optional: Branch Specific Stats
+            if (reportFilters.includeSummary && branchStats[branch]) {
+              pdf.setFontSize(9);
+              pdf.setFont(undefined, 'normal');
+              const b = branchStats[branch];
+              const bStatsText = `Branch Stats - Total: ${b.total} | Paid: ${b.paid} | Unpaid: ${b.unpaid}`;
+              pdf.text(bStatsText, 20, yPos);
+              yPos += 5;
+            }
+            yPos += 3;
 
             // Table Header
             pdf.setFontSize(9);
