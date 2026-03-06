@@ -27,13 +27,22 @@ const getStudentDues = asyncHandler(async (req, res) => {
         year,
         semester,
         search,
-        kitId, // specific kit filter
+        kitId, // single kit filter (legacy)
+        kitIds, // multiple kit filter
         limit = 50,
         page = 1,
         includeSummary = 'false', // to return total counts
     } = req.query;
 
-    console.log('getStudentDues params:', { course, branch, year, page });
+    console.log('getStudentDues params:', { course, branch, year, page, kitId, kitIds });
+
+    // Handle kitIds (could be string or array)
+    let selectedKitIds = [];
+    if (kitIds) {
+        selectedKitIds = Array.isArray(kitIds) ? kitIds : String(kitIds).split(',');
+    } else if (kitId) {
+        selectedKitIds = [kitId];
+    }
 
     // OPTIMIZATION: Require Course Selection
     // Fetching ALL students from SQL is too heavy. We enforce selecting a course first.
@@ -275,29 +284,27 @@ const getStudentDues = asyncHandler(async (req, res) => {
             let pendingCost = 0;
 
             // Kit Filter Logic (if applied)
-            if (kitId) {
-                // If a specific KIT is filtered, we only care if they are missing THAT kit (or parts of it).
-                // But usually the report lists all pending items.
-                // If kitId is supplied, we probably only want students having THAT kit valid & pending.
-                // If kitId is supplied, we probably only want students having THAT kit valid & pending.
-                const targetKit = applicableProducts.find(p => String(p._id) === kitId);
-                if (!targetKit) return null; // Invalid kit filter or kit not applicable to student
+            if (selectedKitIds.length > 0) {
+                // If specific KITS are filtered, we only care if they are missing THOSE kits (or parts of them).
+                const targetKits = applicableProducts.filter(p => selectedKitIds.includes(String(p._id)));
+                
+                if (targetKits.length === 0) return null; // None of the selected kits are applicable to this student
 
-                // Check if pending
-                const receivedByName = studentReceivedItems.has(targetKit._key);
-                const receivedById = targetKit._id && studentReceivedItems.has(`id:${targetKit._id}`);
+                targetKits.forEach(targetKit => {
+                    const receivedByName = studentReceivedItems.has(targetKit._key);
+                    const receivedById = targetKit._id && studentReceivedItems.has(`id:${targetKit._id}`);
 
-                if (!receivedByName && !receivedById) {
-                    pendingItems.push({
-                        _id: targetKit._id,
-                        name: targetKit.name,
-                        price: targetKit.price,
-                        type: targetKit.isSet ? 'Kit' : 'Item',
-                        _key: targetKit._key
-                    });
-                    pendingCost += (Number(targetKit.price) || 0);
-                }
-
+                    if (!receivedByName && !receivedById) {
+                        pendingItems.push({
+                            _id: targetKit._id,
+                            name: targetKit.name,
+                            price: targetKit.price,
+                            type: targetKit.isSet ? 'Kit' : 'Item',
+                            _key: targetKit._key
+                        });
+                        pendingCost += (Number(targetKit.price) || 0);
+                    }
+                });
             } else {
                 // Standard Check for all applicable
                 applicableProducts.forEach(prod => {

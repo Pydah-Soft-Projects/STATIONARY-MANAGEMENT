@@ -12,32 +12,42 @@ const getCourses = asyncHandler(async (req, res) => {
     // improved: fetch courses and branches in parallel or join
     // For simplicity and to match the expected structure, let's fetch both and map in JS
     const [courses] = await pool.query(
-      "SELECT id, name, total_years, is_active FROM courses WHERE is_active = 1 ORDER BY name ASC"
+      "SELECT id, name, total_years, semesters_per_year, is_active FROM courses WHERE is_active = 1 ORDER BY name ASC"
     );
     
     // Fetch all active branches
     const [branches] = await pool.query(
-       "SELECT id, course_id, name, is_active FROM course_branches WHERE is_active = 1 ORDER BY name ASC"
+       "SELECT id, course_id, name, total_years, semesters_per_year, is_active FROM course_branches WHERE is_active = 1 ORDER BY name ASC"
     );
 
     // Map branches to courses
     const result = courses.map(course => {
       const courseBranches = branches
         .filter(b => b.course_id === course.id)
-        .map(b => ({
-          id: b.id,
-          name: b.name
-        }));
+        .map(b => {
+          const bTotalYears = b.total_years || course.total_years;
+          const bSemsPerYear = b.semesters_per_year || course.semesters_per_year;
+          return {
+            id: b.id,
+            name: b.name,
+            total_years: bTotalYears,
+            semesters_per_year: bSemsPerYear,
+            years: Array.from({ length: bTotalYears }, (_, i) => i + 1),
+            semesters: Array.from({ length: bTotalYears * bSemsPerYear }, (_, i) => i + 1)
+          };
+        });
       
-      // Generate years array [1, 2, ..., total_years]
-      const years = Array.from({ length: course.total_years }, (_, i) => i + 1);
+      const totalYears = course.total_years;
+      const semsPerYear = course.semesters_per_year || 2; // Default to 2 if missing
 
       return {
         id: course.id,
         name: course.name,
         displayName: course.name, // Compatibility for frontend
-        total_years: course.total_years,
-        years,
+        total_years: totalYears,
+        semesters_per_year: semsPerYear,
+        years: Array.from({ length: totalYears }, (_, i) => i + 1),
+        semesters: Array.from({ length: totalYears * semsPerYear }, (_, i) => i + 1),
         branches: courseBranches
       };
     });
@@ -60,7 +70,7 @@ const getBranches = asyncHandler(async (req, res) => {
   const { courseId } = req.query;
 
   try {
-    let query = "SELECT id, course_id, name, is_active FROM course_branches WHERE is_active = 1";
+    let query = "SELECT id, course_id, name, total_years, semesters_per_year, is_active FROM course_branches WHERE is_active = 1";
     const params = [];
 
     if (courseId) {

@@ -60,11 +60,10 @@ const StudentDue = ({ currentUser }) => {
 
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportFilters, setReportFilters] = useState({
-    course: '',
-    year: '',
     branch: '',
     semester: '',
     kit: '',
+    selectedKits: [], // Array for multiple kit selection
     includeSummary: true,
     includeItemDetails: false,
   });
@@ -269,44 +268,83 @@ const StudentDue = ({ currentUser }) => {
   }, [courses]);
 
   const yearOptions = useMemo(() => {
-    // Standard years 1-4 if no data, otherwise aggregate
-    const years = new Set();
-    courses.forEach(c => {
-      (c.years || []).forEach(y => years.add(y));
-    });
-    if (years.size === 0) return [1, 2, 3, 4];
-    return Array.from(years).sort((a, b) => a - b);
-  }, [courses]);
+    if (!dueFilters.course) {
+      const years = new Set();
+      courses.forEach(c => (c.years || []).forEach(y => years.add(y)));
+      return years.size === 0 ? [1, 2, 3, 4] : Array.from(years).sort((a, b) => a - b);
+    }
 
-  const semesterOptions = [1, 2, 3, 4, 5, 6, 7, 8];
+    const selectedCourse = courses.find(c => (c.displayName || c.name) === dueFilters.course);
+    if (!selectedCourse) return [1, 2, 3, 4];
+
+    if (dueFilters.branch) {
+      const selectedBranch = selectedCourse.branches?.find(b => b.name === dueFilters.branch);
+      if (selectedBranch && selectedBranch.years) return selectedBranch.years;
+    }
+
+    return selectedCourse.years || [1, 2, 3, 4];
+  }, [courses, dueFilters.course, dueFilters.branch]);
+
+  const semesterOptions = useMemo(() => {
+    if (!dueFilters.course) return [1, 2, 3, 4, 5, 6, 7, 8];
+
+    const selectedCourse = courses.find(c => (c.displayName || c.name) === dueFilters.course);
+    if (!selectedCourse) return [1, 2, 3, 4, 5, 6, 7, 8];
+
+    if (dueFilters.branch) {
+      const selectedBranch = selectedCourse.branches?.find(b => b.name === dueFilters.branch);
+      if (selectedBranch && selectedBranch.semesters) return selectedBranch.semesters;
+    }
+
+    return selectedCourse.semesters || [1, 2, 3, 4, 5, 6, 7, 8];
+  }, [courses, dueFilters.course, dueFilters.branch]);
 
   const branchOptions = useMemo(() => {
     if (!dueFilters.course) {
-      // Collect all branches
       const branches = new Set();
-      courses.forEach(c => {
-        (c.branches || []).forEach(b => {
-          const branchName = typeof b === 'object' ? b.name : b;
-          if (branchName) branches.add(branchName);
-        });
-      });
+      courses.forEach(c => (c.branches || []).forEach(b => branches.add(typeof b === 'object' ? b.name : b)));
       return Array.from(branches).sort();
     }
-    // Specific course branches
-    const matchingCourses = courses.filter(c =>
-      (c.name && c.name.toLowerCase() === dueFilters.course.toLowerCase()) ||
-      (c.displayName && c.displayName === dueFilters.course)
-    );
-
-    const specificBranches = new Set();
-    matchingCourses.forEach(c => {
-      (c.branches || []).forEach(b => {
-        const branchName = typeof b === 'object' ? b.name : b;
-        if (branchName) specificBranches.add(branchName);
-      });
-    });
-    return Array.from(specificBranches).sort();
+    const selectedCourse = courses.find(c => (c.displayName || c.name) === dueFilters.course);
+    return (selectedCourse?.branches || []).map(b => typeof b === 'object' ? b.name : b).sort();
   }, [courses, dueFilters.course]);
+
+  // Report Modal Options
+  const reportYearOptions = useMemo(() => {
+    if (!reportFilters.course) {
+      const years = new Set();
+      courses.forEach(c => (c.years || []).forEach(y => years.add(y)));
+      return years.size === 0 ? [1, 2, 3, 4] : Array.from(years).sort((a, b) => a - b);
+    }
+    const selectedCourse = courses.find(c => (c.displayName || c.name) === reportFilters.course);
+    if (!selectedCourse) return [1, 2, 3, 4];
+    if (reportFilters.branch) {
+      const selectedBranch = selectedCourse.branches?.find(b => b.name === reportFilters.branch);
+      if (selectedBranch && selectedBranch.years) return selectedBranch.years;
+    }
+    return selectedCourse.years || [1, 2, 3, 4];
+  }, [courses, reportFilters.course, reportFilters.branch]);
+
+  const reportSemesterOptions = useMemo(() => {
+    if (!reportFilters.course) return [1, 2, 3, 4, 5, 6, 7, 8];
+    const selectedCourse = courses.find(c => (c.displayName || c.name) === reportFilters.course);
+    if (!selectedCourse) return [1, 2, 3, 4, 5, 6, 7, 8];
+    if (reportFilters.branch) {
+      const selectedBranch = selectedCourse.branches?.find(b => b.name === reportFilters.branch);
+      if (selectedBranch && selectedBranch.semesters) return selectedBranch.semesters;
+    }
+    return selectedCourse.semesters || [1, 2, 3, 4, 5, 6, 7, 8];
+  }, [courses, reportFilters.course, reportFilters.branch]);
+
+  const reportBranchOptions = useMemo(() => {
+    if (!reportFilters.course) {
+      const branches = new Set();
+      courses.forEach(c => (c.branches || []).forEach(b => branches.add(typeof b === 'object' ? b.name : b)));
+      return Array.from(branches).sort();
+    }
+    const selectedCourse = courses.find(c => (c.displayName || c.name) === reportFilters.course);
+    return (selectedCourse?.branches || []).map(b => typeof b === 'object' ? b.name : b).sort();
+  }, [courses, reportFilters.course]);
 
 
   // Pre-normalize and precompute product data for performance
@@ -476,10 +514,10 @@ const StudentDue = ({ currentUser }) => {
     // Initialize report filters with current dueFilters
     setReportFilters({
       course: dueFilters.course || '',
-      year: dueFilters.year || '',
       branch: dueFilters.branch || '',
       semester: dueFilters.semester || '',
-      kit: dueFilters.kit || '',
+      kit: dueFilters.kit || '', // Keep for sync, but we use selectedKits mostly now
+      selectedKits: dueFilters.kit ? [dueFilters.kit] : [],
       includeSummary: true,
       includeItemDetails: false,
     });
@@ -498,7 +536,10 @@ const StudentDue = ({ currentUser }) => {
         branch: reportFilters.branch,
         year: reportFilters.year,
         semester: reportFilters.semester,
-        kitId: reportFilters.kit
+        // Send multiple kit IDs if selected, otherwise fallback to single kit
+        ...(reportFilters.selectedKits.length > 0
+          ? { kitIds: reportFilters.selectedKits.join(',') }
+          : reportFilters.kit ? { kitId: reportFilters.kit } : {})
       });
 
       const response = await fetch(apiUrl(`/api/sql/dues?${query.toString()}`));
@@ -547,12 +588,15 @@ const StudentDue = ({ currentUser }) => {
         pdf.setTextColor(0, 0, 0);
         pdf.setFont(undefined, 'bold');
 
-        const selectedKit = reportFilters.kit
-          ? normalizedProducts.find(p => String(p._id) === String(reportFilters.kit))
-          : null;
-        const reportTitle = selectedKit
-          ? `Stationary Pending List: ${selectedKit.name}`
-          : 'Stationary Pending Students List';
+        const selectedKitsCount = reportFilters.selectedKits.length;
+        let reportTitle = 'Stationary Pending Students List';
+
+        if (selectedKitsCount === 1) {
+          const kit = normalizedProducts.find(p => String(p._id) === String(reportFilters.selectedKits[0]));
+          if (kit) reportTitle = `Stationary Pending List: ${kit.name}`;
+        } else if (selectedKitsCount > 1) {
+          reportTitle = `Stationary Pending List: ${selectedKitsCount} Kits Selected`;
+        }
 
         pdf.text(reportTitle, 105, 15, { align: 'center' });
 
@@ -635,9 +679,13 @@ const StudentDue = ({ currentUser }) => {
 
             studentsInGroup.forEach((record, index) => {
               const student = record.student;
-              const selectedKit = reportFilters.kit
-                ? normalizedProducts.find(p => String(p._id) === String(reportFilters.kit))
-                : null;
+              const hasSelectedKits = reportFilters.selectedKits.length > 0;
+
+              const relevantKits = hasSelectedKits
+                ? normalizedProducts.filter(p => reportFilters.selectedKits.includes(String(p._id)))
+                : reportFilters.kit
+                  ? [normalizedProducts.find(p => String(p._id) === String(reportFilters.kit))].filter(Boolean)
+                  : [];
 
               // Determine row height based on content
               let rowHeight = 8;
@@ -645,14 +693,17 @@ const StudentDue = ({ currentUser }) => {
 
               if (reportFilters.includeItemDetails) {
                 let displayItems = record.pendingItems;
-                if (selectedKit) {
-                  const kitKey = selectedKit._key;
-                  if (selectedKit.isSet) {
-                    const kitComponentsKeys = (selectedKit.setItems || []).map(si => getItemKey(si.product?.name || si.productNameSnapshot));
-                    displayItems = record.pendingItems.filter(pi => pi._key === kitKey || kitComponentsKeys.includes(pi._key));
-                  } else {
-                    displayItems = record.pendingItems.filter(pi => pi._key === kitKey);
-                  }
+                if (relevantKits.length > 0) {
+                  const relevantKeys = new Set();
+                  relevantKits.forEach(kit => {
+                    relevantKeys.add(kit._key);
+                    if (kit.isSet) {
+                      (kit.setItems || []).forEach(si => {
+                        relevantKeys.add(getItemKey(si.product?.name || si.productNameSnapshot));
+                      });
+                    }
+                  });
+                  displayItems = record.pendingItems.filter(pi => relevantKeys.has(pi._key));
                 }
                 const itemNames = displayItems.map(pi => pi.name).join(', ');
                 splitItems = pdf.splitTextToSize(itemNames, 35);
@@ -806,7 +857,7 @@ const StudentDue = ({ currentUser }) => {
 
             <select
               value={dueFilters.course}
-              onChange={(e) => setDueFilters({ ...dueFilters, course: e.target.value, branch: '' })}
+              onChange={(e) => setDueFilters({ ...dueFilters, course: e.target.value, branch: '', year: '', semester: '' })}
               className="px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white shadow-sm w-full lg:w-auto"
             >
               <option value="">Select Course</option>
@@ -817,7 +868,7 @@ const StudentDue = ({ currentUser }) => {
 
             <select
               value={dueFilters.branch}
-              onChange={(e) => setDueFilters({ ...dueFilters, branch: e.target.value })}
+              onChange={(e) => setDueFilters({ ...dueFilters, branch: e.target.value, year: '', semester: '' })}
               className="px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white shadow-sm w-full lg:w-auto disabled:opacity-50"
               disabled={!dueFilters.course && branchOptions.length === 0}
             >
@@ -1157,7 +1208,7 @@ const StudentDue = ({ currentUser }) => {
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   >
                     <option value="">All Years</option>
-                    {yearOptions.map(year => (
+                    {reportYearOptions.map(year => (
                       <option key={year} value={String(year)}>{`Year ${year}`}</option>
                     ))}
                   </select>
@@ -1167,12 +1218,12 @@ const StudentDue = ({ currentUser }) => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">Branch</label>
                   <select
                     value={reportFilters.branch}
-                    onChange={(e) => setReportFilters({ ...reportFilters, branch: e.target.value })}
+                    onChange={(e) => setReportFilters({ ...reportFilters, branch: e.target.value, year: '', semester: '' })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    disabled={!reportFilters.course && branchOptions.length === 0}
+                    disabled={!reportFilters.course && reportBranchOptions.length === 0}
                   >
                     <option value="">All Branches</option>
-                    {branchOptions.map(branch => (
+                    {reportBranchOptions.map(branch => (
                       <option key={branch} value={branch}>{branch}</option>
                     ))}
                   </select>
@@ -1186,24 +1237,62 @@ const StudentDue = ({ currentUser }) => {
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   >
                     <option value="">All Semesters</option>
-                    {semesterOptions.map(semester => (
+                    {reportSemesterOptions.map(semester => (
                       <option key={semester} value={String(semester)}>{`Semester ${semester}`}</option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Kit/Set</label>
-                  <select
-                    value={reportFilters.kit}
-                    onChange={(e) => setReportFilters({ ...reportFilters, kit: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  >
-                    <option value="">All Kits/Sets</option>
-                    {reportKitOptions.map(kit => (
-                      <option key={kit._id} value={kit._id}>{kit.name}</option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-gray-700">Kits / Sets Selection</label>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setReportFilters({ ...reportFilters, selectedKits: reportKitOptions.map(k => String(k._id)) })}
+                        className="text-xs text-purple-600 hover:text-purple-700 font-medium"
+                      >
+                        Select All
+                      </button>
+                      <span className="text-gray-300">|</span>
+                      <button
+                        onClick={() => setReportFilters({ ...reportFilters, selectedKits: [] })}
+                        className="text-xs text-purple-600 hover:text-purple-700 font-medium"
+                      >
+                        Clear All
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 border border-gray-200 rounded-lg max-h-48 overflow-y-auto bg-gray-50">
+                    {reportKitOptions.length === 0 ? (
+                      <p className="text-sm text-gray-500 col-span-2 text-center py-4">No kits available for these filters</p>
+                    ) : (
+                      reportKitOptions.map(kit => (
+                        <div key={kit._id} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            id={`kit-${kit._id}`}
+                            checked={reportFilters.selectedKits.includes(String(kit._id))}
+                            onChange={(e) => {
+                              const kitId = String(kit._id);
+                              const newSelected = e.target.checked
+                                ? [...reportFilters.selectedKits, kitId]
+                                : reportFilters.selectedKits.filter(id => id !== kitId);
+                              setReportFilters({ ...reportFilters, selectedKits: newSelected });
+                            }}
+                            className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                          />
+                          <label htmlFor={`kit-${kit._id}`} className="text-sm text-gray-700 cursor-pointer line-clamp-1">
+                            {kit.name}
+                          </label>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  {reportFilters.selectedKits.length > 0 && (
+                    <p className="text-xs text-purple-600 mt-2 font-medium">
+                      {reportFilters.selectedKits.length} kit(s) selected
+                    </p>
+                  )}
                 </div>
 
                 <div className="pt-4 border-t border-gray-200 space-y-3">
