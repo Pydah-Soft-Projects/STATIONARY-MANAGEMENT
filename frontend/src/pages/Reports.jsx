@@ -57,6 +57,7 @@ const Reports = ({ currentUser }) => {
     includeSummary: true,
     onlyStatistics: false,
     includeDayEndSales: false,
+    collegeId: '',
     // For stock report
     productCategory: '',
     // For vendor purchase report
@@ -942,7 +943,7 @@ const Reports = ({ currentUser }) => {
     return Array.from(dayMap.values()).sort((a, b) => b.date.localeCompare(a.date));
   }, [revenueEligibleTransactions, getReportDate]);
 
-  const generateDayEndReport = async (transactions) => {
+  const generateDayEndReport = async (transactions, collegeId = null) => {
     // Filter transactions by date range if specified
     let filteredTransactions = transactions;
     if (reportFilters.startDate || reportFilters.endDate) {
@@ -969,6 +970,8 @@ const Reports = ({ currentUser }) => {
           totalAmount: 0,
           paidAmount: 0,
           unpaidAmount: 0,
+          cashAmount: 0,
+          onlineAmount: 0,
         });
       }
 
@@ -977,6 +980,13 @@ const Reports = ({ currentUser }) => {
       dayData.totalAmount += transaction.totalAmount || 0;
       if (transaction.isPaid) {
         dayData.paidAmount += transaction.totalAmount || 0;
+        // Tracking cash vs online for paid amounts
+        const method = (transaction.paymentMethod || '').toLowerCase();
+        if (method === 'cash') {
+          dayData.cashAmount += transaction.totalAmount || 0;
+        } else if (method === 'online' || method === 'gpay' || method === 'phonepe' || method === 'net banking') {
+          dayData.onlineAmount += transaction.totalAmount || 0;
+        }
       } else {
         dayData.unpaidAmount += transaction.totalAmount || 0;
       }
@@ -994,11 +1004,8 @@ const Reports = ({ currentUser }) => {
     pdf.setFontSize(18);
     pdf.setTextColor(44, 62, 80);
     const headerText = selectedCollegeData ? selectedCollegeData.name.toUpperCase() : receiptSettings.receiptHeader;
-    pdf.text(headerText, 105, 20, { align: 'center' });
+    pdf.text(headerText, 74, 20, { align: 'center' }); // Fixed A5 Center
 
-    pdf.setFontSize(12);
-    pdf.setTextColor(127, 140, 141);
-    pdf.text(receiptSettings.receiptSubheader, 105, 28, { align: 'center' });
     pdf.setFontSize(12);
     pdf.setTextColor(0, 0, 0);
     pdf.setFont(undefined, 'bold');
@@ -1038,6 +1045,10 @@ const Reports = ({ currentUser }) => {
       const paidCount = revenueTransactions.filter(t => t.isPaid).length;
       const paidAmount = revenueTransactions.filter(t => t.isPaid).reduce((sum, t) => sum + (t.totalAmount || 0), 0);
 
+      // Cash/Online statistics for filtered range
+      const totalCash = revenueTransactions.filter(t => t.isPaid && (t.paymentMethod || '').toLowerCase() === 'cash').reduce((sum, t) => sum + (t.totalAmount || 0), 0);
+      const totalOnline = revenueTransactions.filter(t => t.isPaid && ['online', 'gpay', 'phonepe', 'net banking'].includes((t.paymentMethod || '').toLowerCase())).reduce((sum, t) => sum + (t.totalAmount || 0), 0);
+
       // Calculate day-end sales summary if enabled
       let salesSummary = null;
       if (reportFilters.includeDayEndSales) {
@@ -1051,9 +1062,10 @@ const Reports = ({ currentUser }) => {
       const statsY = yPos + 4;
       pdf.setFont(undefined, 'normal');
       pdf.setFontSize(8);
-      pdf.text(`Total: ${revenueTransactions.length}`, 16, statsY);
-      pdf.text(`Amount: ${formatCurrencyForPDF(totalAmount)}`, 52, statsY);
-      pdf.text(`Paid: ${paidCount} (${formatCurrencyForPDF(paidAmount)})`, 96, statsY);
+      pdf.text(`Trx: ${revenueTransactions.length}`, 14, statsY);
+      pdf.text(`Amount: ${formatCurrencyForPDF(totalAmount)}`, 35, statsY);
+      pdf.text(`Cash: ${formatCurrencyForPDF(totalCash)}`, 75, statsY);
+      pdf.text(`Online: ${formatCurrencyForPDF(totalOnline)}`, 110, statsY);
 
       yPos += 8;
 
@@ -1069,10 +1081,11 @@ const Reports = ({ currentUser }) => {
         pdf.setFillColor(240, 240, 240);
         pdf.rect(14, yPos - 3, 120, 4, 'F');
         pdf.setFont(undefined, 'bold');
-        pdf.text('Date', 16, yPos);
-        pdf.text('Transactions', 50, yPos);
-        pdf.text('Total', 80, yPos, { align: 'right' });
-        pdf.text('Paid', 110, yPos, { align: 'right' });
+        pdf.text('Date', 14, yPos);
+        pdf.text('Trx', 50, yPos);
+        pdf.text('Total', 75, yPos, { align: 'right' });
+        pdf.text('Cash', 105, yPos, { align: 'right' });
+        pdf.text('Online', 135, yPos, { align: 'right' });
         yPos += 4;
 
         pdf.setFont(undefined, 'normal');
@@ -1081,11 +1094,12 @@ const Reports = ({ currentUser }) => {
             pdf.addPage();
             yPos = 14;
           }
-          const dateStr = day.dayName.substring(0, 12);
-          pdf.text(dateStr, 16, yPos);
+          const dateStr = day.dayName.substring(0, 15);
+          pdf.text(dateStr, 14, yPos);
           pdf.text(`${day.transactions.length}`, 50, yPos);
-          pdf.text(formatCurrencyForPDF(day.totalAmount), 80, yPos, { align: 'right' });
-          pdf.text(formatCurrencyForPDF(day.paidAmount), 110, yPos, { align: 'right' });
+          pdf.text(formatCurrencyForPDF(day.totalAmount), 75, yPos, { align: 'right' });
+          pdf.text(formatCurrencyForPDF(day.cashAmount), 105, yPos, { align: 'right' });
+          pdf.text(formatCurrencyForPDF(day.onlineAmount), 135, yPos, { align: 'right' });
           yPos += 4;
         });
         yPos += 3;
@@ -1663,7 +1677,11 @@ const Reports = ({ currentUser }) => {
         if (reportFilters.isPaid !== '') queryParams.append('isPaid', reportFilters.isPaid);
         if (reportFilters.startDate) queryParams.append('startDate', reportFilters.startDate);
         if (reportFilters.endDate) queryParams.append('endDate', reportFilters.endDate);
-        if (selectedCollege) queryParams.append('collegeId', selectedCollege);
+        if (reportFilters.collegeId) {
+          queryParams.append('collegeId', reportFilters.collegeId);
+        } else if (selectedCollege) {
+          queryParams.append('collegeId', selectedCollege);
+        }
 
         const response = await fetch(apiUrl(`/api/transactions?${queryParams.toString()}`));
         if (!response.ok) throw new Error('Failed to fetch transactions for report');
@@ -1705,7 +1723,8 @@ const Reports = ({ currentUser }) => {
           return;
         }
 
-        await generateDayEndReport(reportTransactions);
+        const selectedCollegeId = reportFilters.collegeId || selectedCollege;
+        await generateDayEndReport(reportTransactions, selectedCollegeId);
       } else if (reportType === 'stock') {
         await generateStockReport();
       } else if (reportType === 'vendor-purchase') {
@@ -1814,6 +1833,10 @@ const Reports = ({ currentUser }) => {
               {/* Generate Report Button */}
               <button
                 onClick={() => {
+                  setReportFilters(prev => ({
+                    ...prev,
+                    collegeId: selectedCollege || ''
+                  }));
                   setTimeout(() => {
                     setShowReportModal(true);
                   }, 200);
@@ -3054,517 +3077,544 @@ const Reports = ({ currentUser }) => {
       </div>
 
       {/* Transaction Details Modal */}
-      {selectedTransaction && (
-        <div className="fixed inset-0 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setSelectedTransaction(null)}>
-          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
-              <h2 className="text-2xl font-bold text-gray-900">Transaction Details</h2>
-              <button
-                onClick={() => setSelectedTransaction(null)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X size={24} />
-              </button>
-            </div>
-            <div className="p-6">
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <div>
-                  <p className="text-sm text-gray-500">Transaction ID</p>
-                  <p className="font-semibold">{selectedTransaction.transactionId}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Date</p>
-                  <p className="font-semibold">{formatDate(selectedTransaction.transactionDate)}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Student Name</p>
-                  <p className="font-semibold">{selectedTransaction.student?.name}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Student ID</p>
-                  <p className="font-semibold">{selectedTransaction.student?.studentId}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Course</p>
-                  <p className="font-semibold">{selectedTransaction.student?.course?.toUpperCase()}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Branch</p>
-                  <p className="font-semibold">{selectedTransaction.student?.branch?.toUpperCase() || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Year</p>
-                  <p className="font-semibold">{selectedTransaction.student?.year || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Semester</p>
-                  <p className="font-semibold">{selectedTransaction.student?.semester || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Payment Method</p>
-                  <p className="font-semibold capitalize">{selectedTransaction.paymentMethod}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Payment Status</p>
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${selectedTransaction.isPaid
-                    ? 'bg-green-100 text-green-800'
-                    : 'bg-red-100 text-red-800'
-                    }`}>
-                    {selectedTransaction.isPaid ? 'Paid' : 'Unpaid'}
-                  </span>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Total Amount</p>
-                  <p className="font-semibold text-lg">{formatCurrency(selectedTransaction.totalAmount)}</p>
-                </div>
-              </div>
-
-              <div className="mb-6">
-                <h3 className="text-lg font-semibold mb-3">Items</h3>
-                <table className="w-full border-collapse">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Item Name</th>
-                      <th className="px-4 py-2 text-center text-sm font-medium text-gray-700">Quantity</th>
-                      <th className="px-4 py-2 text-right text-sm font-medium text-gray-700">Unit Price</th>
-                      <th className="px-4 py-2 text-right text-sm font-medium text-gray-700">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedTransaction.items?.map((item, idx) => (
-                      <tr key={idx} className="border-b border-gray-200">
-                        <td className="px-4 py-2">{item.name}</td>
-                        <td className="px-4 py-2 text-center">{item.quantity}</td>
-                        <td className="px-4 py-2 text-right">{formatCurrency(item.price)}</td>
-                        <td className="px-4 py-2 text-right font-semibold">{formatCurrency(item.total)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {selectedTransaction.remarks && (
-                <div className="mb-6">
-                  <p className="text-sm text-gray-500 mb-1">Remarks</p>
-                  <p className="text-gray-900">{selectedTransaction.remarks}</p>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2">
+      {
+        selectedTransaction && (
+          <div className="fixed inset-0 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setSelectedTransaction(null)}>
+            <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-gray-900">Transaction Details</h2>
                 <button
                   onClick={() => setSelectedTransaction(null)}
-                  className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors"
+                  className="text-gray-400 hover:text-gray-600"
                 >
-                  Close
+                  <X size={24} />
                 </button>
+              </div>
+              <div className="p-6">
+                <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div>
+                    <p className="text-sm text-gray-500">Transaction ID</p>
+                    <p className="font-semibold">{selectedTransaction.transactionId}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Date</p>
+                    <p className="font-semibold">{formatDate(selectedTransaction.transactionDate)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Student Name</p>
+                    <p className="font-semibold">{selectedTransaction.student?.name}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Student ID</p>
+                    <p className="font-semibold">{selectedTransaction.student?.studentId}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Course</p>
+                    <p className="font-semibold">{selectedTransaction.student?.course?.toUpperCase()}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Branch</p>
+                    <p className="font-semibold">{selectedTransaction.student?.branch?.toUpperCase() || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Year</p>
+                    <p className="font-semibold">{selectedTransaction.student?.year || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Semester</p>
+                    <p className="font-semibold">{selectedTransaction.student?.semester || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Payment Method</p>
+                    <p className="font-semibold capitalize">{selectedTransaction.paymentMethod}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Payment Status</p>
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${selectedTransaction.isPaid
+                      ? 'bg-green-100 text-green-800'
+                      : 'bg-red-100 text-red-800'
+                      }`}>
+                      {selectedTransaction.isPaid ? 'Paid' : 'Unpaid'}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Total Amount</p>
+                    <p className="font-semibold text-lg">{formatCurrency(selectedTransaction.totalAmount)}</p>
+                  </div>
+                </div>
+
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold mb-3">Items</h3>
+                  <table className="w-full border-collapse">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Item Name</th>
+                        <th className="px-4 py-2 text-center text-sm font-medium text-gray-700">Quantity</th>
+                        <th className="px-4 py-2 text-right text-sm font-medium text-gray-700">Unit Price</th>
+                        <th className="px-4 py-2 text-right text-sm font-medium text-gray-700">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedTransaction.items?.map((item, idx) => (
+                        <tr key={idx} className="border-b border-gray-200">
+                          <td className="px-4 py-2">{item.name}</td>
+                          <td className="px-4 py-2 text-center">{item.quantity}</td>
+                          <td className="px-4 py-2 text-right">{formatCurrency(item.price)}</td>
+                          <td className="px-4 py-2 text-right font-semibold">{formatCurrency(item.total)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {selectedTransaction.remarks && (
+                  <div className="mb-6">
+                    <p className="text-sm text-gray-500 mb-1">Remarks</p>
+                    <p className="text-gray-900">{selectedTransaction.remarks}</p>
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => setSelectedTransaction(null)}
+                    className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* Reports Modal */}
-      {showReportModal && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)' }} onClick={() => {
-          setShowReportModal(false);
-          setReportType('');
-        }}>
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white">
-              <h2 className="text-2xl font-bold text-gray-900">Generate Report</h2>
-              <button
-                onClick={() => {
-                  setShowReportModal(false);
-                  setReportType('');
-                }}
-                className="w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center transition-colors"
-              >
-                <X size={18} className="text-gray-600" />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-6">
-              {!reportType ? (
-                // Report Type Selection
-                <div className="space-y-4">
-                  <p className="text-sm text-gray-600 mb-4">Select the type of report you want to generate</p>
-                  <div className="grid grid-cols-1 gap-4">
-                    <button
-                      onClick={() => {
-                        setReportType('day-end');
-                        // Reset to today's date when selecting day-end report
-                        setReportFilters(prev => ({
-                          ...prev,
-                          startDate: getTodayDate(),
-                          endDate: getTodayDate(),
-                        }));
-                      }}
-                      className="p-6 border-2 border-gray-200 rounded-xl hover:border-purple-500 hover:bg-purple-50 transition-all text-left"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                          <Receipt className="text-purple-600" size={24} />
-                        </div>
-                        <div>
-                          <h3 className="font-semibold text-gray-900">Day-End Report</h3>
-                          <p className="text-sm text-gray-600">Transaction report with date filters</p>
-                        </div>
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => setReportType('stock')}
-                      className="p-6 border-2 border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-left"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                          <Package className="text-blue-600" size={24} />
-                        </div>
-                        <div>
-                          <h3 className="font-semibold text-gray-900">Stock Report</h3>
-                          <p className="text-sm text-gray-600">Current stock levels for all products</p>
-                        </div>
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => setReportType('vendor-purchase')}
-                      className="p-6 border-2 border-gray-200 rounded-xl hover:border-green-500 hover:bg-green-50 transition-all text-left"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                          <Building2 className="text-green-600" size={24} />
-                        </div>
-                        <div>
-                          <h3 className="font-semibold text-gray-900">Vendor Purchase Report</h3>
-                          <p className="text-sm text-gray-600">Purchase entries from vendors</p>
-                        </div>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                // Report Filters based on type
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3 mb-4">
-                    <button
-                      onClick={() => setReportType('')}
-                      className="text-gray-500 hover:text-gray-700"
-                    >
-                      ← Back
-                    </button>
-                    <span className="text-gray-400">|</span>
-                    <span className="text-sm font-medium text-gray-700">
-                      {reportType === 'day-end' && 'Day-End Report'}
-                      {reportType === 'stock' && 'Stock Report'}
-                      {reportType === 'vendor-purchase' && 'Vendor Purchase Report'}
-                    </span>
-                  </div>
-
-                  {/* Day-End Report Filters */}
-                  {reportType === 'day-end' && (
-                    <>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
-                          <div className="relative">
-                            <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                            <input
-                              type="date"
-                              value={reportFilters.startDate}
-                              onChange={(e) => setReportFilters({ ...reportFilters, startDate: e.target.value })}
-                              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            />
-                          </div>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">End Date</label>
-                          <div className="relative">
-                            <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                            <input
-                              type="date"
-                              value={reportFilters.endDate}
-                              onChange={(e) => setReportFilters({ ...reportFilters, endDate: e.target.value })}
-                              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Course</label>
-                        <select
-                          value={reportFilters.course}
-                          onChange={(e) => setReportFilters({ ...reportFilters, course: e.target.value })}
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        >
-                          <option value="">All Courses</option>
-                          {courseOptions.map(course => (
-                            <option key={course} value={course}>{course.toUpperCase()}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
-                        <select
-                          value={reportFilters.paymentMethod}
-                          onChange={(e) => setReportFilters({ ...reportFilters, paymentMethod: e.target.value })}
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        >
-                          <option value="">All Payment Methods</option>
-                          <option value="cash">Cash</option>
-                          <option value="online">Online</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Payment Status</label>
-                        <select
-                          value={reportFilters.isPaid}
-                          onChange={(e) => setReportFilters({ ...reportFilters, isPaid: e.target.value })}
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        >
-                          <option value="">All Payment Status</option>
-                          <option value="true">Paid</option>
-                          <option value="false">Unpaid</option>
-                        </select>
-                      </div>
-                      <div className="pt-4 border-t border-gray-200 space-y-3">
-                        <h3 className="text-sm font-semibold text-gray-700 mb-3">Report Options</h3>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            id="includeItems"
-                            checked={reportFilters.includeItems}
-                            onChange={(e) => setReportFilters({ ...reportFilters, includeItems: e.target.checked })}
-                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                          />
-                          <label htmlFor="includeItems" className="text-sm font-medium text-gray-700 cursor-pointer">
-                            Include item details in report
-                          </label>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            id="includeSummary"
-                            checked={reportFilters.includeSummary}
-                            onChange={(e) => setReportFilters({
-                              ...reportFilters,
-                              includeSummary: e.target.checked,
-                              onlyStatistics: e.target.checked ? false : reportFilters.onlyStatistics
-                            })}
-                            disabled={reportFilters.onlyStatistics}
-                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                          />
-                          <label htmlFor="includeSummary" className={`text-sm font-medium cursor-pointer ${reportFilters.onlyStatistics ? 'text-gray-400' : 'text-gray-700'}`}>
-                            Include summary statistics (with transaction details table)
-                          </label>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            id="onlyStatistics"
-                            checked={reportFilters.onlyStatistics}
-                            onChange={(e) =>
-                              setReportFilters({
-                                ...reportFilters,
-                                onlyStatistics: e.target.checked,
-                                includeSummary: e.target.checked ? true : reportFilters.includeSummary,
-                                includeItems: e.target.checked ? false : reportFilters.includeItems,
-                              })
-                            }
-                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                          />
-                          <label htmlFor="onlyStatistics" className="text-sm font-medium text-gray-700 cursor-pointer">
-                            Statistics only mode (no transaction details table)
-                          </label>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            id="includeDayEndSales"
-                            checked={reportFilters.includeDayEndSales}
-                            onChange={(e) => setReportFilters({ ...reportFilters, includeDayEndSales: e.target.checked })}
-                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                          />
-                          <label htmlFor="includeDayEndSales" className="text-sm font-medium text-gray-700 cursor-pointer">
-                            Include day-end sales summary (items sold with quantities)
-                          </label>
-                        </div>
-                      </div>
-                    </>
-                  )}
-
-                  {/* Stock Report Filters */}
-                  {reportType === 'stock' && (
-                    <>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Course</label>
-                        <select
-                          value={reportFilters.course}
-                          onChange={(e) => setReportFilters({ ...reportFilters, course: e.target.value })}
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        >
-                          <option value="">All Courses</option>
-                          {courseOptions.map(course => (
-                            <option key={course} value={course}>{course.toUpperCase()}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Product Category</label>
-                        <select
-                          value={reportFilters.productCategory}
-                          onChange={(e) => setReportFilters({ ...reportFilters, productCategory: e.target.value })}
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        >
-                          <option value="">All Categories</option>
-                          <option value="Notebooks">Notebooks</option>
-                          <option value="Pens">Pens</option>
-                          <option value="Art Supplies">Art Supplies</option>
-                          <option value="Electronics">Electronics</option>
-                          <option value="Other">Other</option>
-                        </select>
-                      </div>
-                      <div className="pt-4 border-t border-gray-200 space-y-3">
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            id="includeSummaryStock"
-                            checked={reportFilters.includeSummary}
-                            onChange={(e) => setReportFilters({ ...reportFilters, includeSummary: e.target.checked })}
-                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                          />
-                          <label htmlFor="includeSummaryStock" className="text-sm font-medium text-gray-700 cursor-pointer">
-                            Include summary statistics
-                          </label>
-                        </div>
-                      </div>
-                    </>
-                  )}
-
-                  {/* Vendor Purchase Report Filters */}
-                  {reportType === 'vendor-purchase' && (
-                    <>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
-                          <div className="relative">
-                            <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                            <input
-                              type="date"
-                              value={reportFilters.startDate}
-                              onChange={(e) => setReportFilters({ ...reportFilters, startDate: e.target.value })}
-                              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            />
-                          </div>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">End Date</label>
-                          <div className="relative">
-                            <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                            <input
-                              type="date"
-                              value={reportFilters.endDate}
-                              onChange={(e) => setReportFilters({ ...reportFilters, endDate: e.target.value })}
-                              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Vendor</label>
-                        <select
-                          value={reportFilters.vendor}
-                          onChange={(e) => setReportFilters({ ...reportFilters, vendor: e.target.value })}
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        >
-                          <option value="">All Vendors</option>
-                          {vendors.map(vendor => (
-                            <option key={vendor._id} value={vendor._id}>{vendor.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="pt-4 border-t border-gray-200 space-y-3">
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            id="includeSummaryVendor"
-                            checked={reportFilters.includeSummary}
-                            onChange={(e) => setReportFilters({ ...reportFilters, includeSummary: e.target.checked })}
-                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                          />
-                          <label htmlFor="includeSummaryVendor" className="text-sm font-medium text-gray-700 cursor-pointer">
-                            Include summary statistics
-                          </label>
-                        </div>
-                      </div>
-                    </>
-                  )}
-
-                  {/* Actions */}
-                  <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
-                    <button
-                      onClick={() => {
-                        setShowReportModal(false);
-                        setReportType('');
-                      }}
-                      className="px-6 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={generatePDF}
-                      className="px-6 py-2 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-lg hover:from-purple-700 hover:to-purple-800 transition-all font-medium flex items-center gap-2"
-                    >
-                      <Download size={18} />
-                      Generate PDF
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Day-End Sales Summary Print Modal */}
-      {showSalesSummaryPrint && salesSummaryData && (
-        <div className="fixed inset-0 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowSalesSummaryPrint(false)}>
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white">
-              <h2 className="text-2xl font-bold text-gray-900">Day-End Sales Summary</h2>
-              <div className="flex items-center gap-3">
+      {
+        showReportModal && (
+          <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ backgroundColor: 'rgba(0, 0, 0, 0.1)' }} onClick={() => {
+            setShowReportModal(false);
+            setReportType('');
+          }}>
+            <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="p-6 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white">
+                <h2 className="text-2xl font-bold text-gray-900">Generate Report</h2>
                 <button
-                  onClick={handlePrintSalesSummary}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-                >
-                  <Printer size={18} />
-                  Print
-                </button>
-                <button
-                  onClick={() => setShowSalesSummaryPrint(false)}
+                  onClick={() => {
+                    setShowReportModal(false);
+                    setReportType('');
+                  }}
                   className="w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center transition-colors"
                 >
                   <X size={18} className="text-gray-600" />
                 </button>
               </div>
+
+              <div className="p-6 space-y-6">
+                {!reportType ? (
+                  // Report Type Selection
+                  <div className="space-y-4">
+                    <p className="text-sm text-gray-600 mb-4">Select the type of report you want to generate</p>
+                    <div className="grid grid-cols-1 gap-4">
+                      <button
+                        onClick={() => {
+                          setReportType('day-end');
+                          // Reset to today's date when selecting day-end report
+                          setReportFilters(prev => ({
+                            ...prev,
+                            startDate: getTodayDate(),
+                            endDate: getTodayDate(),
+                          }));
+                        }}
+                        className="p-6 border-2 border-gray-200 rounded-xl hover:border-purple-500 hover:bg-purple-50 transition-all text-left"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                            <Receipt className="text-purple-600" size={24} />
+                          </div>
+                          <div>
+                            <h3 className="font-semibold text-gray-900">Day-End Report</h3>
+                            <p className="text-sm text-gray-600">Transaction report with date filters</p>
+                          </div>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => setReportType('stock')}
+                        className="p-6 border-2 border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-left"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                            <Package className="text-blue-600" size={24} />
+                          </div>
+                          <div>
+                            <h3 className="font-semibold text-gray-900">Stock Report</h3>
+                            <p className="text-sm text-gray-600">Current stock levels for all products</p>
+                          </div>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => setReportType('vendor-purchase')}
+                        className="p-6 border-2 border-gray-200 rounded-xl hover:border-green-500 hover:bg-green-50 transition-all text-left"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                            <Building2 className="text-green-600" size={24} />
+                          </div>
+                          <div>
+                            <h3 className="font-semibold text-gray-900">Vendor Purchase Report</h3>
+                            <p className="text-sm text-gray-600">Purchase entries from vendors</p>
+                          </div>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  // Report Filters based on type
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3 mb-4">
+                      <button
+                        onClick={() => setReportType('')}
+                        className="text-gray-500 hover:text-gray-700"
+                      >
+                        ← Back
+                      </button>
+                      <span className="text-gray-400">|</span>
+                      <span className="text-sm font-medium text-gray-700">
+                        {reportType === 'day-end' && 'Day-End Report'}
+                        {reportType === 'stock' && 'Stock Report'}
+                        {reportType === 'vendor-purchase' && 'Vendor Purchase Report'}
+                      </span>
+                    </div>
+
+                    {/* Shared College Selector (SuperAdmin only) */}
+                    {isSuperAdmin && (
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">College / Campus</label>
+                        <div className="relative">
+                          <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+                          <select
+                            value={reportFilters.collegeId}
+                            onChange={(e) => setReportFilters({ ...reportFilters, collegeId: e.target.value })}
+                            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none"
+                          >
+                            <option value="">Central Warehouse (Global)</option>
+                            {colleges.map(college => (
+                              <option key={college._id} value={college._id}>
+                                {college.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Day-End Report Filters */}
+                    {reportType === 'day-end' && (
+                      <>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
+                            <div className="relative">
+                              <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                              <input
+                                type="date"
+                                value={reportFilters.startDate}
+                                onChange={(e) => setReportFilters({ ...reportFilters, startDate: e.target.value })}
+                                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">End Date</label>
+                            <div className="relative">
+                              <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                              <input
+                                type="date"
+                                value={reportFilters.endDate}
+                                onChange={(e) => setReportFilters({ ...reportFilters, endDate: e.target.value })}
+                                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Course</label>
+                          <select
+                            value={reportFilters.course}
+                            onChange={(e) => setReportFilters({ ...reportFilters, course: e.target.value })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          >
+                            <option value="">All Courses</option>
+                            {courseOptions.map(course => (
+                              <option key={course} value={course}>{course.toUpperCase()}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
+                          <select
+                            value={reportFilters.paymentMethod}
+                            onChange={(e) => setReportFilters({ ...reportFilters, paymentMethod: e.target.value })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          >
+                            <option value="">All Payment Methods</option>
+                            <option value="cash">Cash</option>
+                            <option value="online">Online</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Payment Status</label>
+                          <select
+                            value={reportFilters.isPaid}
+                            onChange={(e) => setReportFilters({ ...reportFilters, isPaid: e.target.value })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          >
+                            <option value="">All Payment Status</option>
+                            <option value="true">Paid</option>
+                            <option value="false">Unpaid</option>
+                          </select>
+                        </div>
+                        <div className="pt-4 border-t border-gray-200 space-y-3">
+                          <h3 className="text-sm font-semibold text-gray-700 mb-3">Report Options</h3>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              id="includeItems"
+                              checked={reportFilters.includeItems}
+                              onChange={(e) => setReportFilters({ ...reportFilters, includeItems: e.target.checked })}
+                              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                            />
+                            <label htmlFor="includeItems" className="text-sm font-medium text-gray-700 cursor-pointer">
+                              Include item details in report
+                            </label>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              id="includeSummary"
+                              checked={reportFilters.includeSummary}
+                              onChange={(e) => setReportFilters({
+                                ...reportFilters,
+                                includeSummary: e.target.checked,
+                                onlyStatistics: e.target.checked ? false : reportFilters.onlyStatistics
+                              })}
+                              disabled={reportFilters.onlyStatistics}
+                              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            />
+                            <label htmlFor="includeSummary" className={`text-sm font-medium cursor-pointer ${reportFilters.onlyStatistics ? 'text-gray-400' : 'text-gray-700'}`}>
+                              Include summary statistics (with transaction details table)
+                            </label>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              id="onlyStatistics"
+                              checked={reportFilters.onlyStatistics}
+                              onChange={(e) =>
+                                setReportFilters({
+                                  ...reportFilters,
+                                  onlyStatistics: e.target.checked,
+                                  includeSummary: e.target.checked ? true : reportFilters.includeSummary,
+                                  includeItems: e.target.checked ? false : reportFilters.includeItems,
+                                })
+                              }
+                              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                            />
+                            <label htmlFor="onlyStatistics" className="text-sm font-medium text-gray-700 cursor-pointer">
+                              Statistics only mode (no transaction details table)
+                            </label>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              id="includeDayEndSales"
+                              checked={reportFilters.includeDayEndSales}
+                              onChange={(e) => setReportFilters({ ...reportFilters, includeDayEndSales: e.target.checked })}
+                              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                            />
+                            <label htmlFor="includeDayEndSales" className="text-sm font-medium text-gray-700 cursor-pointer">
+                              Include day-end sales summary (items sold with quantities)
+                            </label>
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Stock Report Filters */}
+                    {reportType === 'stock' && (
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Course</label>
+                          <select
+                            value={reportFilters.course}
+                            onChange={(e) => setReportFilters({ ...reportFilters, course: e.target.value })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          >
+                            <option value="">All Courses</option>
+                            {courseOptions.map(course => (
+                              <option key={course} value={course}>{course.toUpperCase()}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Product Category</label>
+                          <select
+                            value={reportFilters.productCategory}
+                            onChange={(e) => setReportFilters({ ...reportFilters, productCategory: e.target.value })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          >
+                            <option value="">All Categories</option>
+                            <option value="Notebooks">Notebooks</option>
+                            <option value="Pens">Pens</option>
+                            <option value="Art Supplies">Art Supplies</option>
+                            <option value="Electronics">Electronics</option>
+                            <option value="Other">Other</option>
+                          </select>
+                        </div>
+                        <div className="pt-4 border-t border-gray-200 space-y-3">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              id="includeSummaryStock"
+                              checked={reportFilters.includeSummary}
+                              onChange={(e) => setReportFilters({ ...reportFilters, includeSummary: e.target.checked })}
+                              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                            />
+                            <label htmlFor="includeSummaryStock" className="text-sm font-medium text-gray-700 cursor-pointer">
+                              Include summary statistics
+                            </label>
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Vendor Purchase Report Filters */}
+                    {reportType === 'vendor-purchase' && (
+                      <>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
+                            <div className="relative">
+                              <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                              <input
+                                type="date"
+                                value={reportFilters.startDate}
+                                onChange={(e) => setReportFilters({ ...reportFilters, startDate: e.target.value })}
+                                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">End Date</label>
+                            <div className="relative">
+                              <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                              <input
+                                type="date"
+                                value={reportFilters.endDate}
+                                onChange={(e) => setReportFilters({ ...reportFilters, endDate: e.target.value })}
+                                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Vendor</label>
+                          <select
+                            value={reportFilters.vendor}
+                            onChange={(e) => setReportFilters({ ...reportFilters, vendor: e.target.value })}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          >
+                            <option value="">All Vendors</option>
+                            {vendors.map(vendor => (
+                              <option key={vendor._id} value={vendor._id}>{vendor.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="pt-4 border-t border-gray-200 space-y-3">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              id="includeSummaryVendor"
+                              checked={reportFilters.includeSummary}
+                              onChange={(e) => setReportFilters({ ...reportFilters, includeSummary: e.target.checked })}
+                              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                            />
+                            <label htmlFor="includeSummaryVendor" className="text-sm font-medium text-gray-700 cursor-pointer">
+                              Include summary statistics
+                            </label>
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Actions */}
+                    <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
+                      <button
+                        onClick={() => {
+                          setShowReportModal(false);
+                          setReportType('');
+                        }}
+                        className="px-6 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={generatePDF}
+                        className="px-6 py-2 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-lg hover:from-purple-700 hover:to-purple-800 transition-all font-medium flex items-center gap-2"
+                      >
+                        <Download size={18} />
+                        Generate PDF
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="p-6">
-              {/* Preview */}
-              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                <h3 className="text-sm font-semibold text-gray-700 mb-2">Preview</h3>
-                <div className="text-xs text-gray-600 space-y-1">
-                  <p>Date Range: {salesSummaryData.dateRange.start} to {salesSummaryData.dateRange.end}</p>
-                  {salesSummaryData.filters.course && <p>Course: {salesSummaryData.filters.course.toUpperCase()}</p>}
-                  <p>Total Transactions: {salesSummaryData.statistics.totalTransactions}</p>
-                  <p>Total Items Sold: {salesSummaryData.statistics.totalItemsSold}</p>
-                  <p>Cash Amount: {formatCurrency(salesSummaryData.statistics.cashAmount)}</p>
-                  <p>Online Amount: {formatCurrency(salesSummaryData.statistics.onlineAmount)}</p>
-                  <p>Total Amount: {formatCurrency(salesSummaryData.statistics.totalAmount)}</p>
+          </div>
+        )
+      }
+
+      {/* Day-End Sales Summary Print Modal */}
+      {
+        showSalesSummaryPrint && salesSummaryData && (
+          <div className="fixed inset-0 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowSalesSummaryPrint(false)}>
+            <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="p-6 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white">
+                <h2 className="text-2xl font-bold text-gray-900">Day-End Sales Summary</h2>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handlePrintSalesSummary}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                  >
+                    <Printer size={18} />
+                    Print
+                  </button>
+                  <button
+                    onClick={() => setShowSalesSummaryPrint(false)}
+                    className="w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center transition-colors"
+                  >
+                    <X size={18} className="text-gray-600" />
+                  </button>
                 </div>
               </div>
+              <div className="p-6">
+                {/* Preview */}
+                <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Preview</h3>
+                  <div className="text-xs text-gray-600 space-y-1">
+                    <p>Date Range: {salesSummaryData.dateRange.start} to {salesSummaryData.dateRange.end}</p>
+                    {salesSummaryData.filters.course && <p>Course: {salesSummaryData.filters.course.toUpperCase()}</p>}
+                    <p>Total Transactions: {salesSummaryData.statistics.totalTransactions}</p>
+                    <p>Total Items Sold: {salesSummaryData.statistics.totalItemsSold}</p>
+                    <p>Cash Amount: {formatCurrency(salesSummaryData.statistics.cashAmount)}</p>
+                    <p>Online Amount: {formatCurrency(salesSummaryData.statistics.onlineAmount)}</p>
+                    <p>Total Amount: {formatCurrency(salesSummaryData.statistics.totalAmount)}</p>
+                  </div>
+                </div>
 
-              {/* Thermal Printable Content */}
-              <div ref={salesSummaryPrintRef} className="hidden print:block thermal-receipt" data-thermal-print="true">
-                <style>{`
+                {/* Thermal Printable Content */}
+                <div ref={salesSummaryPrintRef} className="hidden print:block thermal-receipt" data-thermal-print="true">
+                  <style>{`
                   /* Thermal Printer Optimized - 80mm paper */
                   @page {
                     size: 80mm auto;
@@ -3677,80 +3727,80 @@ const Reports = ({ currentUser }) => {
                   }
                 `}</style>
 
-                {/* Thermal Header */}
-                <div className="thermal-header">
-                  <h1>{receiptSettings.receiptHeader}</h1>
-                  <p style={{ textAlign: 'center', fontSize: '10px', marginTop: '1mm' }}>
-                    Day-End Sales Summary | {new Date(salesSummaryData.dateRange.start).toLocaleDateString('en-IN', {
-                      day: '2-digit',
-                      month: '2-digit',
-                      year: 'numeric'
-                    })}
-                    {salesSummaryData.dateRange.start !== salesSummaryData.dateRange.end &&
-                      ` - ${new Date(salesSummaryData.dateRange.end).toLocaleDateString('en-IN', {
+                  {/* Thermal Header */}
+                  <div className="thermal-header">
+                    <h1>{receiptSettings.receiptHeader}</h1>
+                    <p style={{ textAlign: 'center', fontSize: '10px', marginTop: '1mm' }}>
+                      Day-End Sales Summary | {new Date(salesSummaryData.dateRange.start).toLocaleDateString('en-IN', {
                         day: '2-digit',
                         month: '2-digit',
                         year: 'numeric'
-                      })}`
-                    }
-                  </p>
-                </div>
+                      })}
+                      {salesSummaryData.dateRange.start !== salesSummaryData.dateRange.end &&
+                        ` - ${new Date(salesSummaryData.dateRange.end).toLocaleDateString('en-IN', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric'
+                        })}`
+                      }
+                    </p>
+                  </div>
 
-                {/* Statistics Info */}
-                <div className="thermal-info">
-                  <p>
-                    <span>Transactions: {salesSummaryData.statistics.totalTransactions}</span>
-                    <span>Amount: ₹{Number(salesSummaryData.statistics.totalAmount).toFixed(2)}</span>
-                  </p>
-                  <p>
-                    <span>Cash: ₹{Number(salesSummaryData.statistics.cashAmount).toFixed(2)}</span>
-                    <span>Online: ₹{Number(salesSummaryData.statistics.onlineAmount).toFixed(2)}</span>
-                  </p>
-                  {salesSummaryData.filters.course && (
-                    <p><span>Course:</span> <span>{salesSummaryData.filters.course.toUpperCase()}</span></p>
-                  )}
-                </div>
+                  {/* Statistics Info */}
+                  <div className="thermal-info">
+                    <p>
+                      <span>Transactions: {salesSummaryData.statistics.totalTransactions}</span>
+                      <span>Amount: ₹{Number(salesSummaryData.statistics.totalAmount).toFixed(2)}</span>
+                    </p>
+                    <p>
+                      <span>Cash: ₹{Number(salesSummaryData.statistics.cashAmount).toFixed(2)}</span>
+                      <span>Online: ₹{Number(salesSummaryData.statistics.onlineAmount).toFixed(2)}</span>
+                    </p>
+                    {salesSummaryData.filters.course && (
+                      <p><span>Course:</span> <span>{salesSummaryData.filters.course.toUpperCase()}</span></p>
+                    )}
+                  </div>
 
-                {/* Items Sold Table */}
-                <table className="thermal-table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: '85%' }}>Item Name</th>
-                      <th style={{ width: '15%', textAlign: 'right' }}>Qty</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {salesSummaryData.itemsSold.map((item, idx) => (
-                      <tr key={idx}>
-                        <td>{item.name}</td>
-                        <td style={{ textAlign: 'right' }}>{item.quantity}</td>
+                  {/* Items Sold Table */}
+                  <table className="thermal-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: '85%' }}>Item Name</th>
+                        <th style={{ width: '15%', textAlign: 'right' }}>Qty</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {salesSummaryData.itemsSold.map((item, idx) => (
+                        <tr key={idx}>
+                          <td>{item.name}</td>
+                          <td style={{ textAlign: 'right' }}>{item.quantity}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
 
-                {/* Total Items Sold */}
-                <div className="thermal-total">
-                  <span>TOTAL ITEMS SOLD:</span>
-                  <span>{salesSummaryData.statistics.totalItemsSold}</span>
-                </div>
+                  {/* Total Items Sold */}
+                  <div className="thermal-total">
+                    <span>TOTAL ITEMS SOLD:</span>
+                    <span>{salesSummaryData.statistics.totalItemsSold}</span>
+                  </div>
 
-                {/* Footer */}
-                <div className="thermal-footer">
-                  <p>Generated on {new Date().toLocaleDateString('en-IN', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  })}</p>
-                  <p>Thank you! 💖 PydahSoft 💖</p>
+                  {/* Footer */}
+                  <div className="thermal-footer">
+                    <p>Generated on {new Date().toLocaleDateString('en-IN', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}</p>
+                    <p>Thank you! 💖 PydahSoft 💖</p>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
     </div>
   );
 };
