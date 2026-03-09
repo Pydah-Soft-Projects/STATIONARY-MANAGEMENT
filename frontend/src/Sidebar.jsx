@@ -37,9 +37,9 @@ const Sidebar = ({ onLogout, isMobile: isMobileProp, sidebarOpen, setSidebarOpen
     { path: '/manage-stock', label: 'Academic Stock', icon: List, permissionKeys: ['stock-products', 'stock-add', 'stock-entries', 'stock-vendors', 'manage-stock'] },
     { path: '/stock-transfers', label: 'Stock Transfers', icon: ArrowRightLeft, permissionKey: 'stock-transfers' },
     { path: '/general-purchase', label: 'General Stock', icon: ShoppingCart, permissionKey: 'general-purchase' },
-    { path: '/transactions', label: 'Reports', icon: Receipt, permissionKey: 'transactions' },
-    { path: '/profit-report', label: 'Profit Report', icon: TrendingUp, permissionKey: 'transactions' },
-    { path: '/student-due', label: 'Student Due', icon: ClipboardList, permissionKey: 'transactions' },
+    { path: '/transactions', label: 'Reports', icon: Receipt, permissionKeys: ['reports-daily', 'reports-monthly', 'reports-stock', 'transactions'] },
+    { path: '/profit-report', label: 'Profit Report', icon: TrendingUp, permissionKey: 'profit-report' },
+    { path: '/student-due', label: 'Student Due', icon: ClipboardList, permissionKeys: ['student-due', 'reports-daily', 'reports-monthly', 'reports-stock', 'transactions'] },
     { path: '/audit-logs', label: 'Audit Logs', icon: ClipboardCheck, permissionKeys: ['audit-log-entry', 'audit-log-approval', 'audit-logs'] },
     { path: '/settings', label: 'Settings', icon: Settings, permissionKey: 'settings' },
   ];

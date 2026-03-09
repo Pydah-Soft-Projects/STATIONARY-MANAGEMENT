@@ -20,8 +20,17 @@ const SIDEBAR_ITEMS = [
     ],
   },
   { path: '/stock-transfers', label: 'Stock Transfers', key: 'stock-transfers' },
-  { path: '/general-purchase', label: 'General Stock', key: 'general-purchase' },
-  { path: '/transactions', label: 'Reports', key: 'transactions' },
+  {
+    path: '/transactions',
+    label: 'Reports',
+    key: 'transactions',
+    children: [
+      { label: 'Daily Breakdown', key: 'reports-daily' },
+      { label: 'Monthly Summary', key: 'reports-monthly' },
+      { label: 'Academic Stock Report', key: 'reports-stock' },
+    ],
+  },
+  { path: '/profit-report', label: 'Profit Report', key: 'profit-report' },
   { path: '/student-due', label: 'Student Due', key: 'student-due' },
   {
     path: '/audit-logs',
@@ -66,6 +75,17 @@ const normalizePermissions = (perms = []) => {
     permObj['audit-log-approval'] = permObj['audit-logs'] || 'full';
   }
   delete permObj['audit-logs'];
+
+  // Handle legacy transactions permission
+  if (permObj['transactions']) {
+    const transAccess = permObj['transactions'] || 'full';
+    if (!permObj['reports-daily']) permObj['reports-daily'] = transAccess;
+    if (!permObj['reports-monthly']) permObj['reports-monthly'] = transAccess;
+    if (!permObj['reports-stock']) permObj['reports-stock'] = transAccess;
+    if (!permObj['profit-report']) permObj['profit-report'] = transAccess;
+    if (!permObj['student-due']) permObj['student-due'] = transAccess;
+  }
+  // No need to delete transactions as it's still used as a fallback/group key
 
   // Handle legacy manage-stock permission
   if (hasLegacyManageStock) {

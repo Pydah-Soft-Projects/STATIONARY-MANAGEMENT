@@ -41,8 +41,11 @@ const resolveDefaultPath = (user) => {
     { key: 'employee-dashboard', path: '/employees-dashboard' },
     { key: 'courses', path: '/courses' },
     { key: 'manage-stock', path: '/manage-stock' },
+    { key: 'reports-daily', path: '/transactions' },
+    { key: 'reports-monthly', path: '/transactions' },
+    { key: 'reports-stock', path: '/transactions' },
     { key: 'transactions', path: '/transactions' },
-    { key: 'transactions', path: '/profit-report' },
+    { key: 'profit-report', path: '/profit-report' },
     { key: 'settings', path: '/settings' },
   ];
 
@@ -520,7 +523,7 @@ function App() {
                   <Route
                     path="/transactions"
                     element={
-                      <ProtectedRoute currentUser={currentUser} requiredPermission="transactions">
+                      <ProtectedRoute currentUser={currentUser} requiredPermissions={['reports-daily', 'reports-monthly', 'reports-stock', 'transactions']}>
                         <Reports currentUser={currentUser} />
                       </ProtectedRoute>
                     }
@@ -528,7 +531,7 @@ function App() {
                   <Route
                     path="/student-due"
                     element={
-                      <ProtectedRoute currentUser={currentUser} requiredPermission="transactions">
+                      <ProtectedRoute currentUser={currentUser} requiredPermissions={['student-due', 'reports-daily', 'reports-monthly', 'reports-stock', 'transactions']}>
                         <StudentDue currentUser={currentUser} />
                       </ProtectedRoute>
                     }
@@ -568,7 +571,7 @@ function App() {
                   <Route
                     path="/profit-report"
                     element={
-                      <ProtectedRoute currentUser={currentUser} requiredPermission="transactions">
+                      <ProtectedRoute currentUser={currentUser} requiredPermissions={['profit-report', 'transactions']}>
                         <ProfitReport currentUser={currentUser} />
                       </ProtectedRoute>
                     }
