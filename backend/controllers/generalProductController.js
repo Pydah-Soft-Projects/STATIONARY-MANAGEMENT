@@ -8,7 +8,7 @@ const asyncHandler = require('express-async-handler');
  * @access  Public
  */
 const createProduct = asyncHandler(async (req, res) => {
-  const { name, description, category, price, lowStockThreshold } = req.body;
+  const { name, description, category, price, lowStockThreshold, initialStock, collegeId } = req.body;
 
   if (!name || price === undefined) {
     res.status(400);
@@ -29,6 +29,30 @@ const createProduct = asyncHandler(async (req, res) => {
     price: Number(price),
     lowStockThreshold: Number(lowStockThreshold) || 10,
   });
+
+  // If initial stock and collegeId provided, add it to the college
+  if (collegeId && initialStock && Number(initialStock) > 0) {
+    const college = await College.findById(collegeId);
+    if (college) {
+      if (!college.generalStock) college.generalStock = [];
+      
+      const stockIndex = college.generalStock.findIndex(
+        s => s.product.toString() === product._id.toString()
+      );
+
+      if (stockIndex >= 0) {
+        college.generalStock[stockIndex].quantity += Number(initialStock);
+      } else {
+        college.generalStock.push({
+          product: product._id,
+          quantity: Number(initialStock),
+        });
+      }
+      
+      await college.save();
+      console.log(`Initialized stock for general product ${name} in college ${college.name} with ${initialStock}`);
+    }
+  }
 
   res.status(201).json(product);
 });

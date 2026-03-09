@@ -47,7 +47,20 @@ const collegeSchema = new mongoose.Schema(
     },
     // General product stock inventory for this college
     generalStock: {
-      type: [collegeStockSchema],
+      type: [
+        {
+          product: {
+            type: mongoose.Schema.Types.ObjectId,
+            required: true,
+            ref: 'GeneralProduct',
+          },
+          quantity: {
+            type: Number,
+            required: true,
+            default: 0,
+          },
+        },
+      ],
       default: [],
     },
     // Allowed courses for this college

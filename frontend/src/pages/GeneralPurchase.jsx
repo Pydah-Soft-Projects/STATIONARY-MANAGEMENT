@@ -21,6 +21,8 @@ const GeneralPurchase = ({ currentUser }) => {
         category: 'General',
         price: 0,
         lowStockThreshold: 10,
+        initialStock: 0,
+        collegeId: '',
     });
     const [editingProduct, setEditingProduct] = useState(null);
 
@@ -235,10 +237,16 @@ const GeneralPurchase = ({ currentUser }) => {
 
             const method = editingProduct ? 'PUT' : 'POST';
 
+            // If adding new product and viewContext is not 'all', use it as default collegeId
+            const submissionData = { ...productForm };
+            if (!editingProduct && !submissionData.collegeId && viewContext !== 'all') {
+                submissionData.collegeId = viewContext;
+            }
+
             const res = await fetch(url, {
                 method,
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(productForm),
+                body: JSON.stringify(submissionData),
             });
 
             if (res.ok) {
@@ -249,6 +257,8 @@ const GeneralPurchase = ({ currentUser }) => {
                     category: 'General',
                     price: 0,
                     lowStockThreshold: 10,
+                    initialStock: 0,
+                    collegeId: '',
                 });
                 setEditingProduct(null);
                 fetchProducts();
@@ -490,7 +500,12 @@ const GeneralPurchase = ({ currentUser }) => {
     // Available colleges for operations (exclude 'all')
     const operationColleges = useMemo(() => {
         if (!isSuperAdmin && currentUser?.assignedCollege) {
-            return colleges.filter(c => c._id === currentUser.assignedCollege);
+            let assignedId = currentUser.assignedCollege;
+            if (typeof assignedId === 'object' && assignedId !== null) {
+                assignedId = assignedId._id;
+            }
+            const finalAssignedId = String(assignedId);
+            return colleges.filter(c => String(c._id) === finalAssignedId);
         }
         return colleges;
     }, [colleges, isSuperAdmin, currentUser]);
@@ -702,6 +717,8 @@ const ProductsTab = ({
                                 category: 'General',
                                 price: 0,
                                 lowStockThreshold: 10,
+                                initialStock: 0,
+                                collegeId: '',
                             });
                         }
                     }}
@@ -767,6 +784,34 @@ const ProductsTab = ({
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                             />
                         </div>
+                        {!editingProduct && (
+                            <>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Initial Stock</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={productForm.initialStock}
+                                        onChange={(e) => setProductForm({ ...productForm, initialStock: parseInt(e.target.value) || 0 })}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">College for Initial Stock</label>
+                                    <select
+                                        value={productForm.collegeId}
+                                        onChange={(e) => setProductForm({ ...productForm, collegeId: e.target.value })}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        required={productForm.initialStock > 0 && viewContext === 'all'}
+                                    >
+                                        <option value="">{viewContext === 'all' ? 'Select College' : (colleges.find(c => c._id === viewContext)?.name || 'Current College')}</option>
+                                        {colleges.map(c => (
+                                            <option key={c._id} value={c._id}>{c.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </>
+                        )}
                         <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
                             <textarea
@@ -796,6 +841,8 @@ const ProductsTab = ({
                                         category: 'General',
                                         price: 0,
                                         lowStockThreshold: 10,
+                                        initialStock: 0,
+                                        collegeId: '',
                                     });
                                 }}
                                 className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
