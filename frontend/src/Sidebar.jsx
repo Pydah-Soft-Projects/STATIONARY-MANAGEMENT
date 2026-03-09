@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Home, PlusCircle, Users, List, Settings, LogOut, ChevronLeft, ChevronRight, Menu, UserPlus, X, User, GraduationCap, Receipt, ClipboardList, ClipboardCheck, ArrowRightLeft, ShoppingCart, Briefcase } from 'lucide-react';
+import { Home, PlusCircle, Users, List, Settings, LogOut, ChevronLeft, ChevronRight, Menu, UserPlus, X, User, GraduationCap, Receipt, ClipboardList, ClipboardCheck, ArrowRightLeft, ShoppingCart, Briefcase, TrendingUp } from 'lucide-react';
 import { hasViewAccess } from './utils/permissions';
 
 const Sidebar = ({ onLogout, isMobile: isMobileProp, sidebarOpen, setSidebarOpen, currentUser }) => {
@@ -38,6 +38,7 @@ const Sidebar = ({ onLogout, isMobile: isMobileProp, sidebarOpen, setSidebarOpen
     { path: '/stock-transfers', label: 'Stock Transfers', icon: ArrowRightLeft, permissionKey: 'stock-transfers' },
     { path: '/general-purchase', label: 'General Purchase', icon: ShoppingCart, permissionKey: 'general-purchase' },
     { path: '/transactions', label: 'Reports', icon: Receipt, permissionKey: 'transactions' },
+    { path: '/profit-report', label: 'Profit Report', icon: TrendingUp, permissionKey: 'transactions' },
     { path: '/student-due', label: 'Student Due', icon: ClipboardList, permissionKey: 'transactions' },
     { path: '/audit-logs', label: 'Audit Logs', icon: ClipboardCheck, permissionKeys: ['audit-log-entry', 'audit-log-approval', 'audit-logs'] },
     { path: '/settings', label: 'Settings', icon: Settings, permissionKey: 'settings' },

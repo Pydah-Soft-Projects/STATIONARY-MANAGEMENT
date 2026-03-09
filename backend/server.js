@@ -161,6 +161,10 @@ app.use("/api/general-distributions", generalDistributionRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 
+// Profit Routes
+const profitRoutes = require("./routes/profitRoutes");
+app.use("/api/profit", profitRoutes);
+
 // SQL Academic Routes (Courses, Branches)
 const sqlAcademicRoutes = require("./routes/sqlAcademicRoutes");
 app.use("/api/sql/academic", sqlAcademicRoutes);
