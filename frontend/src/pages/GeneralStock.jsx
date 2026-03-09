@@ -3,7 +3,7 @@ import { useReactToPrint } from 'react-to-print';
 import { Package, ShoppingCart, History, Plus, Minus, Search, Save, X, Eye, Trash2, Filter, Building2, UserPlus, FileText, Calendar, DollarSign, Printer } from 'lucide-react';
 import { apiUrl } from '../utils/api';
 
-const GeneralPurchase = ({ currentUser }) => {
+const GeneralStock = ({ currentUser }) => {
     const [activeTab, setActiveTab] = useState('products');
     const [vendors, setVendors] = useState([]);
     const isSuperAdmin = currentUser?.role === 'Administrator';
@@ -18,7 +18,6 @@ const GeneralPurchase = ({ currentUser }) => {
     const [productForm, setProductForm] = useState({
         name: '',
         description: '',
-        category: 'General',
         price: 0,
         lowStockThreshold: 10,
         initialStock: 0,
@@ -48,8 +47,6 @@ const GeneralPurchase = ({ currentUser }) => {
         department: '',
         authorizedBy: '',
         contactNumber: '',
-        paymentMethod: 'cash',
-        isPaid: true,
         remarks: '',
         collegeId: '',
     });
@@ -66,48 +63,42 @@ const GeneralPurchase = ({ currentUser }) => {
     const [selectedTransaction, setSelectedTransaction] = useState(null);
 
     const [loading, setLoading] = useState(false);
+    const [isFetching, setIsFetching] = useState(false);
     const [message, setMessage] = useState({ type: '', text: '' });
 
-    // Fetch colleges
-    useEffect(() => {
-        const fetchColleges = async () => {
-            try {
-                const res = await fetch(apiUrl('/api/stock-transfers/colleges?activeOnly=true'));
-                if (res.ok) {
-                    const data = await res.json();
-                    setColleges(Array.isArray(data) ? data : []);
+    // List of colleges for dropdowns
+    const fetchColleges = useCallback(async () => {
+        try {
+            const res = await fetch(apiUrl('/api/stock-transfers/colleges?activeOnly=true'));
+            if (res.ok) {
+                const data = await res.json();
+                setColleges(Array.isArray(data) ? data : []);
 
-                    let initialViewContext = 'all';
-                    let initialCollegeName = 'All Colleges';
-
-                    // Set initial context
-                    if (!isSuperAdmin && currentUser?.assignedCollege) {
-                        let assignedId = currentUser.assignedCollege;
-                        // Handle case where assignedCollege is an object (populated)
-                        if (typeof assignedId === 'object' && assignedId !== null) {
-                            assignedId = assignedId._id || '';
-                        }
-                        const finalId = String(assignedId);
-                        initialViewContext = finalId;
-
-                        const college = data.find(c => c._id === finalId);
-                        if (college) initialCollegeName = college.name;
+                // Only set initial context if it's currently at the very beginning
+                if (viewContext === 'all' && !isSuperAdmin && currentUser?.assignedCollege) {
+                    let assignedId = currentUser.assignedCollege;
+                    if (typeof assignedId === 'object' && assignedId !== null) {
+                        assignedId = assignedId._id || '';
                     }
+                    const finalId = String(assignedId);
+                    setViewContext(finalId);
 
-                    setViewContext(initialViewContext);
-                    setSelectedCollegeName(initialCollegeName);
+                    const college = data.find(c => c._id === finalId);
+                    if (college) setSelectedCollegeName(college.name);
 
-                    // Also initialize productForm with the correct collegeId if sub-admin
-                    if (initialViewContext !== 'all') {
-                        setProductForm(prev => ({ ...prev, collegeId: initialViewContext }));
-                    }
+                    // Also initialize productForm with the correct collegeId
+                    setProductForm(prev => ({ ...prev, collegeId: finalId }));
                 }
-            } catch (error) {
-                console.error('Error fetching colleges:', error);
             }
-        };
+        } catch (error) {
+            console.error('Error fetching colleges:', error);
+        }
+    }, [currentUser, isSuperAdmin, viewContext]);
+
+    // Fetch colleges on mount
+    useEffect(() => {
         fetchColleges();
-    }, [currentUser, isSuperAdmin]);
+    }, []); // Only on mount, otherwise it might reset viewContext unexpectedly if we put dependencies
 
     // Fetch vendors
     useEffect(() => {
@@ -137,6 +128,7 @@ const GeneralPurchase = ({ currentUser }) => {
 
     // Fetch products with stock
     const fetchProducts = useCallback(async () => {
+        setIsFetching(true);
         try {
             const productsRes = await fetch(apiUrl('/api/general-products'));
             if (!productsRes.ok) return;
@@ -184,11 +176,14 @@ const GeneralPurchase = ({ currentUser }) => {
             }
         } catch (error) {
             console.error('Error fetching products:', error);
+        } finally {
+            setIsFetching(false);
         }
     }, [viewContext, colleges, isSuperAdmin]);
 
     // Fetch purchases and distributions
     const fetchTransactions = useCallback(async () => {
+        setIsFetching(true);
         try {
             // Fetch vendor purchases
             const purchaseParams = new URLSearchParams();
@@ -217,6 +212,8 @@ const GeneralPurchase = ({ currentUser }) => {
             }
         } catch (error) {
             console.error('Error fetching transactions:', error);
+        } finally {
+            setIsFetching(false);
         }
     }, [viewContext, historyFilters]);
 
@@ -245,9 +242,15 @@ const GeneralPurchase = ({ currentUser }) => {
 
             const method = editingProduct ? 'PUT' : 'POST';
 
-            // If adding new product and viewContext is not 'all', use it as default collegeId
+            // Ensure sub-admins always use their assigned college
             const submissionData = { ...productForm };
-            if (!editingProduct && !submissionData.collegeId && viewContext !== 'all') {
+            if (!isSuperAdmin && currentUser?.assignedCollege) {
+                let assignedId = currentUser.assignedCollege;
+                if (typeof assignedId === 'object' && assignedId !== null) {
+                    assignedId = assignedId._id || '';
+                }
+                submissionData.collegeId = String(assignedId);
+            } else if (!editingProduct && !submissionData.collegeId && viewContext !== 'all') {
                 submissionData.collegeId = viewContext;
             }
 
@@ -299,7 +302,18 @@ const GeneralPurchase = ({ currentUser }) => {
     };
 
     const handleAddStock = async (productId, quantity, targetCollegeId) => {
-        if (!targetCollegeId || targetCollegeId === 'all') {
+        // Determine the actual college ID to use
+        let finalCollegeId = targetCollegeId;
+
+        if (!isSuperAdmin && currentUser?.assignedCollege) {
+            let assignedId = currentUser.assignedCollege;
+            if (typeof assignedId === 'object' && assignedId !== null) {
+                assignedId = assignedId._id || '';
+            }
+            finalCollegeId = String(assignedId);
+        }
+
+        if (!finalCollegeId || finalCollegeId === 'all') {
             setMessage({ type: 'error', text: 'Please select a college to add stock' });
             return;
         }
@@ -308,11 +322,12 @@ const GeneralPurchase = ({ currentUser }) => {
             const res = await fetch(apiUrl(`/api/general-products/${productId}/add-stock`), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ quantity, collegeId: targetCollegeId }),
+                body: JSON.stringify({ quantity, collegeId: finalCollegeId }),
             });
 
             if (res.ok) {
                 setMessage({ type: 'success', text: 'Stock added successfully' });
+                if (isSuperAdmin) fetchColleges(); // Refresh aggregated view
                 fetchProducts();
             } else {
                 const error = await res.json();
@@ -373,7 +388,19 @@ const GeneralPurchase = ({ currentUser }) => {
             return;
         }
 
-        const targetCollege = purchaseForm.college || (viewContext !== 'all' ? viewContext : null);
+        let targetCollege = purchaseForm.college;
+
+        // Ensure sub-admins always use their assigned college
+        if (!isSuperAdmin && currentUser?.assignedCollege) {
+            let assignedId = currentUser.assignedCollege;
+            if (typeof assignedId === 'object' && assignedId !== null) {
+                assignedId = assignedId._id || '';
+            }
+            targetCollege = String(assignedId);
+        } else if (!targetCollege || targetCollege === 'all') {
+            // For super admin, if nothing selected in form, use viewContext if it's a specific college
+            targetCollege = viewContext !== 'all' ? viewContext : null;
+        }
 
         try {
             const totalAmount = purchaseItems.reduce((sum, item) => sum + item.total, 0);
@@ -406,7 +433,9 @@ const GeneralPurchase = ({ currentUser }) => {
                     college: '',
                     remarks: '',
                 });
+                if (isSuperAdmin) fetchColleges(); // Refresh aggregated view
                 fetchProducts();
+                fetchTransactions();
             } else {
                 const error = await res.json();
                 setMessage({ type: 'error', text: error.message || 'Failed to create purchase' });
@@ -424,9 +453,20 @@ const GeneralPurchase = ({ currentUser }) => {
         setLoading(true);
         setMessage({ type: '', text: '' });
 
-        const targetCollegeId = distributionForm.collegeId || (viewContext !== 'all' ? viewContext : '');
+        let finalCollegeId = distributionForm.collegeId;
 
-        if (!targetCollegeId) {
+        // Ensure sub-admins always use their assigned college
+        if (!isSuperAdmin && currentUser?.assignedCollege) {
+            let assignedId = currentUser.assignedCollege;
+            if (typeof assignedId === 'object' && assignedId !== null) {
+                assignedId = assignedId._id || '';
+            }
+            finalCollegeId = String(assignedId);
+        } else if (!finalCollegeId || finalCollegeId === 'all') {
+            finalCollegeId = viewContext !== 'all' ? viewContext : '';
+        }
+
+        if (!finalCollegeId) {
             setMessage({ type: 'error', text: 'Please select a college for this distribution' });
             setLoading(false);
             return;
@@ -457,24 +497,24 @@ const GeneralPurchase = ({ currentUser }) => {
                 body: JSON.stringify({
                     ...distributionForm,
                     items,
-                    collegeId: targetCollegeId,
+                    collegeId: finalCollegeId,
                 }),
             });
 
             if (res.ok) {
-                setMessage({ type: 'success', text: 'Distribution created successfully' });
+                setMessage({ type: 'success', text: 'Distribution completed successfully' });
                 setDistributionForm({
                     recipientName: '',
                     department: '',
                     authorizedBy: '',
                     contactNumber: '',
-                    paymentMethod: 'cash',
-                    isPaid: true,
                     remarks: '',
                     collegeId: '',
                 });
                 setSelectedItems({});
+                if (isSuperAdmin) fetchColleges(); // Refresh aggregated view
                 fetchProducts();
+                fetchTransactions();
             } else {
                 const error = await res.json();
                 setMessage({ type: 'error', text: error.message || 'Failed to create distribution' });
@@ -540,8 +580,8 @@ const GeneralPurchase = ({ currentUser }) => {
                                 <ShoppingCart className="w-7 h-7 text-white" />
                             </div>
                             <div>
-                                <h1 className="text-2xl font-semibold text-gray-900">General Purchase</h1>
-                                <p className="text-gray-600 mt-1 text-sm">Manage products and track staff/guest purchases</p>
+                                <h1 className="text-2xl font-semibold text-gray-900">General Stock</h1>
+                                <p className="text-gray-600 mt-1 text-sm">Manage products and track staff/guest consumption</p>
                             </div>
                         </div>
 
@@ -555,7 +595,7 @@ const GeneralPurchase = ({ currentUser }) => {
                                     }`}
                             >
                                 <Package size={16} />
-                                <span>Manage Products</span>
+                                <span>All Products</span>
                             </button>
                             <button
                                 onClick={() => setActiveTab('purchase')}
@@ -622,68 +662,77 @@ const GeneralPurchase = ({ currentUser }) => {
 
                 {/* Tab Content */}
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                    {activeTab === 'products' && (
-                        <ProductsTab
-                            products={products}
-                            productForm={productForm}
-                            setProductForm={setProductForm}
-                            editingProduct={editingProduct}
-                            setEditingProduct={setEditingProduct}
-                            handleProductSubmit={handleProductSubmit}
-                            handleDeleteProduct={handleDeleteProduct}
-                            handleAddStock={handleAddStock}
-                            loading={loading}
-                            colleges={operationColleges}
-                            viewContext={viewContext}
-                            isSuperAdmin={isSuperAdmin}
-                        />
-                    )}
+                    {isFetching ? (
+                        <div className="flex flex-col items-center justify-center py-12">
+                            <div className="w-12 h-12 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+                            <p className="text-gray-500 font-medium">Crunching your data...</p>
+                        </div>
+                    ) : (
+                        <>
+                            {activeTab === 'products' && (
+                                <ProductsTab
+                                    products={products}
+                                    productForm={productForm}
+                                    setProductForm={setProductForm}
+                                    editingProduct={editingProduct}
+                                    setEditingProduct={setEditingProduct}
+                                    handleProductSubmit={handleProductSubmit}
+                                    handleDeleteProduct={handleDeleteProduct}
+                                    handleAddStock={handleAddStock}
+                                    loading={loading}
+                                    colleges={operationColleges}
+                                    viewContext={viewContext}
+                                    isSuperAdmin={isSuperAdmin}
+                                />
+                            )}
 
-                    {activeTab === 'purchase' && (
-                        <VendorPurchaseTab
-                            products={products}
-                            vendors={vendors}
-                            purchaseForm={purchaseForm}
-                            setPurchaseForm={setPurchaseForm}
-                            currentPurchaseItem={currentPurchaseItem}
-                            setCurrentPurchaseItem={setCurrentPurchaseItem}
-                            purchaseItems={purchaseItems}
-                            handleAddPurchaseItem={handleAddPurchaseItem}
-                            handleRemovePurchaseItem={handleRemovePurchaseItem}
-                            handlePurchaseSubmit={handlePurchaseSubmit}
-                            loading={loading}
-                            colleges={operationColleges}
-                            viewContext={viewContext}
-                            isSuperAdmin={isSuperAdmin}
-                        />
-                    )}
+                            {activeTab === 'purchase' && (
+                                <VendorPurchaseTab
+                                    products={products}
+                                    vendors={vendors}
+                                    purchaseForm={purchaseForm}
+                                    setPurchaseForm={setPurchaseForm}
+                                    currentPurchaseItem={currentPurchaseItem}
+                                    setCurrentPurchaseItem={setCurrentPurchaseItem}
+                                    purchaseItems={purchaseItems}
+                                    handleAddPurchaseItem={handleAddPurchaseItem}
+                                    handleRemovePurchaseItem={handleRemovePurchaseItem}
+                                    handlePurchaseSubmit={handlePurchaseSubmit}
+                                    loading={loading}
+                                    colleges={operationColleges}
+                                    viewContext={viewContext}
+                                    isSuperAdmin={isSuperAdmin}
+                                />
+                            )}
 
-                    {activeTab === 'distribute' && (
-                        <DistributeTab
-                            products={products}
-                            distributionForm={distributionForm}
-                            setDistributionForm={setDistributionForm}
-                            selectedItems={selectedItems}
-                            handleQuantityChange={handleQuantityChange}
-                            handleDistributionSubmit={handleDistributionSubmit}
-                            totalAmount={totalAmount}
-                            loading={loading}
-                            colleges={operationColleges}
-                            viewContext={viewContext}
-                            isSuperAdmin={isSuperAdmin}
-                        />
-                    )}
+                            {activeTab === 'distribute' && (
+                                <DistributeTab
+                                    products={products}
+                                    distributionForm={distributionForm}
+                                    setDistributionForm={setDistributionForm}
+                                    selectedItems={selectedItems}
+                                    handleQuantityChange={handleQuantityChange}
+                                    handleDistributionSubmit={handleDistributionSubmit}
+                                    totalAmount={totalAmount}
+                                    loading={loading}
+                                    colleges={operationColleges}
+                                    viewContext={viewContext}
+                                    isSuperAdmin={isSuperAdmin}
+                                />
+                            )}
 
-                    {activeTab === 'history' && (
-                        <HistoryTab
-                            purchases={purchases}
-                            distributions={distributions}
-                            historyFilters={historyFilters}
-                            setHistoryFilters={setHistoryFilters}
-                            selectedTransaction={selectedTransaction}
-                            setSelectedTransaction={setSelectedTransaction}
-                            selectedCollegeName={selectedCollegeName}
-                        />
+                            {activeTab === 'history' && (
+                                <HistoryTab
+                                    purchases={purchases}
+                                    distributions={distributions}
+                                    historyFilters={historyFilters}
+                                    setHistoryFilters={setHistoryFilters}
+                                    selectedTransaction={selectedTransaction}
+                                    setSelectedTransaction={setSelectedTransaction}
+                                    selectedCollegeName={selectedCollegeName}
+                                />
+                            )}
+                        </>
                     )}
                 </div>
             </div>
@@ -746,119 +795,163 @@ const ProductsTab = ({
                     )}
                 </button>
             </div>
-            {/* Product Form */}
+            {/* Add/Edit Product Modal */}
             {(isFormExpanded || editingProduct) && (
-                <div className="bg-white rounded-lg border border-gray-200 p-6 animate-fade-in-down">
-                    <h3 className="text-lg font-semibold mb-4">{editingProduct ? 'Edit Product' : 'Add New Product'}</h3>
-                    <form onSubmit={handleProductSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Product Name *</label>
-                            <input
-                                type="text"
-                                required
-                                value={productForm.name}
-                                onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-                            <input
-                                type="text"
-                                value={productForm.category}
-                                onChange={(e) => setProductForm({ ...productForm, category: e.target.value })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Price (₹) *</label>
-                            <input
-                                type="number"
-                                required
-                                min="0"
-                                step="0.01"
-                                value={productForm.price}
-                                onChange={(e) => setProductForm({ ...productForm, price: parseFloat(e.target.value) || 0 })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Low Stock Threshold</label>
-                            <input
-                                type="number"
-                                min="0"
-                                value={productForm.lowStockThreshold}
-                                onChange={(e) => setProductForm({ ...productForm, lowStockThreshold: parseInt(e.target.value) || 10 })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            />
-                        </div>
-                        {!editingProduct && (
-                            <>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Initial Stock</label>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        value={productForm.initialStock}
-                                        onChange={(e) => setProductForm({ ...productForm, initialStock: parseInt(e.target.value) || 0 })}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">College for Initial Stock</label>
-                                    <select
-                                        value={productForm.collegeId}
-                                        onChange={(e) => setProductForm({ ...productForm, collegeId: e.target.value })}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                        required={productForm.initialStock > 0 && viewContext === 'all'}
-                                    >
-                                        <option value="">{viewContext === 'all' ? 'Select College' : (colleges.find(c => c._id === viewContext)?.name || 'Current College')}</option>
-                                        {colleges.map(c => (
-                                            <option key={c._id} value={c._id}>{c.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            </>
-                        )}
-                        <div className="md:col-span-2">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                            <textarea
-                                value={productForm.description}
-                                onChange={(e) => setProductForm({ ...productForm, description: e.target.value })}
-                                rows="2"
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            />
-                        </div>
-                        <div className="md:col-span-2 flex gap-2">
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                    {/* Backdrop */}
+                    <div
+                        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+                        onClick={() => {
+                            setEditingProduct(null);
+                            setIsFormExpanded(false);
+                            setProductForm({
+                                name: '',
+                                description: '',
+                                category: 'General',
+                                price: 0,
+                                lowStockThreshold: 10,
+                                initialStock: 0,
+                                collegeId: viewContext !== 'all' ? viewContext : '',
+                            });
+                        }}
+                    ></div>
+
+                    {/* Modal Content */}
+                    <div className="relative bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+                        {/* Modal Header */}
+                        <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-gray-50/50">
+                            <div>
+                                <h3 className="text-xl font-bold text-gray-900">
+                                    {editingProduct ? 'Edit Product Details' : 'Add New Product'}
+                                </h3>
+                                <p className="text-sm text-gray-500 mt-1">
+                                    {editingProduct ? 'Update current product information' : 'Create a new item in the general stock'}
+                                </p>
+                            </div>
                             <button
-                                type="submit"
-                                disabled={loading}
-                                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2"
-                            >
-                                <Save size={16} />
-                                {loading ? 'Saving...' : editingProduct ? 'Update Product' : 'Add Product'}
-                            </button>
-                            <button
-                                type="button"
                                 onClick={() => {
                                     setEditingProduct(null);
                                     setIsFormExpanded(false);
-                                    setProductForm({
-                                        name: '',
-                                        description: '',
-                                        category: 'General',
-                                        price: 0,
-                                        lowStockThreshold: 10,
-                                        initialStock: 0,
-                                        collegeId: viewContext !== 'all' ? viewContext : '',
-                                    });
                                 }}
-                                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                                className="p-2 hover:bg-gray-200 rounded-full transition-colors"
                             >
-                                Cancel
+                                <X size={20} className="text-gray-500" />
                             </button>
                         </div>
-                    </form>
+
+                        {/* Modal Body */}
+                        <form onSubmit={handleProductSubmit} className="p-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                <div className="space-y-1">
+                                    <label className="block text-sm font-semibold text-gray-700">Product Name *</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        placeholder="Enter product name"
+                                        value={productForm.name}
+                                        onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
+                                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition-all"
+                                    />
+                                </div>
+
+                                <div className="space-y-1">
+                                    <label className="block text-sm font-semibold text-gray-700">Selling Price (₹) *</label>
+                                    <div className="relative">
+                                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">₹</div>
+                                        <input
+                                            type="number"
+                                            required
+                                            min="0"
+                                            step="0.01"
+                                            placeholder="0.00"
+                                            value={productForm.price || ''}
+                                            onChange={(e) => setProductForm({ ...productForm, price: parseFloat(e.target.value) || 0 })}
+                                            className="w-full pl-8 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition-all"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="block text-sm font-semibold text-gray-700">Low Stock Alert at</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        placeholder="10"
+                                        value={productForm.lowStockThreshold || ''}
+                                        onChange={(e) => setProductForm({ ...productForm, lowStockThreshold: parseInt(e.target.value) || 10 })}
+                                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition-all"
+                                    />
+                                </div>
+
+                                {!editingProduct && (
+                                    <>
+                                        <div className="space-y-1">
+                                            <label className="block text-sm font-semibold text-gray-700">Initial Stock Level</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                placeholder="0"
+                                                value={productForm.initialStock || ''}
+                                                onChange={(e) => setProductForm({ ...productForm, initialStock: parseInt(e.target.value) || 0 })}
+                                                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition-all"
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="block text-sm font-semibold text-gray-700">Target College *</label>
+                                            <select
+                                                required={productForm.initialStock > 0 && viewContext === 'all'}
+                                                disabled={viewContext !== 'all'}
+                                                value={productForm.collegeId}
+                                                onChange={(e) => setProductForm({ ...productForm, collegeId: e.target.value })}
+                                                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition-all disabled:opacity-75 disabled:cursor-not-allowed"
+                                            >
+                                                <option value="">{viewContext === 'all' ? 'Select College' : (colleges.find(c => c._id === viewContext)?.name || 'Current College')}</option>
+                                                {colleges.map(c => (
+                                                    <option key={c._id} value={c._id}>{c.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </>
+                                )}
+
+                                <div className="md:col-span-2 space-y-1">
+                                    <label className="block text-sm font-semibold text-gray-700">Description</label>
+                                    <textarea
+                                        placeholder="Add any additional details about this product..."
+                                        value={productForm.description}
+                                        onChange={(e) => setProductForm({ ...productForm, description: e.target.value })}
+                                        rows="3"
+                                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition-all resize-none"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Modal Footer */}
+                            <div className="mt-8 flex items-center justify-end gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setEditingProduct(null);
+                                        setIsFormExpanded(false);
+                                    }}
+                                    className="px-6 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-xl transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    className="px-8 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-500/25 transition-all disabled:opacity-50 flex items-center gap-2"
+                                >
+                                    {loading ? (
+                                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                    ) : (
+                                        <Save size={18} />
+                                    )}
+                                    {loading ? 'Processing...' : editingProduct ? 'Update Product' : 'Create Product'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             )}
 
@@ -883,7 +976,6 @@ const ProductsTab = ({
                         <thead className="bg-gray-50 border-b">
                             <tr>
                                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Product</th>
-                                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Category</th>
                                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Price</th>
                                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Stock</th>
                                 <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>
@@ -900,7 +992,7 @@ const ProductsTab = ({
                                             )}
                                         </div>
                                     </td>
-                                    <td className="px-4 py-3 text-sm text-gray-600">{product.category}</td>
+
                                     <td className="px-4 py-3 text-right text-sm font-medium">₹{product.price.toFixed(2)}</td>
                                     <td className="px-4 py-3 text-right">
                                         <span className={`text-sm font-semibold ${product.stock <= product.lowStockThreshold ? 'text-red-600' : 'text-green-600'
@@ -917,7 +1009,6 @@ const ProductsTab = ({
                                                     setProductForm({
                                                         name: product.name,
                                                         description: product.description,
-                                                        category: product.category,
                                                         price: product.price,
                                                         lowStockThreshold: product.lowStockThreshold,
                                                     });
@@ -1292,51 +1383,6 @@ const DistributeTab = ({
                         </div>
                     </div>
                 </div>
-
-                {/* Payment Information */}
-                <div className="bg-gray-50 rounded-xl border border-gray-200 p-6">
-                    <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                        <DollarSign size={18} className="text-blue-500" /> Payment Details
-                    </h3>
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-800 mb-2">Payment Method</label>
-                            <div className="flex gap-4">
-                                <label className="flex items-center cursor-pointer">
-                                    <input
-                                        type="radio"
-                                        value="cash"
-                                        checked={distributionForm.paymentMethod === 'cash'}
-                                        onChange={(e) => setDistributionForm({ ...distributionForm, paymentMethod: e.target.value })}
-                                        className="mr-2 text-blue-600 focus:ring-blue-500"
-                                    />
-                                    Cash
-                                </label>
-                                <label className="flex items-center cursor-pointer">
-                                    <input
-                                        type="radio"
-                                        value="online"
-                                        checked={distributionForm.paymentMethod === 'online'}
-                                        onChange={(e) => setDistributionForm({ ...distributionForm, paymentMethod: e.target.value })}
-                                        className="mr-2 text-blue-600 focus:ring-blue-500"
-                                    />
-                                    Online
-                                </label>
-                            </div>
-                        </div>
-                        <div>
-                            <label className="flex items-center cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    checked={distributionForm.isPaid}
-                                    onChange={(e) => setDistributionForm({ ...distributionForm, isPaid: e.target.checked })}
-                                    className="mr-2 rounded text-blue-600 focus:ring-blue-500"
-                                />
-                                <span className="text-sm font-medium text-gray-700">Mark as Paid</span>
-                            </label>
-                        </div>
-                    </div>
-                </div>
             </div>
 
             {/* Items Selection - Right Column */}
@@ -1493,7 +1539,7 @@ const ThermalReceiptTemplate = ({ transaction }) => {
 
             <div style={{ textAlign: 'center', borderBottom: '1px dashed #000', paddingBottom: '5px', marginBottom: '10px' }}>
                 <h1 style={{ fontSize: '16px', fontWeight: 'bold', margin: 0, textTransform: 'uppercase' }}>Pydah Group</h1>
-                <p style={{ fontSize: '12px', margin: '2px 0' }}>General Purchase Receipt</p>
+                <p style={{ fontSize: '12px', margin: '2px 0' }}>General Stock Receipt</p>
                 <p style={{ fontSize: '10px', margin: '2px 0' }}>
                     {new Date(transaction.distributionDate || transaction.invoiceDate).toLocaleString('en-IN', {
                         day: '2-digit', month: '2-digit', year: 'numeric',
@@ -1523,10 +1569,14 @@ const ThermalReceiptTemplate = ({ transaction }) => {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', marginBottom: '10px' }}>
                 <thead>
                     <tr style={{ borderBottom: '1px solid #000' }}>
-                        <th style={{ textAlign: 'left', padding: '2px 0', width: '45%' }}>Item</th>
+                        <th style={{ textAlign: 'left', padding: '2px 0', width: transaction.type === 'distribution' ? '85%' : '45%' }}>Item</th>
                         <th style={{ textAlign: 'center', padding: '2px 0', width: '15%' }}>Qty</th>
-                        <th style={{ textAlign: 'right', padding: '2px 0', width: '20%' }}>Rate</th>
-                        <th style={{ textAlign: 'right', padding: '2px 0', width: '20%' }}>Amt</th>
+                        {transaction.type !== 'distribution' && (
+                            <>
+                                <th style={{ textAlign: 'right', padding: '2px 0', width: '20%' }}>Rate</th>
+                                <th style={{ textAlign: 'right', padding: '2px 0', width: '20%' }}>Amt</th>
+                            </>
+                        )}
                     </tr>
                 </thead>
                 <tbody>
@@ -1538,30 +1588,29 @@ const ThermalReceiptTemplate = ({ transaction }) => {
                             <td style={{ padding: '2px 0', textAlign: 'center', verticalAlign: 'top' }}>
                                 {item.quantity}
                             </td>
-                            <td style={{ padding: '2px 0', textAlign: 'right', verticalAlign: 'top' }}>
-                                {Number(item.price || item.purchasePrice || 0).toFixed(0)}
-                            </td>
-                            <td style={{ padding: '2px 0', textAlign: 'right', verticalAlign: 'top' }}>
-                                {Number(item.total || (item.quantity * (item.price || item.purchasePrice || 0))).toFixed(0)}
-                            </td>
+                            {transaction.type !== 'distribution' && (
+                                <>
+                                    <td style={{ padding: '2px 0', textAlign: 'right', verticalAlign: 'top' }}>
+                                        {Number(item.price || item.purchasePrice || 0).toFixed(0)}
+                                    </td>
+                                    <td style={{ padding: '2px 0', textAlign: 'right', verticalAlign: 'top' }}>
+                                        {Number(item.total || (item.quantity * (item.price || item.purchasePrice || 0))).toFixed(0)}
+                                    </td>
+                                </>
+                            )}
                         </tr>
                     ))}
                 </tbody>
             </table>
 
-            <div style={{ borderTop: '1px dashed #000', paddingTop: '5px', marginTop: '5px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '14px' }}>
-                    <span>
-                        TOTAL
-                        {transaction.type === 'distribution' && (
-                            <span style={{ fontSize: '12px', marginLeft: '2px' }}>
-                                ({transaction.paymentMethod === 'cash' ? 'CASH' : 'ONLINE'})
-                            </span>
-                        )}:
-                    </span>
-                    <span>₹{Number(transaction.totalAmount).toFixed(2)}</span>
+            {transaction.type !== 'distribution' && (
+                <div style={{ borderTop: '1px dashed #000', paddingTop: '5px', marginTop: '5px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '14px' }}>
+                        <span>TOTAL:</span>
+                        <span>₹{Number(transaction.totalAmount).toFixed(2)}</span>
+                    </div>
                 </div>
-            </div>
+            )}
 
             {transaction.remarks && (
                 <div style={{ marginTop: '5px', fontSize: '11px', borderTop: '1px dotted #ccc', paddingTop: '2px' }}>
@@ -1645,18 +1694,6 @@ const HistoryTab = ({
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                         />
                     </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Payment Status</label>
-                        <select
-                            value={historyFilters.isPaid}
-                            onChange={(e) => setHistoryFilters({ ...historyFilters, isPaid: e.target.value })}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                        >
-                            <option value="">All</option>
-                            <option value="true">Paid</option>
-                            <option value="false">Unpaid</option>
-                        </select>
-                    </div>
                 </div>
             </div>
 
@@ -1678,8 +1715,6 @@ const HistoryTab = ({
                                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Date</th>
                                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Recipient</th>
                                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Department</th>
-                                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Amount</th>
-                                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Payment</th>
                                     <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>
                                 </tr>
                             </thead>
@@ -1692,15 +1727,6 @@ const HistoryTab = ({
                                         </td>
                                         <td className="px-4 py-3 text-sm text-gray-900">{dist.recipientName}</td>
                                         <td className="px-4 py-3 text-sm text-gray-600">{dist.department}</td>
-                                        <td className="px-4 py-3 text-right text-sm font-medium">₹{dist.totalAmount.toFixed(2)}</td>
-                                        <td className="px-4 py-3 text-center">
-                                            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${dist.isPaid
-                                                ? 'bg-green-100 text-green-700'
-                                                : 'bg-red-100 text-red-700'
-                                                }`}>
-                                                {dist.isPaid ? 'Paid' : 'Unpaid'}
-                                            </span>
-                                        </td>
                                         <td className="px-4 py-3">
                                             <div className="flex items-center justify-center gap-2">
                                                 <PrintButton transaction={{ ...dist, type: 'distribution' }} />
@@ -1862,18 +1888,14 @@ const HistoryTab = ({
                                                     <p className="font-medium">{item.name || item.product?.name || 'Item'}</p>
                                                     <p className="text-sm text-gray-600">
                                                         Qty: {item.quantity}
-                                                        {selectedTransaction.type === 'distribution'
-                                                            ? ` × ₹${item.price?.toFixed(2)}`
-                                                            : ` × ₹${item.purchasePrice?.toFixed(2)}`
-                                                        }
+                                                        {selectedTransaction.type !== 'distribution' && ` × ₹${item.purchasePrice?.toFixed(2)}`}
                                                     </p>
                                                 </div>
-                                                <p className="font-semibold">
-                                                    {selectedTransaction.type === 'distribution'
-                                                        ? `₹${item.total?.toFixed(2)}`
-                                                        : `₹${(item.quantity * item.purchasePrice)?.toFixed(2)}`
-                                                    }
-                                                </p>
+                                                {selectedTransaction.type !== 'distribution' && (
+                                                    <p className="font-semibold">
+                                                        ₹{(item.quantity * item.purchasePrice)?.toFixed(2)}
+                                                    </p>
+                                                )}
                                             </div>
                                         ))}
 
@@ -1881,24 +1903,11 @@ const HistoryTab = ({
                                 </div>
 
                                 <div className="border-t pt-4">
-                                    <div className="flex justify-between items-center mb-2">
-                                        <span className="font-semibold">Total Amount</span>
-                                        <span className="text-xl font-bold">₹{selectedTransaction.totalAmount.toFixed(2)}</span>
-                                    </div>
-
-                                    {selectedTransaction.type === 'distribution' && (
-                                        <>
-                                            <div className="flex justify-between items-center text-sm">
-                                                <span>Payment Method</span>
-                                                <span className="font-medium">{selectedTransaction.paymentMethod?.toUpperCase()}</span>
-                                            </div>
-                                            <div className="flex justify-between items-center text-sm mt-1">
-                                                <span>Payment Status</span>
-                                                <span className={`font-semibold ${selectedTransaction.isPaid ? 'text-green-600' : 'text-red-600'}`}>
-                                                    {selectedTransaction.isPaid ? 'PAID' : 'UNPAID'}
-                                                </span>
-                                            </div>
-                                        </>
+                                    {selectedTransaction.type !== 'distribution' && (
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className="font-semibold">Total Amount</span>
+                                            <span className="text-xl font-bold">₹{selectedTransaction.totalAmount.toFixed(2)}</span>
+                                        </div>
                                     )}
                                     {selectedTransaction.remarks && (
                                         <div className="mt-3">
@@ -1921,4 +1930,4 @@ const HistoryTab = ({
 
 
 
-export default GeneralPurchase;
+export default GeneralStock;

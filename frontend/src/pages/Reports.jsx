@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Search, Trash2, Receipt, Download, Eye, X, FileText, Calendar, Package, Building2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Filter, Printer, DollarSign, TrendingUp, ShoppingCart, AlertCircle } from 'lucide-react';
+import { Search, Trash2, Receipt, Download, Eye, X, FileText, Calendar, Package, Building2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Filter, Printer, DollarSign, TrendingUp, ShoppingCart, AlertCircle, Loader2 } from 'lucide-react';
 import { apiUrl } from '../utils/api';
 import { hasFullAccess } from '../utils/permissions';
 import jsPDF from 'jspdf';
@@ -60,6 +60,7 @@ const Reports = ({ currentUser }) => {
     collegeId: '',
     // For stock report
     productCategory: '',
+    stockType: 'academic', // 'academic' or 'distribute'
     // For vendor purchase report
     vendor: '',
   });
@@ -77,6 +78,7 @@ const Reports = ({ currentUser }) => {
   const [activeTab, setActiveTab] = useState('daily'); // 'daily', 'monthly', 'stock'
   const [monthlyReportSubTab, setMonthlyReportSubTab] = useState('monthly-sale'); // 'monthly-sale', 'daily-breakdown'
   const [expandedDays, setExpandedDays] = useState(new Set()); // Track expanded days: "monthKey-dayKey"
+  const [generatingPDF, setGeneratingPDF] = useState(false);
 
   useEffect(() => {
     fetchColleges();
@@ -138,6 +140,19 @@ const Reports = ({ currentUser }) => {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   };
 
+  // Get unique categories from items
+  const availableCategories = useMemo(() => {
+    const categories = new Set(products.map(p => p.category).filter(Boolean));
+    return Array.from(categories).sort();
+  }, [products]);
+
+  // Refetch products when stock type changes in report filters
+  useEffect(() => {
+    if (showReportModal && (reportType === 'stock' || reportType === 'day-end' || reportType === 'vendor-purchase')) {
+      fetchProducts(reportFilters.stockType);
+    }
+  }, [reportFilters.stockType, reportType, showReportModal]);
+
   const fetchSettings = async () => {
     try {
       const response = await fetch(apiUrl('/api/settings'));
@@ -182,19 +197,31 @@ const Reports = ({ currentUser }) => {
     }
   };
 
-  const fetchProducts = async () => {
+  const fetchProducts = async (type = 'academic') => {
     try {
       setProductsLoading(true);
-      const url = selectedCollege
-        ? apiUrl(`/api/stock-transfers/colleges/${selectedCollege}/stock`)
-        : apiUrl('/api/products');
+      const isGeneral = type === 'distribute';
+
+      let url;
+      if (isGeneral) {
+        const queryParams = new URLSearchParams();
+        const colId = reportFilters.collegeId || selectedCollege;
+        if (colId) queryParams.append('collegeId', colId);
+        url = apiUrl(`/api/general-products?${queryParams.toString()}`);
+      } else {
+        url = selectedCollege
+          ? apiUrl(`/api/stock-transfers/colleges/${selectedCollege}/stock`)
+          : apiUrl('/api/products');
+      }
 
       const response = await fetch(url);
       if (response.ok) {
         const data = await response.json();
         let productsData = [];
 
-        if (selectedCollege) {
+        if (isGeneral) {
+          productsData = Array.isArray(data) ? data : [];
+        } else if (selectedCollege) {
           // Response for college stock is { _id, name, stock: [...] }
           productsData = (data.stock || []).map(item => ({
             ...item.product,
@@ -427,8 +454,11 @@ const Reports = ({ currentUser }) => {
   const calculateDayEndSales = useCallback((transactions) => {
     // Use passed-in transactions for revenue amounts (already revenue-eligible: student + paid transfers)
     const revenueTransactions = transactions;
-    // For "items sold" count only student transactions (not transfer movements)
-    const itemsTransactions = transactions.filter(t => t.transactionType !== 'branch_transfer' && t.transactionType !== 'college_transfer');
+    // For "items sold" count student transactions and distributions
+    const itemsTransactions = transactions.filter(t =>
+      t.transactionType !== 'branch_transfer' &&
+      t.transactionType !== 'college_transfer'
+    );
 
     // Aggregate items sold across student transactions only
     // For sets, expand them into their component items
@@ -1000,6 +1030,8 @@ const Reports = ({ currentUser }) => {
       format: 'a5'
     });
 
+    const isGeneral = reportFilters.stockType === 'distribute';
+
     // Headers
     pdf.setFontSize(18);
     pdf.setTextColor(44, 62, 80);
@@ -1009,7 +1041,7 @@ const Reports = ({ currentUser }) => {
     pdf.setFontSize(12);
     pdf.setTextColor(0, 0, 0);
     pdf.setFont(undefined, 'bold');
-    pdf.text('Day-End Transaction Report', 74, 24, { align: 'center' });
+    pdf.text(isGeneral ? 'Day-End Distribution Report' : 'Day-End Transaction Report', 74, 24, { align: 'center' });
 
     // Draw line under header
     pdf.setDrawColor(200, 200, 200);
@@ -1057,15 +1089,20 @@ const Reports = ({ currentUser }) => {
 
       pdf.setFontSize(10);
       pdf.setFont(undefined, 'bold');
-      pdf.text('Statistics (Filtered)', 14, yPos);
+      pdf.text(isGeneral ? 'Statistics (Filtered)' : 'Statistics (Filtered)', 14, yPos);
 
       const statsY = yPos + 4;
       pdf.setFont(undefined, 'normal');
       pdf.setFontSize(8);
-      pdf.text(`Trx: ${revenueTransactions.length}`, 14, statsY);
-      pdf.text(`Amount: ${formatCurrencyForPDF(totalAmount)}`, 35, statsY);
-      pdf.text(`Cash: ${formatCurrencyForPDF(totalCash)}`, 75, statsY);
-      pdf.text(`Online: ${formatCurrencyForPDF(totalOnline)}`, 110, statsY);
+      if (!isGeneral) {
+        pdf.text(`Trx: ${revenueTransactions.length}`, 14, statsY);
+        pdf.text(`Amount: ${formatCurrencyForPDF(totalAmount)}`, 35, statsY);
+        pdf.text(`Cash: ${formatCurrencyForPDF(totalCash)}`, 75, statsY);
+        pdf.text(`Online: ${formatCurrencyForPDF(totalOnline)}`, 110, statsY);
+      } else {
+        pdf.text(`Distributions: ${filteredTransactions.length}`, 14, statsY);
+        // Hide financial summary for general stock distributions if needed, but keeping count is fine
+      }
 
       yPos += 8;
 
@@ -1073,7 +1110,7 @@ const Reports = ({ currentUser }) => {
       if (dayWiseData.length > 0 && (reportFilters.startDate || reportFilters.endDate)) {
         pdf.setFontSize(9);
         pdf.setFont(undefined, 'bold');
-        pdf.text('Day-wise Breakdown', 14, yPos);
+        pdf.text(isGeneral ? 'Day-wise Distribution' : 'Day-wise Breakdown', 14, yPos);
         yPos += 5;
 
         pdf.setFont(undefined, 'normal');
@@ -1082,10 +1119,12 @@ const Reports = ({ currentUser }) => {
         pdf.rect(14, yPos - 3, 120, 4, 'F');
         pdf.setFont(undefined, 'bold');
         pdf.text('Date', 14, yPos);
-        pdf.text('Trx', 50, yPos);
-        pdf.text('Total', 75, yPos, { align: 'right' });
-        pdf.text('Cash', 105, yPos, { align: 'right' });
-        pdf.text('Online', 135, yPos, { align: 'right' });
+        pdf.text(isGeneral ? 'Dist' : 'Trx', 50, yPos);
+        if (!isGeneral) {
+          pdf.text('Total', 75, yPos, { align: 'right' });
+          pdf.text('Cash', 105, yPos, { align: 'right' });
+          pdf.text('Online', 135, yPos, { align: 'right' });
+        }
         yPos += 4;
 
         pdf.setFont(undefined, 'normal');
@@ -1097,9 +1136,11 @@ const Reports = ({ currentUser }) => {
           const dateStr = day.dayName.substring(0, 15);
           pdf.text(dateStr, 14, yPos);
           pdf.text(`${day.transactions.length}`, 50, yPos);
-          pdf.text(formatCurrencyForPDF(day.totalAmount), 75, yPos, { align: 'right' });
-          pdf.text(formatCurrencyForPDF(day.cashAmount), 105, yPos, { align: 'right' });
-          pdf.text(formatCurrencyForPDF(day.onlineAmount), 135, yPos, { align: 'right' });
+          if (!isGeneral) {
+            pdf.text(formatCurrencyForPDF(day.totalAmount), 75, yPos, { align: 'right' });
+            pdf.text(formatCurrencyForPDF(day.cashAmount), 105, yPos, { align: 'right' });
+            pdf.text(formatCurrencyForPDF(day.onlineAmount), 135, yPos, { align: 'right' });
+          }
           yPos += 4;
         });
         yPos += 3;
@@ -1109,14 +1150,16 @@ const Reports = ({ currentUser }) => {
       if (salesSummary && salesSummary.itemsSold.length > 0) {
         pdf.setFontSize(9);
         pdf.setFont(undefined, 'bold');
-        pdf.text('Day-End Sales Summary', 14, yPos);
+        pdf.text(isGeneral ? 'Day-End Sales Summary' : 'Day-End Sales Summary', 14, yPos);
         yPos += 5;
 
         pdf.setFont(undefined, 'normal');
         pdf.setFontSize(7);
         pdf.text(`Total Items Sold: ${salesSummary.statistics.totalItemsSold}`, 16, yPos);
-        pdf.text(`Cash: ${formatCurrencyForPDF(salesSummary.statistics.cashAmount)}`, 50, yPos);
-        pdf.text(`Online: ${formatCurrencyForPDF(salesSummary.statistics.onlineAmount)}`, 90, yPos);
+        if (!isGeneral) {
+          pdf.text(`Cash: ${formatCurrencyForPDF(salesSummary.statistics.cashAmount)}`, 50, yPos);
+          pdf.text(`Online: ${formatCurrencyForPDF(salesSummary.statistics.onlineAmount)}`, 90, yPos);
+        }
         yPos += 4;
 
         // Show top items (limit to fit on page)
@@ -1149,7 +1192,7 @@ const Reports = ({ currentUser }) => {
       pdf.setFont(undefined, 'bold');
       pdf.setFillColor(240, 240, 240);
       pdf.rect(14, yPos - 4, 120, 6, 'F');
-      pdf.text('Transaction Details', 14, yPos);
+      pdf.text(isGeneral ? 'Distribution Details' : 'Transaction Details', 14, yPos);
       yPos += 6;
 
       // Table Headers
@@ -1160,16 +1203,18 @@ const Reports = ({ currentUser }) => {
       const colPositions = {
         date: 16,
         student: 44,
-        course: 76,
+        course: isGeneral ? 94 : 76,
         payment: 102,
         amount: 128,
       };
 
       pdf.text('Date', colPositions.date, yPos);
-      pdf.text('Student', colPositions.student, yPos);
-      pdf.text('Course', colPositions.course, yPos);
-      pdf.text('Payment', colPositions.payment, yPos);
-      pdf.text('Amount', colPositions.amount, yPos, { align: 'right' });
+      pdf.text(isGeneral ? 'Recipient' : 'Student', colPositions.student, yPos);
+      pdf.text(isGeneral ? 'Department' : 'Course', colPositions.course, yPos);
+      if (!isGeneral) {
+        pdf.text('Payment', colPositions.payment, yPos);
+        pdf.text('Amount', colPositions.amount, yPos, { align: 'right' });
+      }
       yPos += 5;
 
       pdf.setFont(undefined, 'normal');
@@ -1186,17 +1231,19 @@ const Reports = ({ currentUser }) => {
           pdf.setFillColor(230, 230, 230);
           pdf.rect(14, yPos - 3, 120, 5, 'F');
           pdf.text('Date', colPositions.date, yPos);
-          pdf.text('Student', colPositions.student, yPos);
-          pdf.text('Course', colPositions.course, yPos);
-          pdf.text('Payment', colPositions.payment, yPos);
-          pdf.text('Amount', colPositions.amount, yPos, { align: 'right' });
+          pdf.text(isGeneral ? 'Recipient' : 'Student', colPositions.student, yPos);
+          pdf.text(isGeneral ? 'Department' : 'Course', colPositions.course, yPos);
+          if (!isGeneral) {
+            pdf.text('Payment', colPositions.payment, yPos);
+            pdf.text('Amount', colPositions.amount, yPos, { align: 'right' });
+          }
           yPos += 5;
           pdf.setFont(undefined, 'normal');
         }
 
         const date = new Date(transaction.transactionDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        const studentName = (transaction.student?.name || 'N/A').substring(0, 16);
-        const course = (transaction.student?.course || 'N/A').toUpperCase().substring(0, 8);
+        const studentName = (transaction.student?.name || 'N/A').substring(0, isGeneral ? 25 : 16);
+        const course = (transaction.student?.course || 'N/A').toUpperCase().substring(0, isGeneral ? 15 : 8);
         const amount = formatCurrencyForPDF(transaction.totalAmount);
         const payment = transaction.paymentMethod ? transaction.paymentMethod.toUpperCase() : 'N/A';
 
@@ -1209,8 +1256,10 @@ const Reports = ({ currentUser }) => {
         pdf.text(date, colPositions.date, yPos);
         pdf.text(studentName, colPositions.student, yPos);
         pdf.text(course, colPositions.course, yPos);
-        pdf.text(payment, colPositions.payment, yPos);
-        pdf.text(amount, colPositions.amount, yPos, { align: 'right' });
+        if (!isGeneral) {
+          pdf.text(payment, colPositions.payment, yPos);
+          pdf.text(amount, colPositions.amount, yPos, { align: 'right' });
+        }
         yPos += 5;
 
         // Draw separator line
@@ -1301,9 +1350,17 @@ const Reports = ({ currentUser }) => {
   const generateStockReport = async () => {
     try {
       setProductsLoading(true);
-      const url = selectedCollege
-        ? apiUrl(`/api/stock-transfers/colleges/${selectedCollege}/stock`)
-        : apiUrl('/api/products');
+      const isGeneral = reportFilters.stockType === 'distribute';
+      const selectedCollegeId = reportFilters.collegeId || selectedCollege;
+
+      let url;
+      if (selectedCollegeId) {
+        url = isGeneral
+          ? apiUrl(`/api/general-products/colleges/${selectedCollegeId}/stock`)
+          : apiUrl(`/api/stock-transfers/colleges/${selectedCollegeId}/stock`);
+      } else {
+        url = isGeneral ? apiUrl('/api/general-products') : apiUrl('/api/products');
+      }
 
       const response = await fetch(url);
       if (!response.ok) throw new Error('Failed to fetch products for report');
@@ -1311,12 +1368,20 @@ const Reports = ({ currentUser }) => {
       const data = await response.json();
       let products = [];
 
-      if (selectedCollege) {
-        // College stock response structure
-        products = (data.stock || []).map(item => ({
-          ...item.product,
-          stock: item.quantity
-        }));
+      if (selectedCollegeId) {
+        if (isGeneral) {
+          // General stock response structure: { _id, name, generalStock: [...] }
+          products = (data.generalStock || []).map(item => ({
+            ...item.product,
+            stock: item.quantity
+          }));
+        } else {
+          // College stock (Academic) response structure: { _id, name, stock: [...] }
+          products = (data.stock || []).map(item => ({
+            ...item.product,
+            stock: item.quantity
+          }));
+        }
       } else {
         const allProducts = data;
         products = Array.isArray(allProducts) ? allProducts.filter(product => !product?.isSet) : [];
@@ -1337,7 +1402,10 @@ const Reports = ({ currentUser }) => {
       pdf.setFontSize(18);
       pdf.setTextColor(0, 0, 0);
       pdf.setFont(undefined, 'bold');
-      const headerText = selectedCollegeData ? selectedCollegeData.name.toUpperCase() : receiptSettings.receiptHeader;
+
+      const collegeData = selectedCollegeId ? colleges.find(c => c._id === selectedCollegeId) : null;
+      const headerText = collegeData ? collegeData.name.toUpperCase() : receiptSettings.receiptHeader;
+
       pdf.text(headerText, 105, 15, { align: 'center' });
       pdf.setFontSize(12);
       pdf.setTextColor(0, 0, 0);
@@ -1346,7 +1414,9 @@ const Reports = ({ currentUser }) => {
       pdf.setFontSize(14);
       pdf.setTextColor(0, 0, 0);
       pdf.setFont(undefined, 'bold');
-      pdf.text('Stock Report', 105, 30, { align: 'center' });
+
+      const reportTitle = isGeneral ? 'General/Distribute Stock Report' : 'Academic Stock Report';
+      pdf.text(reportTitle, 105, 30, { align: 'center' });
 
       // Draw line under header
       pdf.setDrawColor(200, 200, 200);
@@ -1371,7 +1441,9 @@ const Reports = ({ currentUser }) => {
 
         pdf.setFont(undefined, 'normal');
         // Combined stats on one line
-        const statsText = `Products: ${products.length} | Stock: ${totalStock} | Val: ${formatCurrencyForPDF(totalValue)} | LowStock: ${lowStockCount} | OutOfStock: ${outOfStockCount}`;
+        const statsText = isGeneral
+          ? `Products: ${products.length} | Stock: ${totalStock} | LowStock: ${lowStockCount} | OutOfStock: ${outOfStockCount}`
+          : `Products: ${products.length} | Stock: ${totalStock} | Val: ${formatCurrencyForPDF(totalValue)} | LowStock: ${lowStockCount} | OutOfStock: ${outOfStockCount}`;
         pdf.text(statsText, 45, yPos);
 
         yPos += 10;
@@ -1385,9 +1457,13 @@ const Reports = ({ currentUser }) => {
         pdf.setFillColor(230, 230, 230);
         pdf.rect(20, yPos - 3, 170, 6, 'F');
         pdf.text('Product Name', 22, yPos + 1);
-        pdf.text('Price', 110, yPos + 1);
-        pdf.text('Stock', 140, yPos + 1);
-        pdf.text('Value', 170, yPos + 1);
+        if (!isGeneral) {
+          pdf.text('Price', 110, yPos + 1);
+          pdf.text('Stock', 140, yPos + 1);
+          pdf.text('Value', 170, yPos + 1);
+        } else {
+          pdf.text('Stock', 170, yPos + 1);
+        }
         yPos += 8;
 
         pdf.setFont(undefined, 'normal');
@@ -1404,9 +1480,13 @@ const Reports = ({ currentUser }) => {
             pdf.setFillColor(230, 230, 230);
             pdf.rect(20, yPos - 3, 170, 6, 'F');
             pdf.text('Product Name', 22, yPos + 1);
-            pdf.text('Price', 110, yPos + 1);
-            pdf.text('Stock', 140, yPos + 1);
-            pdf.text('Value', 170, yPos + 1);
+            if (!isGeneral) {
+              pdf.text('Price', 110, yPos + 1);
+              pdf.text('Stock', 140, yPos + 1);
+              pdf.text('Value', 170, yPos + 1);
+            } else {
+              pdf.text('Stock', 170, yPos + 1);
+            }
             yPos += 8;
             pdf.setFont(undefined, 'normal');
           }
@@ -1423,9 +1503,13 @@ const Reports = ({ currentUser }) => {
           }
 
           pdf.text(productName, 22, yPos);
-          pdf.text(price, 110, yPos);
-          pdf.text(stock.toString(), 140, yPos);
-          pdf.text(value, 170, yPos);
+          if (!isGeneral) {
+            pdf.text(price, 110, yPos);
+            pdf.text(stock.toString(), 140, yPos);
+            pdf.text(value, 170, yPos);
+          } else {
+            pdf.text(stock.toString(), 170, yPos);
+          }
           yPos += 6;
 
           // Removed underlines
@@ -1455,20 +1539,50 @@ const Reports = ({ currentUser }) => {
 
   const generateVendorPurchaseReport = async () => {
     try {
+      const isGeneral = reportFilters.stockType === 'distribute';
       const queryParams = new URLSearchParams();
-      if (selectedCollege) queryParams.append('college', selectedCollege);
+      if (selectedCollege) queryParams.append(isGeneral ? 'college' : 'college', selectedCollege);
 
-      // Fetch stock entries with college context
-      const response = await fetch(apiUrl(`/api/stock-entries?${queryParams.toString()}`));
-      if (!response.ok) throw new Error('Failed to fetch stock entries for report');
+      const endpoint = isGeneral ? '/api/general-purchases' : '/api/stock-entries';
+      // Fetch entries with college context
+      const response = await fetch(apiUrl(`${endpoint}?${queryParams.toString()}`));
+      if (!response.ok) throw new Error(`Failed to fetch ${isGeneral ? 'general purchases' : 'stock entries'} for report`);
 
       let stockEntries = await response.json();
+
+      if (isGeneral) {
+        // Normalize general purchase data to match stock entry structure for the report template
+        // General purchases return a list of purchases, each with multiple items. 
+        // Stock entries are usually flattened (one entry per product).
+        // To keep it simple, we'll flatten the general purchases items.
+        const flattenedEntries = [];
+        stockEntries.forEach(purchase => {
+          purchase.items.forEach(item => {
+            flattenedEntries.push({
+              ...purchase,
+              product: item.product || { name: item.name },
+              quantity: item.quantity,
+              purchasePrice: item.purchasePrice,
+              totalCost: item.quantity * item.purchasePrice,
+              createdAt: purchase.invoiceDate || purchase.createdAt
+            });
+          });
+        });
+        stockEntries = flattenedEntries;
+      }
 
       // Apply filters on client side
       if (reportFilters.vendor) {
         stockEntries = stockEntries.filter(entry => {
           const entryVendorId = entry.vendor?._id || entry.vendor;
           return String(entryVendorId) === String(reportFilters.vendor);
+        });
+      }
+
+      if (reportFilters.productCategory) {
+        stockEntries = stockEntries.filter(entry => {
+          const cat = entry.product?.category || entry.category;
+          return cat === reportFilters.productCategory;
         });
       }
 
@@ -1501,7 +1615,7 @@ const Reports = ({ currentUser }) => {
       pdf.setFontSize(14);
       pdf.setTextColor(30, 58, 138);
       pdf.setFont(undefined, 'bold');
-      pdf.text('Vendor Purchase Report', 105, 30, { align: 'center' });
+      pdf.text(isGeneral ? 'Vendor General Purchase Report' : 'Vendor Purchase Report', 105, 30, { align: 'center' });
 
       // Draw line under header
       pdf.setDrawColor(200, 200, 200);
@@ -1663,35 +1777,87 @@ const Reports = ({ currentUser }) => {
   });
 
   const generatePDF = async () => {
+    if (generatingPDF) return;
     try {
+      setGeneratingPDF(true);
       if (!reportType) {
         alert('Please select a report type');
         return;
       }
 
       if (reportType === 'day-end') {
+        const isGeneral = reportFilters.stockType === 'distribute';
         // Fetch transactions based on report filters
         const queryParams = new URLSearchParams();
-        if (reportFilters.course) queryParams.append('course', reportFilters.course);
+        if (reportFilters.course && !isGeneral) queryParams.append('course', reportFilters.course);
         if (reportFilters.paymentMethod) queryParams.append('paymentMethod', reportFilters.paymentMethod);
         if (reportFilters.isPaid !== '') queryParams.append('isPaid', reportFilters.isPaid);
         if (reportFilters.startDate) queryParams.append('startDate', reportFilters.startDate);
         if (reportFilters.endDate) queryParams.append('endDate', reportFilters.endDate);
-        if (reportFilters.collegeId) {
-          queryParams.append('collegeId', reportFilters.collegeId);
-        } else if (selectedCollege) {
-          queryParams.append('collegeId', selectedCollege);
+
+        const selectedCollegeId = reportFilters.collegeId || selectedCollege;
+        if (selectedCollegeId) {
+          queryParams.append(isGeneral ? 'collegeId' : 'collegeId', selectedCollegeId);
         }
 
-        const response = await fetch(apiUrl(`/api/transactions?${queryParams.toString()}`));
-        if (!response.ok) throw new Error('Failed to fetch transactions for report');
+        const endpoint = isGeneral ? '/api/general-distributions' : '/api/transactions';
+        const response = await fetch(apiUrl(`${endpoint}?${queryParams.toString()}`));
+        if (!response.ok) throw new Error(`Failed to fetch ${isGeneral ? 'distributions' : 'transactions'} for report`);
 
         let reportTransactions = await response.json();
 
-        // Filter by date range on client side
+        if (isGeneral) {
+          // Normalize distribution data to match transaction structure for the report template
+          reportTransactions = reportTransactions.map(dist => ({
+            ...dist,
+            transactionId: dist.distributionId,
+            transactionDate: dist.distributionDate,
+            student: {
+              name: dist.recipientName,
+              course: dist.department || '-'
+            },
+            transactionType: 'distribution',
+            items: dist.items.map(item => ({
+              ...item,
+              name: item.productId?.name || item.name,
+              price: item.price || 0,
+              total: item.total || 0,
+              category: item.productId?.category || 'General'
+            }))
+          }));
+        } else {
+          // For Academic stock transactions, items might not have category in the DB response
+          // Augment with categories from the products state
+          reportTransactions = reportTransactions.map(trans => ({
+            ...trans,
+            items: (trans.items || []).map(item => {
+              if (item.category) return item;
+              const prod = products.find(p => p._id === (item.product?._id || item.product));
+              return { ...item, category: prod?.category || 'Academic' };
+            })
+          }));
+        }
+
+        // Apply product category filter if selected
+        if (reportFilters.productCategory) {
+          reportTransactions = reportTransactions.map(trans => {
+            const filteredItems = trans.items.filter(item => item.category === reportFilters.productCategory);
+            if (filteredItems.length === 0) return null;
+
+            // Recalculate total for the transaction based on filtered items if it's a category-specific report
+            const newTotal = filteredItems.reduce((sum, item) => sum + (item.total || 0), 0);
+            return {
+              ...trans,
+              items: filteredItems,
+              totalAmount: newTotal
+            };
+          }).filter(Boolean);
+        }
+
+        // Filter by date range on client side (keeping existing logic for safety)
         if (reportFilters.startDate || reportFilters.endDate) {
           reportTransactions = reportTransactions.filter(transaction => {
-            const transDate = new Date(transaction.transactionDate);
+            const transDate = new Date(transaction.distributionDate || transaction.transactionDate);
             if (reportFilters.startDate && transDate < new Date(reportFilters.startDate)) return false;
             if (reportFilters.endDate && transDate > new Date(reportFilters.endDate + 'T23:59:59')) return false;
             return true;
@@ -1723,7 +1889,6 @@ const Reports = ({ currentUser }) => {
           return;
         }
 
-        const selectedCollegeId = reportFilters.collegeId || selectedCollege;
         await generateDayEndReport(reportTransactions, selectedCollegeId);
       } else if (reportType === 'stock') {
         await generateStockReport();
@@ -1735,8 +1900,10 @@ const Reports = ({ currentUser }) => {
       setReportType('');
       alert('PDF report generated successfully!');
     } catch (error) {
-      console.error('Error generating PDF:', error);
-      alert('Error generating PDF report');
+      console.error('Error generating PDF report:', error);
+      alert('Error generating report: ' + error.message);
+    } finally {
+      setGeneratingPDF(false);
     }
   };
 
@@ -3310,6 +3477,31 @@ const Reports = ({ currentUser }) => {
                     {/* Day-End Report Filters */}
                     {reportType === 'day-end' && (
                       <>
+                        <div className="mb-4">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Stock Type</label>
+                          <div className="flex gap-4">
+                            <label className="flex items-center cursor-pointer">
+                              <input
+                                type="radio"
+                                value="academic"
+                                checked={reportFilters.stockType === 'academic'}
+                                onChange={(e) => setReportFilters({ ...reportFilters, stockType: e.target.value })}
+                                className="mr-2 text-blue-600 focus:ring-blue-500"
+                              />
+                              Academic Stock
+                            </label>
+                            <label className="flex items-center cursor-pointer">
+                              <input
+                                type="radio"
+                                value="distribute"
+                                checked={reportFilters.stockType === 'distribute'}
+                                onChange={(e) => setReportFilters({ ...reportFilters, stockType: e.target.value })}
+                                className="mr-2 text-blue-600 focus:ring-blue-500"
+                              />
+                              General/Distribute Stock
+                            </label>
+                          </div>
+                        </div>
 
                         <div className="grid grid-cols-2 gap-4">
                           <div>
@@ -3337,43 +3529,64 @@ const Reports = ({ currentUser }) => {
                             </div>
                           </div>
                         </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Course</label>
-                          <select
-                            value={reportFilters.course}
-                            onChange={(e) => setReportFilters({ ...reportFilters, course: e.target.value })}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          >
-                            <option value="">All Courses</option>
-                            {courseOptions.map(course => (
-                              <option key={course} value={course}>{course.toUpperCase()}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
-                          <select
-                            value={reportFilters.paymentMethod}
-                            onChange={(e) => setReportFilters({ ...reportFilters, paymentMethod: e.target.value })}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          >
-                            <option value="">All Payment Methods</option>
-                            <option value="cash">Cash</option>
-                            <option value="online">Online</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Payment Status</label>
-                          <select
-                            value={reportFilters.isPaid}
-                            onChange={(e) => setReportFilters({ ...reportFilters, isPaid: e.target.value })}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          >
-                            <option value="">All Payment Status</option>
-                            <option value="true">Paid</option>
-                            <option value="false">Unpaid</option>
-                          </select>
-                        </div>
+                        {reportFilters.stockType === 'academic' && (
+                          <>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">Course</label>
+                              <select
+                                value={reportFilters.course}
+                                onChange={(e) => setReportFilters({ ...reportFilters, course: e.target.value })}
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              >
+                                <option value="">All Courses</option>
+                                {courseOptions.map(course => (
+                                  <option key={course} value={course}>{course.toUpperCase()}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
+                              <select
+                                value={reportFilters.paymentMethod}
+                                onChange={(e) => setReportFilters({ ...reportFilters, paymentMethod: e.target.value })}
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              >
+                                <option value="">All Payment Methods</option>
+                                <option value="cash">Cash</option>
+                                <option value="online">Online</option>
+                              </select>
+                            </div>
+                          </>
+                        )}
+                        {reportFilters.stockType === 'academic' && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                            <select
+                              value={reportFilters.productCategory}
+                              onChange={(e) => setReportFilters({ ...reportFilters, productCategory: e.target.value })}
+                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                              <option value="">All Categories</option>
+                              {availableCategories.map(category => (
+                                <option key={category} value={category}>{category}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        {reportFilters.stockType === 'academic' && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Payment Status</label>
+                            <select
+                              value={reportFilters.isPaid}
+                              onChange={(e) => setReportFilters({ ...reportFilters, isPaid: e.target.value })}
+                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                              <option value="">All Payment Status</option>
+                              <option value="true">Paid</option>
+                              <option value="false">Unpaid</option>
+                            </select>
+                          </div>
+                        )}
                         <div className="pt-4 border-t border-gray-200 space-y-3">
                           <h3 className="text-sm font-semibold text-gray-700 mb-3">Report Options</h3>
                           <div className="flex items-center gap-2">
@@ -3443,34 +3656,62 @@ const Reports = ({ currentUser }) => {
                     {/* Stock Report Filters */}
                     {reportType === 'stock' && (
                       <>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Course</label>
-                          <select
-                            value={reportFilters.course}
-                            onChange={(e) => setReportFilters({ ...reportFilters, course: e.target.value })}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          >
-                            <option value="">All Courses</option>
-                            {courseOptions.map(course => (
-                              <option key={course} value={course}>{course.toUpperCase()}</option>
-                            ))}
-                          </select>
+                        <div className="mb-4">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Stock Type</label>
+                          <div className="flex gap-4">
+                            <label className="flex items-center cursor-pointer">
+                              <input
+                                type="radio"
+                                value="academic"
+                                checked={reportFilters.stockType === 'academic'}
+                                onChange={(e) => setReportFilters({ ...reportFilters, stockType: e.target.value })}
+                                className="mr-2 text-blue-600 focus:ring-blue-500"
+                              />
+                              Academic Stock
+                            </label>
+                            <label className="flex items-center cursor-pointer">
+                              <input
+                                type="radio"
+                                value="distribute"
+                                checked={reportFilters.stockType === 'distribute'}
+                                onChange={(e) => setReportFilters({ ...reportFilters, stockType: e.target.value })}
+                                className="mr-2 text-blue-600 focus:ring-blue-500"
+                              />
+                              Distribute Stock
+                            </label>
+                          </div>
                         </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Product Category</label>
-                          <select
-                            value={reportFilters.productCategory}
-                            onChange={(e) => setReportFilters({ ...reportFilters, productCategory: e.target.value })}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          >
-                            <option value="">All Categories</option>
-                            <option value="Notebooks">Notebooks</option>
-                            <option value="Pens">Pens</option>
-                            <option value="Art Supplies">Art Supplies</option>
-                            <option value="Electronics">Electronics</option>
-                            <option value="Other">Other</option>
-                          </select>
-                        </div>
+
+                        {reportFilters.stockType === 'academic' && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Course</label>
+                            <select
+                              value={reportFilters.course}
+                              onChange={(e) => setReportFilters({ ...reportFilters, course: e.target.value })}
+                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                              <option value="">All Courses</option>
+                              {courseOptions.map(course => (
+                                <option key={course} value={course}>{course.toUpperCase()}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        {reportFilters.stockType === 'academic' && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Product Category</label>
+                            <select
+                              value={reportFilters.productCategory}
+                              onChange={(e) => setReportFilters({ ...reportFilters, productCategory: e.target.value })}
+                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                              <option value="">All Categories</option>
+                              {availableCategories.map(category => (
+                                <option key={category} value={category}>{category}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                         <div className="pt-4 border-t border-gray-200 space-y-3">
                           <div className="flex items-center gap-2">
                             <input
@@ -3491,6 +3732,32 @@ const Reports = ({ currentUser }) => {
                     {/* Vendor Purchase Report Filters */}
                     {reportType === 'vendor-purchase' && (
                       <>
+                        <div className="mb-4">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Stock Type</label>
+                          <div className="flex gap-4">
+                            <label className="flex items-center cursor-pointer">
+                              <input
+                                type="radio"
+                                value="academic"
+                                checked={reportFilters.stockType === 'academic'}
+                                onChange={(e) => setReportFilters({ ...reportFilters, stockType: e.target.value })}
+                                className="mr-2 text-blue-600 focus:ring-blue-500"
+                              />
+                              Academic Stock
+                            </label>
+                            <label className="flex items-center cursor-pointer">
+                              <input
+                                type="radio"
+                                value="distribute"
+                                checked={reportFilters.stockType === 'distribute'}
+                                onChange={(e) => setReportFilters({ ...reportFilters, stockType: e.target.value })}
+                                className="mr-2 text-blue-600 focus:ring-blue-500"
+                              />
+                              General/Distribute Stock
+                            </label>
+                          </div>
+                        </div>
+
                         <div className="grid grid-cols-2 gap-4">
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
@@ -3530,6 +3797,21 @@ const Reports = ({ currentUser }) => {
                             ))}
                           </select>
                         </div>
+                        {reportFilters.stockType === 'academic' && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                            <select
+                              value={reportFilters.productCategory}
+                              onChange={(e) => setReportFilters({ ...reportFilters, productCategory: e.target.value })}
+                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                              <option value="">All Categories</option>
+                              {availableCategories.map(category => (
+                                <option key={category} value={category}>{category}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                         <div className="pt-4 border-t border-gray-200 space-y-3">
                           <div className="flex items-center gap-2">
                             <input
@@ -3560,10 +3842,15 @@ const Reports = ({ currentUser }) => {
                       </button>
                       <button
                         onClick={generatePDF}
-                        className="px-6 py-2 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-lg hover:from-purple-700 hover:to-purple-800 transition-all font-medium flex items-center gap-2"
+                        disabled={generatingPDF}
+                        className={`px-6 py-2 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-lg hover:from-purple-700 hover:to-purple-800 transition-all font-medium flex items-center gap-2 ${generatingPDF ? 'opacity-70 cursor-not-allowed' : ''}`}
                       >
-                        <Download size={18} />
-                        Generate PDF
+                        {generatingPDF ? (
+                          <Loader2 size={18} className="animate-spin" />
+                        ) : (
+                          <Download size={18} />
+                        )}
+                        {generatingPDF ? 'Generating...' : 'Generate PDF'}
                       </button>
                     </div>
                   </div>

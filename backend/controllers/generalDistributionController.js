@@ -9,7 +9,7 @@ const asyncHandler = require('express-async-handler');
  * @access  Public
  */
 const createDistribution = asyncHandler(async (req, res) => {
-  const { recipientName, department, authorizedBy, contactNumber, items, paymentMethod, isPaid, remarks, collegeId } = req.body;
+  const { recipientName, department, authorizedBy, contactNumber, items, remarks, collegeId } = req.body;
 
   if (!recipientName || !department || !authorizedBy || !items || !Array.isArray(items) || items.length === 0) {
     res.status(400);
@@ -48,22 +48,20 @@ const createDistribution = asyncHandler(async (req, res) => {
     const price = Number(item.price);
     const itemTotal = requestedQuantity * price;
 
-    // Check stock availability if paid
-    if (isPaid) {
-      const stockEntry = college.generalStock.find(
-        s => s.product.toString() === product._id.toString()
-      );
-      const currentStock = stockEntry ? stockEntry.quantity : 0;
-      const currentDeduction = stockChanges.get(product._id.toString()) || 0;
-      const projectedStock = currentStock - currentDeduction;
+    // Check stock availability (Distribution always deducts stock now)
+    const stockEntry = college.generalStock.find(
+      s => s.product.toString() === product._id.toString()
+    );
+    const currentStock = stockEntry ? stockEntry.quantity : 0;
+    const currentDeduction = stockChanges.get(product._id.toString()) || 0;
+    const projectedStock = currentStock - currentDeduction;
 
-      if (projectedStock < requestedQuantity) {
-        res.status(400);
-        throw new Error(`Insufficient stock for ${product.name}. Available: ${projectedStock}, Requested: ${requestedQuantity}`);
-      }
-
-      stockChanges.set(product._id.toString(), currentDeduction + requestedQuantity);
+    if (projectedStock < requestedQuantity) {
+      res.status(400);
+      throw new Error(`Insufficient stock for ${product.name}. Available: ${projectedStock}, Requested: ${requestedQuantity}`);
     }
+
+    stockChanges.set(product._id.toString(), currentDeduction + requestedQuantity);
 
     totalAmount += itemTotal;
     validatedItems.push({
@@ -75,8 +73,8 @@ const createDistribution = asyncHandler(async (req, res) => {
     });
   }
 
-  // Deduct stock if paid
-  if (isPaid && stockChanges.size > 0) {
+  // Deduct stock
+  if (stockChanges.size > 0) {
     for (const [productId, quantity] of stockChanges.entries()) {
       const stockIndex = college.generalStock.findIndex(
         s => s.product.toString() === productId
@@ -103,11 +101,11 @@ const createDistribution = asyncHandler(async (req, res) => {
     contactNumber: contactNumber || '',
     items: validatedItems,
     totalAmount,
-    paymentMethod: paymentMethod || 'cash',
-    isPaid: isPaid || false,
-    paidAt: isPaid ? new Date() : null,
+    paymentMethod: 'cash',
+    isPaid: true,
+    paidAt: new Date(),
     remarks: remarks || '',
-    stockDeducted: isPaid && stockChanges.size > 0,
+    stockDeducted: true,
     distributionDate: new Date(),
     collegeId,
   });
@@ -186,55 +184,8 @@ const updateDistribution = asyncHandler(async (req, res) => {
     throw new Error('Distribution not found');
   }
 
-  const { isPaid, paymentMethod, remarks } = req.body;
+  const { remarks } = req.body;
 
-  // Handle payment status change
-  if (isPaid !== undefined) {
-    const prevDeducted = distribution.stockDeducted;
-
-    distribution.isPaid = isPaid;
-    distribution.paidAt = isPaid ? new Date() : null;
-
-    const college = await College.findById(distribution.collegeId);
-    if (!college) {
-      res.status(404);
-      throw new Error('College not found');
-    }
-
-    // If marking as paid and stock not yet deducted
-    if (isPaid && !prevDeducted) {
-      for (const item of distribution.items) {
-        const stockIndex = college.generalStock.findIndex(
-          s => s.product.toString() === item.productId.toString()
-        );
-        if (stockIndex >= 0 && college.generalStock[stockIndex].quantity >= item.quantity) {
-          college.generalStock[stockIndex].quantity -= item.quantity;
-        }
-      }
-      await college.save();
-      distribution.stockDeducted = true;
-    }
-    // If marking as unpaid and stock was deducted
-    else if (!isPaid && prevDeducted) {
-      for (const item of distribution.items) {
-        const stockIndex = college.generalStock.findIndex(
-          s => s.product.toString() === item.productId.toString()
-        );
-        if (stockIndex >= 0) {
-          college.generalStock[stockIndex].quantity += item.quantity;
-        } else {
-          college.generalStock.push({
-            product: item.productId,
-            quantity: item.quantity,
-          });
-        }
-      }
-      await college.save();
-      distribution.stockDeducted = false;
-    }
-  }
-
-  if (paymentMethod !== undefined) distribution.paymentMethod = paymentMethod;
   if (remarks !== undefined) distribution.remarks = remarks;
 
   const updatedDistribution = await distribution.save();
