@@ -105,7 +105,7 @@ const Dashboard = () => {
   }, [selectedCollege, colleges]);
 
   const formatCurrency = (amount) => {
-    return `₹${Number(amount || 0).toFixed(2)}`;
+    return `₹${Number(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
   const formatDate = (dateString) => {

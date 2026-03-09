@@ -1,6 +1,7 @@
 const asyncHandler = require('express-async-handler');
 const { Transaction } = require('../models/transactionModel');
 const { StockEntry } = require('../models/stockEntryModel');
+const { Product } = require('../models/productModel');
 const mongoose = require('mongoose');
 
 // @desc    Get profit statistics
@@ -8,7 +9,10 @@ const mongoose = require('mongoose');
 // @access  Private/Admin
 const getProfitStats = asyncHandler(async (req, res) => {
   const { startDate, endDate, collegeId } = req.query;
-  const filter = { isPaid: true }; // Only paid transactions count for profit
+  const filter = {
+    isPaid: true,
+    transactionType: { $nin: ['college_transfer', 'branch_transfer'] }
+  }; // Only paid transactions count for profit, exclude stock transfers
 
   if (collegeId) {
     filter.collegeId = new mongoose.Types.ObjectId(collegeId);
@@ -27,7 +31,7 @@ const getProfitStats = asyncHandler(async (req, res) => {
     return res.json({ monthly: [], daily: [], summary: { totalRevenue: 0, totalCOGS: 0, grossProfit: 0 } });
   }
 
-  // Get unique product IDs to fetch stock entry history
+  // Get unique product IDs to fetch stock entry history and product prices
   const productIds = new Set();
   transactions.forEach(txn => {
     txn.items.forEach(item => {
@@ -49,13 +53,24 @@ const getProfitStats = asyncHandler(async (req, res) => {
     product: { $in: Array.from(productIds) }
   }).sort({ createdAt: -1 }).lean();
 
+  // Fetch the products to get their original selling prices for component-level revenue mapping
+  const products = await Product.find({
+    _id: { $in: Array.from(productIds) }
+  }).lean();
+
   // Helper to find COGS for an item at a specific date
   const getCOGSForItem = (productId, date) => {
-    const entry = stockEntries.find(e => 
-      e.product.toString() === productId.toString() && 
+    const entry = stockEntries.find(e =>
+      e.product.toString() === productId.toString() &&
       new Date(e.createdAt) <= new Date(date)
     );
     return entry ? entry.purchasePrice : 0;
+  };
+
+  // Helper to find selling price for an item
+  const getRevenueForItem = (productId) => {
+    const product = products.find(p => p._id.toString() === productId.toString());
+    return product ? product.price : 0;
   };
 
   const dailyMap = new Map();
@@ -119,11 +134,35 @@ const getProfitStats = asyncHandler(async (req, res) => {
 
       const itemData = dayData.items.get(productId);
       let rowCOGS = 0;
-      
+
       if (item.isSet && item.setComponents && item.setComponents.length > 0) {
+        if (!itemData.components) itemData.components = new Map();
+
         item.setComponents.forEach(comp => {
+          const compId = comp.productId?.toString() || comp.name;
+          if (!itemData.components.has(compId)) {
+            itemData.components.set(compId, {
+              name: comp.name || 'Unknown Component',
+              quantity: 0,
+              revenue: 0,
+              cogs: 0,
+              profit: 0
+            });
+          }
+
+          const compData = itemData.components.get(compId);
           const compUnitCOGS = getCOGSForItem(comp.productId, txn.transactionDate);
-          rowCOGS += compUnitCOGS * (comp.quantity || 0) * (item.quantity || 0);
+          const compTotalCOGS = compUnitCOGS * (comp.quantity || 0) * (item.quantity || 0);
+
+          const compUnitRev = getRevenueForItem(comp.productId);
+          const compTotalRev = compUnitRev * (comp.quantity || 0) * (item.quantity || 0);
+
+          compData.quantity += (comp.quantity || 0) * (item.quantity || 0);
+          compData.revenue += compTotalRev;
+          compData.cogs += compTotalCOGS;
+          compData.profit += (compTotalRev - compTotalCOGS);
+
+          rowCOGS += compTotalCOGS;
         });
       } else {
         const unitCOGS = getCOGSForItem(item.productId, txn.transactionDate);
@@ -140,20 +179,100 @@ const getProfitStats = asyncHandler(async (req, res) => {
 
     // Update monthly stats
     if (!monthlyMap.has(monthKey)) {
-      monthlyMap.set(monthKey, { month: monthKey, revenue: 0, cogs: 0, profit: 0, count: 0 });
+      monthlyMap.set(monthKey, { month: monthKey, revenue: 0, cogs: 0, profit: 0, count: 0, items: new Map() });
     }
     const monthData = monthlyMap.get(monthKey);
     monthData.revenue += txnRevenue;
     monthData.cogs += txnCOGS;
     monthData.profit += (txnRevenue - txnCOGS);
     monthData.count += 1;
+
+    // Item-level monthly breakdown (extracting set components as individual sold products)
+    txn.items.forEach(item => {
+      if (item.isSet && item.setComponents && item.setComponents.length > 0) {
+        item.setComponents.forEach(comp => {
+          const compId = comp.productId?.toString() || comp.name;
+          if (!monthData.items.has(compId)) {
+            monthData.items.set(compId, {
+              productId: comp.productId,
+              name: comp.name || 'Unknown Component',
+              quantity: 0,
+              revenue: 0,
+              cogs: 0,
+              profit: 0
+            });
+          }
+          const compData = monthData.items.get(compId);
+          const compUnitCOGS = getCOGSForItem(comp.productId, txn.transactionDate);
+          const compTotalCOGS = compUnitCOGS * (comp.quantity || 0) * (item.quantity || 0);
+
+          const compUnitRev = getRevenueForItem(comp.productId);
+          const compTotalRev = compUnitRev * (comp.quantity || 0) * (item.quantity || 0);
+
+          compData.quantity += (comp.quantity || 0) * (item.quantity || 0);
+          compData.revenue += compTotalRev;
+          compData.cogs += compTotalCOGS;
+          compData.profit += (compTotalRev - compTotalCOGS);
+        });
+      } else {
+        const productId = item.productId?.toString();
+        if (!productId) return;
+
+        if (!monthData.items.has(productId)) {
+          monthData.items.set(productId, {
+            productId,
+            name: item.name || 'Unknown Product',
+            quantity: 0,
+            revenue: 0,
+            cogs: 0,
+            profit: 0
+          });
+        }
+        const itemData = monthData.items.get(productId);
+        const unitCOGS = getCOGSForItem(item.productId, txn.transactionDate);
+        const rowCOGS = unitCOGS * (item.quantity || 0);
+        const rowRevenue = (item.price || 0) * (item.quantity || 0);
+
+        itemData.quantity += (item.quantity || 0);
+        itemData.revenue += rowRevenue;
+        itemData.cogs += rowCOGS;
+        itemData.profit += (rowRevenue - rowCOGS);
+      }
+    });
   });
 
   // Convert daily maps back to arrays
   const dailyArray = Array.from(dailyMap.values()).map(day => ({
     ...day,
-    items: Array.from(day.items.values()).sort((a, b) => b.profit - a.profit)
+    items: Array.from(day.items.values()).map(item => ({
+      ...item,
+      components: item.components ? Array.from(item.components.values()) : []
+    })).sort((a, b) => b.profit - a.profit)
   }));
+
+  // Get all unique months that have data for the filter
+  const availableMonthsData = await Transaction.aggregate([
+    {
+      $match: {
+        isPaid: true,
+        transactionType: { $nin: ['college_transfer', 'branch_transfer'] }
+      }
+    },
+    {
+      $group: {
+        _id: {
+          $dateToString: { format: "%Y-%m", date: "$transactionDate" }
+        }
+      }
+    },
+    { $sort: { "_id": -1 } }
+  ]);
+  const availableMonths = availableMonthsData.map(m => m._id);
+
+  const monthlyArray = Array.from(monthlyMap.values()).map(month => ({
+    ...month,
+    items: Array.from(month.items.values()).sort((a, b) => b.quantity - a.quantity)
+  })).sort((a, b) => b.month.localeCompare(a.month));
 
   res.json({
     summary: {
@@ -163,7 +282,8 @@ const getProfitStats = asyncHandler(async (req, res) => {
       margin: totalRevenue > 0 ? ((totalRevenue - totalCOGS) / totalRevenue) * 100 : 0,
       totalTransactions: transactions.length
     },
-    monthly: Array.from(monthlyMap.values()).sort((a, b) => b.month.localeCompare(a.month)),
+    availableMonths,
+    monthly: monthlyArray,
     daily: dailyArray.sort((a, b) => b.date.localeCompare(a.date))
   });
 });

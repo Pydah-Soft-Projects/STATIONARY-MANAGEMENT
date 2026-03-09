@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { TrendingUp, DollarSign, PieChart, Calendar, ChevronLeft, ChevronRight, Download, Filter, Search, FileText, Building2, ChevronDown, Package, AlertCircle } from 'lucide-react';
 import { apiUrl } from '../utils/api';
 
@@ -8,21 +8,51 @@ const ProfitReport = ({ currentUser }) => {
     const [data, setData] = useState({
         monthly: [],
         daily: [],
-        summary: { totalRevenue: 0, totalCOGS: 0, grossProfit: 0, margin: 0, totalTransactions: 0 }
+        summary: { totalRevenue: 0, totalCOGS: 0, grossProfit: 0, margin: 0, totalTransactions: 0 },
+        availableMonths: []
     });
-    const [filters, setFilters] = useState(() => {
+    const [expandedProducts, setExpandedProducts] = useState(new Set()); // Track expanded products in sets: "date-productId"
+    const [filters, setFilters] = useState({
+        startDate: '',
+        endDate: '',
+        collegeId: ''
+    });
+    const [tableMonth, setTableMonth] = useState(() => {
         const now = new Date();
-        const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-        const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
-        return {
-            startDate: firstDay,
-            endDate: lastDay,
-            collegeId: ''
-        };
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     });
     const [colleges, setColleges] = useState([]);
     const [expandedRows, setExpandedRows] = useState(new Set());
     const isSuperAdmin = currentUser?.role === 'Administrator';
+
+    const monthOptions = useMemo(() => {
+        const optionsMap = new Map();
+
+        // Add current month always
+        const now = new Date();
+        const currentMonthVal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        optionsMap.set(currentMonthVal, now.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }));
+
+        // Add backend available months
+        (data.availableMonths || []).forEach(m => {
+            if (!optionsMap.has(m)) {
+                const [year, month] = m.split('-');
+                const d = new Date(parseInt(year), parseInt(month) - 1, 1);
+                optionsMap.set(m, d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }));
+            }
+        });
+
+        return Array.from(optionsMap.entries())
+            .map(([value, label]) => ({ value, label }))
+            .sort((a, b) => b.value.localeCompare(a.value));
+    }, [data.availableMonths]);
+
+    const filteredDailyData = useMemo(() => {
+        if (!tableMonth) return data.daily;
+        return data.daily.filter(row => row.date && row.date.startsWith(tableMonth));
+    }, [data.daily, tableMonth]);
+
+
 
     useEffect(() => {
         fetchColleges();
@@ -88,21 +118,32 @@ const ProfitReport = ({ currentUser }) => {
         setExpandedRows(newExpandedRows);
     };
 
+    const toggleProduct = (date, productId) => {
+        const key = `${date}-${productId}`;
+        const newExpandedProducts = new Set(expandedProducts);
+        if (newExpandedProducts.has(key)) {
+            newExpandedProducts.delete(key);
+        } else {
+            newExpandedProducts.add(key);
+        }
+        setExpandedProducts(newExpandedProducts);
+    };
+
     const StatCard = ({ title, value, icon: Icon, gradient, subtext, subIcon: SubIcon }) => (
         <div className={`bg-gradient-to-br ${gradient} rounded-xl shadow-lg p-6 text-white transition-all hover:scale-105 duration-300`}>
             <div className="flex items-start justify-between">
                 <div>
-                    <p className="text-xs uppercase tracking-wide font-semibold mb-1">{title}</p>
-                    <p className="text-2xl font-bold">{value}</p>
+                    <p className="text-xs uppercase tracking-wide font-semibold mb-1 text-white/90">{title}</p>
+                    <p className="text-2xl font-bold text-white">{value}</p>
                     {subtext && (
-                        <div className="flex items-center gap-1 mt-2 text-xs font-medium">
+                        <div className="flex items-center gap-1 mt-2 text-xs font-medium text-white/90">
                             {SubIcon && <SubIcon size={12} />}
                             <span>{subtext}</span>
                         </div>
                     )}
                 </div>
                 <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center backdrop-blur-sm">
-                    <Icon size={24} />
+                    <Icon size={24} className="text-white" />
                 </div>
             </div>
         </div>
@@ -184,40 +225,6 @@ const ProfitReport = ({ currentUser }) => {
                 </div>
 
                 <div className="space-y-6">
-                    {/* Filters Section */}
-                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-                        <div className="flex flex-wrap items-center gap-3">
-                            <div className="flex items-center gap-2 mr-auto">
-                                <Filter className="text-emerald-600" size={18} />
-                                <span className="text-sm font-medium text-gray-700">Date Range:</span>
-                            </div>
-                            <div className="relative min-w-[160px]">
-                                <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
-                                <input
-                                    type="date"
-                                    value={filters.startDate}
-                                    onChange={(e) => setFilters(prev => ({ ...prev, startDate: e.target.value }))}
-                                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                                />
-                            </div>
-                            <span className="text-gray-400 font-medium">to</span>
-                            <div className="relative min-w-[160px]">
-                                <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
-                                <input
-                                    type="date"
-                                    value={filters.endDate}
-                                    onChange={(e) => setFilters(prev => ({ ...prev, endDate: e.target.value }))}
-                                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                                />
-                            </div>
-                            <button
-                                onClick={() => setFilters({ startDate: '', endDate: '', collegeId: '' })}
-                                className="px-4 py-2 text-sm font-medium text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors border border-emerald-100"
-                            >
-                                Clear
-                            </button>
-                        </div>
-                    </div>
 
                     {/* Statistics Cards */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -226,7 +233,7 @@ const ProfitReport = ({ currentUser }) => {
                             value={formatCurrency(data.summary?.totalRevenue)}
                             icon={DollarSign}
                             gradient="from-blue-500 to-blue-600"
-                            subtext={`${data.summary?.totalTransactions || 0} Transactions`}
+                            subtext={`${data.summary?.totalTransactions || 0} Transactions (without transfers)`}
                         />
                         <StatCard
                             title="Total COGS"
@@ -262,25 +269,26 @@ const ProfitReport = ({ currentUser }) => {
                             <div className="flex items-center gap-4">
                                 {activeTab === 'daily' && (
                                     <div className="flex items-center gap-2">
-                                        <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Filter Month:</span>
                                         <div className="relative">
                                             <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 text-emerald-600" size={14} />
-                                            <input
-                                                type="month"
-                                                value={filters.startDate ? filters.startDate.slice(0, 7) : new Date().toISOString().slice(0, 7)}
-                                                onChange={(e) => {
-                                                    const [year, month] = e.target.value.split('-');
-                                                    const firstDay = `${year}-${month}-01`;
-                                                    const lastDay = new Date(year, month, 0).toISOString().split('T')[0];
-                                                    setFilters(prev => ({ ...prev, startDate: firstDay, endDate: lastDay }));
-                                                }}
-                                                className="pl-8 pr-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-bold text-gray-700 outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all shadow-sm cursor-pointer"
-                                            />
+                                            <select
+                                                value={tableMonth}
+                                                onChange={(e) => setTableMonth(e.target.value)}
+                                                className="pl-8 pr-8 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-bold text-gray-700 outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all shadow-sm cursor-pointer appearance-none"
+                                            >
+                                                <option value="">All Time</option>
+                                                {monthOptions.map(option => (
+                                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                                ))}
+                                            </select>
+                                            <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+                                                <ChevronDown size={12} />
+                                            </div>
                                         </div>
                                     </div>
                                 )}
                                 <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-3 py-1 rounded-full uppercase tracking-wider">
-                                    {activeTab === 'monthly' ? data.monthly.length : data.daily.length} records
+                                    {activeTab === 'monthly' ? data.monthly.length : filteredDailyData.length} records
                                 </span>
                             </div>
                         </div>
@@ -305,7 +313,7 @@ const ProfitReport = ({ currentUser }) => {
                                                 Calculating profit statistics...
                                             </td>
                                         </tr>
-                                    ) : (activeTab === 'monthly' ? data.monthly : data.daily).length === 0 ? (
+                                    ) : (activeTab === 'monthly' ? data.monthly : filteredDailyData).length === 0 ? (
                                         <tr>
                                             <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
                                                 <div className="text-4xl mb-4">📊</div>
@@ -313,24 +321,23 @@ const ProfitReport = ({ currentUser }) => {
                                                 <p className="text-sm">Try adjusting your filters or date range</p>
                                             </td>
                                         </tr>
-                                    ) : (activeTab === 'monthly' ? data.monthly : data.daily).map((row, idx) => {
+                                    ) : (activeTab === 'monthly' ? data.monthly : filteredDailyData).map((row, idx) => {
                                         const margin = row.revenue > 0 ? ((row.revenue - row.cogs) / row.revenue) * 100 : 0;
-                                        const isExpanded = expandedRows.has(row.date);
+                                        const rowId = activeTab === 'monthly' ? row.month : row.date;
+                                        const isExpanded = expandedRows.has(rowId);
 
                                         return (
                                             <React.Fragment key={idx}>
                                                 <tr
                                                     className={`hover:bg-gray-50 transition-colors cursor-pointer ${isExpanded ? 'bg-emerald-50/30' : ''}`}
-                                                    onClick={() => activeTab === 'daily' && toggleRow(row.date)}
+                                                    onClick={() => toggleRow(rowId)}
                                                 >
                                                     <td className="px-6 py-4 font-bold text-gray-900">
                                                         <div className="flex items-center gap-2">
-                                                            {activeTab === 'daily' && (
-                                                                <ChevronRight
-                                                                    size={16}
-                                                                    className={`text-emerald-500 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
-                                                                />
-                                                            )}
+                                                            <ChevronRight
+                                                                size={16}
+                                                                className={`text-emerald-500 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
+                                                            />
                                                             {formatDisplayDate(activeTab === 'monthly' ? row.month : row.date, activeTab === 'monthly')}
                                                         </div>
                                                     </td>
@@ -346,7 +353,7 @@ const ProfitReport = ({ currentUser }) => {
                                                         </span>
                                                     </td>
                                                 </tr>
-                                                {isExpanded && activeTab === 'daily' && (
+                                                {isExpanded && (
                                                     <tr className="bg-white border-b border-gray-100">
                                                         <td colSpan="6" className="px-8 py-4">
                                                             <div className="bg-emerald-50/20 rounded-xl border border-emerald-100/50 overflow-hidden shadow-inner">
@@ -367,28 +374,78 @@ const ProfitReport = ({ currentUser }) => {
                                                                     <tbody className="divide-y divide-emerald-100/20">
                                                                         {(row.items || []).map((item, pIdx) => {
                                                                             const itemMargin = item.revenue > 0 ? (item.profit / item.revenue) * 100 : 0;
+                                                                            const productKey = `${rowId}-${item.productId}`;
+                                                                            const isProductExpanded = expandedProducts.has(productKey);
+
                                                                             return (
-                                                                                <tr key={pIdx} className="hover:bg-emerald-50/40 transition-colors">
-                                                                                    <td className="px-4 py-2.5 text-xs font-semibold text-gray-700">
-                                                                                        <div className="flex items-center gap-2">
-                                                                                            {item.name}
-                                                                                            {item.isSet && (
-                                                                                                <span className="bg-blue-50 text-blue-600 text-[8px] font-black px-1.5 py-0.5 rounded border border-blue-100 uppercase tracking-tighter">Set</span>
-                                                                                            )}
-                                                                                        </div>
-                                                                                    </td>
-                                                                                    <td className="px-4 py-2.5 text-xs text-center text-gray-500 font-medium">{item.quantity}</td>
-                                                                                    <td className="px-4 py-2.5 text-xs text-right text-blue-600 font-bold">{formatCurrency(item.revenue)}</td>
-                                                                                    <td className="px-4 py-2.5 text-xs text-right text-amber-600 font-semibold">{formatCurrency(item.cogs)}</td>
-                                                                                    <td className={`px-4 py-2.5 text-xs text-right font-bold ${item.profit >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                                                                                        {formatCurrency(item.profit)}
-                                                                                    </td>
-                                                                                    <td className="px-4 py-2.5 text-center">
-                                                                                        <span className={`text-[10px] font-bold ${itemMargin >= 15 ? 'text-emerald-600' : 'text-amber-600'}`}>
-                                                                                            {itemMargin.toFixed(1)}%
-                                                                                        </span>
-                                                                                    </td>
-                                                                                </tr>
+                                                                                <React.Fragment key={pIdx}>
+                                                                                    <tr
+                                                                                        className={`hover:bg-emerald-50/40 transition-colors ${item.isSet ? 'cursor-pointer' : ''}`}
+                                                                                        onClick={() => item.isSet && toggleProduct(rowId, item.productId)}
+                                                                                    >
+                                                                                        <td className="px-4 py-2.5 text-xs font-semibold text-gray-700">
+                                                                                            <div className="flex items-center gap-2">
+                                                                                                {item.isSet && (
+                                                                                                    <ChevronRight size={12} className={`text-emerald-500 transition-transform ${isProductExpanded ? 'rotate-90' : ''}`} />
+                                                                                                )}
+                                                                                                {item.name}
+                                                                                                {item.isSet && (
+                                                                                                    <span className="bg-blue-50 text-blue-600 text-[8px] font-black px-1.5 py-0.5 rounded border border-blue-100 uppercase tracking-tighter">Set</span>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        </td>
+                                                                                        <td className="px-4 py-2.5 text-xs text-center text-gray-500 font-medium">{item.quantity}</td>
+                                                                                        <td className="px-4 py-2.5 text-xs text-right text-blue-600 font-bold">{formatCurrency(item.revenue)}</td>
+                                                                                        <td className="px-4 py-2.5 text-xs text-right text-amber-600 font-semibold">{formatCurrency(item.cogs)}</td>
+                                                                                        <td className={`px-4 py-2.5 text-xs text-right font-bold ${item.profit >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                                                                            {formatCurrency(item.profit)}
+                                                                                        </td>
+                                                                                        <td className="px-4 py-2.5 text-center">
+                                                                                            <span className={`text-[10px] font-bold ${itemMargin >= 15 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                                                                                {itemMargin.toFixed(1)}%
+                                                                                            </span>
+                                                                                        </td>
+                                                                                    </tr>
+                                                                                    {isProductExpanded && item.isSet && (
+                                                                                        <tr>
+                                                                                            <td colSpan="6" className="px-6 py-2">
+                                                                                                <div className="bg-white/50 rounded-lg border border-emerald-100/30 overflow-hidden">
+                                                                                                    <table className="w-full">
+                                                                                                        <thead className="bg-emerald-50/30">
+                                                                                                            <tr>
+                                                                                                                <th className="px-3 py-1.5 text-[9px] font-bold text-gray-600 uppercase text-left">Component</th>
+                                                                                                                <th className="px-3 py-1.5 text-[9px] font-bold text-gray-600 uppercase text-center">Qty</th>
+                                                                                                                <th className="px-3 py-1.5 text-[9px] font-bold text-gray-600 uppercase text-right">Revenue</th>
+                                                                                                                <th className="px-3 py-1.5 text-[9px] font-bold text-gray-600 uppercase text-right">COGS</th>
+                                                                                                                <th className="px-3 py-1.5 text-[9px] font-bold text-gray-600 uppercase text-right">Profit</th>
+                                                                                                                <th className="px-3 py-1.5 text-[9px] font-bold text-gray-600 uppercase text-center">Margin</th>
+                                                                                                            </tr>
+                                                                                                        </thead>
+                                                                                                        <tbody className="divide-y divide-gray-50">
+                                                                                                            {(item.components || []).map((comp, cIdx) => {
+                                                                                                                const compMargin = comp.revenue > 0 ? (comp.profit / comp.revenue) * 100 : 0;
+                                                                                                                return (
+                                                                                                                    <tr key={cIdx}>
+                                                                                                                        <td className="px-3 py-1.5 text-[10px] text-gray-800 font-medium pl-6">{comp.name}</td>
+                                                                                                                        <td className="px-3 py-1.5 text-[10px] text-center text-gray-700 font-medium">{comp.quantity}</td>
+                                                                                                                        <td className="px-3 py-1.5 text-[10px] text-right text-gray-700 font-medium">{formatCurrency(comp.revenue)}</td>
+                                                                                                                        <td className="px-3 py-1.5 text-[10px] text-right text-amber-700 font-medium">{formatCurrency(comp.cogs)}</td>
+                                                                                                                        <td className={`px-3 py-1.5 text-[10px] text-right font-medium ${comp.profit >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                                                                                                                            {formatCurrency(comp.profit)}
+                                                                                                                        </td>
+                                                                                                                        <td className="px-3 py-1.5 text-center">
+                                                                                                                            <span className="text-[9px] text-gray-700 font-medium">{compMargin.toFixed(1)}%</span>
+                                                                                                                        </td>
+                                                                                                                    </tr>
+                                                                                                                );
+                                                                                                            })}
+                                                                                                        </tbody>
+                                                                                                    </table>
+                                                                                                </div>
+                                                                                            </td>
+                                                                                        </tr>
+                                                                                    )}
+                                                                                </React.Fragment>
                                                                             );
                                                                         })}
                                                                     </tbody>
