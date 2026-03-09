@@ -77,21 +77,29 @@ const GeneralPurchase = ({ currentUser }) => {
                     const data = await res.json();
                     setColleges(Array.isArray(data) ? data : []);
 
+                    let initialViewContext = 'all';
+                    let initialCollegeName = 'All Colleges';
+
                     // Set initial context
                     if (!isSuperAdmin && currentUser?.assignedCollege) {
-                        let collegeId = currentUser.assignedCollege;
+                        let assignedId = currentUser.assignedCollege;
                         // Handle case where assignedCollege is an object (populated)
-                        if (typeof collegeId === 'object' && collegeId !== null) {
-                            collegeId = collegeId._id || '';
+                        if (typeof assignedId === 'object' && assignedId !== null) {
+                            assignedId = assignedId._id || '';
                         }
-                        const finalId = String(collegeId);
-                        setViewContext(finalId);
+                        const finalId = String(assignedId);
+                        initialViewContext = finalId;
 
                         const college = data.find(c => c._id === finalId);
-                        if (college) setSelectedCollegeName(college.name);
-                    } else if (isSuperAdmin) {
-                        setViewContext('all');
-                        setSelectedCollegeName('All Colleges');
+                        if (college) initialCollegeName = college.name;
+                    }
+
+                    setViewContext(initialViewContext);
+                    setSelectedCollegeName(initialCollegeName);
+
+                    // Also initialize productForm with the correct collegeId if sub-admin
+                    if (initialViewContext !== 'all') {
+                        setProductForm(prev => ({ ...prev, collegeId: initialViewContext }));
                     }
                 }
             } catch (error) {
@@ -258,7 +266,7 @@ const GeneralPurchase = ({ currentUser }) => {
                     price: 0,
                     lowStockThreshold: 10,
                     initialStock: 0,
-                    collegeId: '',
+                    collegeId: viewContext !== 'all' ? viewContext : '',
                 });
                 setEditingProduct(null);
                 fetchProducts();
@@ -718,7 +726,7 @@ const ProductsTab = ({
                                 price: 0,
                                 lowStockThreshold: 10,
                                 initialStock: 0,
-                                collegeId: '',
+                                collegeId: viewContext !== 'all' ? viewContext : '',
                             });
                         }
                     }}
@@ -842,7 +850,7 @@ const ProductsTab = ({
                                         price: 0,
                                         lowStockThreshold: 10,
                                         initialStock: 0,
-                                        collegeId: '',
+                                        collegeId: viewContext !== 'all' ? viewContext : '',
                                     });
                                 }}
                                 className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
