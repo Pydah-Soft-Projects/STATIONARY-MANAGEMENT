@@ -25,6 +25,11 @@ const purchaseItemSchema = new mongoose.Schema(
 // General purchase schema - for vendor-based purchases (adds stock)
 const generalPurchaseSchema = new mongoose.Schema(
   {
+    purchaseId: {
+      type: String,
+      required: true,
+      unique: true,
+    },
     vendor: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,

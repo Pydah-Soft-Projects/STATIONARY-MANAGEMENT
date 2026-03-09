@@ -17,7 +17,7 @@ const Settings = lazy(() => import('./pages/Settings'));
 const StudentDue = lazy(() => import('./pages/StudentDue.jsx'));
 const AuditLogs = lazy(() => import('./pages/AuditLogs.jsx'));
 const StockTransfers = lazy(() => import('./pages/StockTransfers.jsx'));
-const GeneralPurchase = lazy(() => import('./pages/GeneralPurchase.jsx'));
+const GeneralStock = lazy(() => import('./pages/GeneralStock.jsx'));
 const EmployeeDashboard = lazy(() => import('./pages/EmployeeDashboard.jsx'));
 const EmployeeDetail = lazy(() => import('./pages/EmployeeDetail.jsx'));
 const ProfitReport = lazy(() => import('./pages/ProfitReport.jsx'));
@@ -561,7 +561,7 @@ function App() {
                     path="/general-purchase"
                     element={
                       <ProtectedRoute currentUser={currentUser} requiredPermission="general-purchase">
-                        <GeneralPurchase currentUser={currentUser} />
+                        <GeneralStock currentUser={currentUser} />
                       </ProtectedRoute>
                     }
                   />

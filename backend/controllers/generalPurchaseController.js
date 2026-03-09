@@ -33,8 +33,14 @@ const createPurchase = asyncHandler(async (req, res) => {
     totalAmount += Number(item.quantity) * Number(item.purchasePrice);
   }
 
+  // Generate unique purchase ID
+  const timestamp = Date.now();
+  const randomStr = Math.random().toString(36).substring(2, 8).toUpperCase();
+  const purchaseId = `GP-${timestamp}-${randomStr}`;
+
   // Create purchase
   const purchase = await GeneralPurchase.create({
+    purchaseId,
     vendor,
     invoiceNumber: invoiceNumber || '',
     invoiceDate: invoiceDate || new Date(),
