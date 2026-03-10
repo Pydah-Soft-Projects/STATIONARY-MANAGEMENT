@@ -364,7 +364,7 @@ const Reports = ({ currentUser }) => {
       if (t.transactionType === 'college_transfer' || t.transactionType === 'branch_transfer') {
         return t.isPaid === true;
       }
-      return !t.transactionType || t.transactionType === 'student';
+      return !t.transactionType || t.transactionType === 'student' || t.transactionType === 'employee';
     });
   }, [filteredTransactions]);
 
@@ -455,9 +455,9 @@ const Reports = ({ currentUser }) => {
     // Use passed-in transactions for revenue amounts (already revenue-eligible: student + paid transfers)
     const revenueTransactions = transactions;
     // For "items sold" count student transactions and distributions
-    const itemsTransactions = transactions.filter(t =>
-      t.transactionType !== 'branch_transfer' &&
-      t.transactionType !== 'college_transfer'
+    const itemsTransactions = (transactions || []).filter(t =>
+      (t.transactionType === 'student' || t.transactionType === 'employee' || !t.transactionType) &&
+      t.isPaid
     );
 
     // Aggregate items sold across student transactions only
@@ -506,7 +506,7 @@ const Reports = ({ currentUser }) => {
 
     // Calculate statistics
     const totalAmount = revenueTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
-    const regularTransactions = revenueTransactions.filter(t => !t.transactionType || t.transactionType === 'student');
+    const regularTransactions = revenueTransactions.filter(t => !t.transactionType || t.transactionType === 'student' || t.transactionType === 'employee');
     const cashAmount = regularTransactions.filter(t => t.isPaid).reduce((sum, t) => {
       if (t.paymentMethod === 'cash') return sum + (t.totalAmount || 0);
       if (t.paymentMethod === 'split') return sum + (t.cashAmount || 0);
