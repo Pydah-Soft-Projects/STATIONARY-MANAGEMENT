@@ -355,7 +355,7 @@ const Reports = ({ currentUser }) => {
 
   // Separate student transactions and college transfers
   const studentTransactions = useMemo(() => {
-    return filteredTransactions.filter(t => !t.transactionType || t.transactionType === 'student');
+    return filteredTransactions.filter(t => !t.transactionType || t.transactionType === 'student' || t.transactionType === 'employee');
   }, [filteredTransactions]);
 
   // Transactions that count toward revenue: all student + paid college/branch transfers (for monthly/daily reports)
@@ -1242,8 +1242,8 @@ const Reports = ({ currentUser }) => {
         }
 
         const date = new Date(transaction.transactionDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        const studentName = (transaction.student?.name || 'N/A').substring(0, isGeneral ? 25 : 16);
-        const course = (transaction.student?.course || 'N/A').toUpperCase().substring(0, isGeneral ? 15 : 8);
+        const studentName = (transaction.student?.name || transaction.employee?.name || 'N/A').substring(0, isGeneral ? 25 : 16);
+        const course = (transaction.student?.course || transaction.employee?.department || 'N/A').toUpperCase().substring(0, isGeneral ? 15 : 8);
         const amount = formatCurrencyForPDF(transaction.totalAmount);
         const payment = transaction.paymentMethod ? transaction.paymentMethod.toUpperCase() : 'N/A';
 
@@ -2055,6 +2055,7 @@ const Reports = ({ currentUser }) => {
                   >
                     <option value="">All Transactions</option>
                     <option value="student">Student Transactions</option>
+                    <option value="employee">Employee Transactions</option>
                     <option value="college_transfer">College Transfers</option>
                   </select>
                   <select
@@ -2235,7 +2236,7 @@ const Reports = ({ currentUser }) => {
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                   <div className="px-6 py-4 border-b border-gray-200 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     <div>
-                      <h3 className="text-lg font-semibold text-gray-900">Student Transactions</h3>
+                      <h3 className="text-lg font-semibold text-gray-900">Transaction Details</h3>
                       <p className="text-sm text-gray-500">Review student transactions and manage receipts</p>
                     </div>
                     <div className="flex items-center gap-4">
@@ -2299,15 +2300,15 @@ const Reports = ({ currentUser }) => {
                                 <tr key={transaction._id} className="hover:bg-gray-50 transition-colors">
                                   <td className="px-6 py-4 whitespace-nowrap">
                                     <div className="flex flex-col">
-                                      <span className="text-sm font-medium text-gray-900">{transaction.student?.name || 'N/A'}</span>
-                                      <span className="text-xs text-gray-500">{transaction.student?.studentId || ''}</span>
+                                      <span className="text-sm font-medium text-gray-900">{transaction.student?.name || transaction.employee?.name || 'N/A'}</span>
+                                      <span className="text-xs text-gray-500">{transaction.student?.studentId || transaction.employee?.empNo || ''}</span>
                                     </div>
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap">
-                                    <span className="text-sm text-gray-900">{transaction.student?.course?.toUpperCase() || 'N/A'}</span>
+                                    <span className="text-sm text-gray-900">{(transaction.student?.course || transaction.employee?.department || 'N/A').toUpperCase()}</span>
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap">
-                                    <span className="text-sm text-gray-900">{transaction.student?.branch?.toUpperCase() || 'N/A'}</span>
+                                    <span className="text-sm text-gray-900">{(transaction.student?.branch || transaction.employee?.division || 'N/A').toUpperCase()}</span>
                                   </td>
                                   <td className="px-6 py-4">
                                     <span className="text-sm text-gray-900">
