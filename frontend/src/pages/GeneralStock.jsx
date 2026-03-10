@@ -23,6 +23,16 @@ const GeneralStock = ({ currentUser }) => {
         collegeId: '',
     });
     const [editingProduct, setEditingProduct] = useState(null);
+    const [productSearch, setProductSearch] = useState('');
+
+    const filteredProducts = useMemo(() => {
+        if (!productSearch) return products;
+        const searchLower = productSearch.toLowerCase();
+        return products.filter(p =>
+            p.name?.toLowerCase().includes(searchLower) ||
+            p.description?.toLowerCase().includes(searchLower)
+        );
+    }, [products, productSearch]);
 
 
     // Vendor Purchase state (adds stock)
@@ -665,7 +675,10 @@ const GeneralStock = ({ currentUser }) => {
                         <>
                             {activeTab === 'products' && (
                                 <ProductsTab
-                                    products={products}
+                                    products={filteredProducts}
+                                    allProductsCount={products.length}
+                                    productSearch={productSearch}
+                                    setProductSearch={setProductSearch}
                                     productForm={productForm}
                                     setProductForm={setProductForm}
                                     editingProduct={editingProduct}
@@ -737,6 +750,9 @@ const GeneralStock = ({ currentUser }) => {
 // Products Tab Component
 const ProductsTab = ({
     products,
+    allProductsCount,
+    productSearch,
+    setProductSearch,
     productForm,
     setProductForm,
     editingProduct,
@@ -755,38 +771,66 @@ const ProductsTab = ({
     return (
         <div className="space-y-6">
             {/* Header with Add Button */}
-            <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold">Products ({products.length})</h3>
-                <button
-                    onClick={() => {
-                        setIsFormExpanded(!isFormExpanded);
-                        if (!isFormExpanded) {
-                            setEditingProduct(null);
-                            setProductForm({
-                                name: '',
-                                description: '',
-                                category: 'General',
-                                lowStockThreshold: 10,
-                                initialStock: 0,
-                                collegeId: viewContext !== 'all' ? viewContext : '',
-                            });
-                        }
-                    }}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${isFormExpanded
-                        ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                        : 'bg-blue-600 text-white hover:bg-blue-700'
-                        }`}
-                >
-                    {isFormExpanded ? (
-                        <>
-                            <X size={18} /> Cancel
-                        </>
-                    ) : (
-                        <>
-                            <Plus size={18} /> Add New Product
-                        </>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                    <h3 className="text-lg font-semibold">Products ({allProductsCount})</h3>
+                    {productSearch && (
+                        <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+                            Found {products.length} matches
+                        </span>
                     )}
-                </button>
+                </div>
+
+                <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3">
+                    <div className="relative">
+                        <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                            type="text"
+                            placeholder="Search products..."
+                            value={productSearch}
+                            onChange={(e) => setProductSearch(e.target.value)}
+                            className="w-full md:w-64 pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition-all text-sm"
+                        />
+                        {productSearch && (
+                            <button
+                                onClick={() => setProductSearch('')}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                            >
+                                <X size={14} />
+                            </button>
+                        )}
+                    </div>
+                    <button
+                        onClick={() => {
+                            setIsFormExpanded(!isFormExpanded);
+                            if (!isFormExpanded) {
+                                setEditingProduct(null);
+                                setProductForm({
+                                    name: '',
+                                    description: '',
+                                    category: 'General',
+                                    lowStockThreshold: 10,
+                                    initialStock: 0,
+                                    collegeId: viewContext !== 'all' ? viewContext : '',
+                                });
+                            }
+                        }}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${isFormExpanded
+                            ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                            }`}
+                    >
+                        {isFormExpanded ? (
+                            <>
+                                <X size={18} /> Cancel
+                            </>
+                        ) : (
+                            <>
+                                <Plus size={18} /> Add New Product
+                            </>
+                        )}
+                    </button>
+                </div>
             </div>
             {/* Add/Edit Product Modal */}
             {(isFormExpanded || editingProduct) && (
@@ -934,18 +978,9 @@ const ProductsTab = ({
 
             {/* Products List */}
             <div>
-                {/* <div className="flex items-center justify-end mb-4">
-                    <div className="relative">
-                         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                        <input
-                            type="text"
-                            placeholder="Search products..."
-                            value={productSearch}
-                            onChange={(e) => setProductSearch(e.target.value)}
-                            className="pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
-                        />
-                    </div>
-                </div> */}
+                <div className="flex items-center justify-end mb-4">
+                    {/* Search is now in the header above */}
+                </div>
 
 
                 <div className="overflow-x-auto">

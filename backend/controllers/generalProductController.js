@@ -63,7 +63,7 @@ const createProduct = asyncHandler(async (req, res) => {
  * @access  Public
  */
 const getAllProducts = asyncHandler(async (req, res) => {
-  const { isActive, category } = req.query;
+  const { isActive, category, search } = req.query;
 
   const filter = {};
 
@@ -73,6 +73,10 @@ const getAllProducts = asyncHandler(async (req, res) => {
 
   if (category) {
     filter.category = category;
+  }
+
+  if (search) {
+    filter.name = { $regex: search, $options: 'i' };
   }
 
   const products = await GeneralProduct.find(filter).sort({ name: 1 });
