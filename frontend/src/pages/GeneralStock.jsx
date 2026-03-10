@@ -18,7 +18,6 @@ const GeneralStock = ({ currentUser }) => {
     const [productForm, setProductForm] = useState({
         name: '',
         description: '',
-        price: 0,
         lowStockThreshold: 10,
         initialStock: 0,
         collegeId: '',
@@ -266,7 +265,6 @@ const GeneralStock = ({ currentUser }) => {
                     name: '',
                     description: '',
                     category: 'General',
-                    price: 0,
                     lowStockThreshold: 10,
                     initialStock: 0,
                     collegeId: viewContext !== 'all' ? viewContext : '',
@@ -480,7 +478,6 @@ const GeneralStock = ({ currentUser }) => {
                     productId,
                     name: product.name,
                     quantity,
-                    price: product.price,
                 };
             });
 
@@ -538,10 +535,7 @@ const GeneralStock = ({ currentUser }) => {
         });
     };
 
-    const totalAmount = Object.entries(selectedItems).reduce((sum, [productId, qty]) => {
-        const product = products.find(p => p._id === productId);
-        return sum + (product ? product.price * qty : 0);
-    }, 0);
+    const totalAmount = 0; // Price tracking disabled for distributions
 
 
 
@@ -772,7 +766,6 @@ const ProductsTab = ({
                                 name: '',
                                 description: '',
                                 category: 'General',
-                                price: 0,
                                 lowStockThreshold: 10,
                                 initialStock: 0,
                                 collegeId: viewContext !== 'all' ? viewContext : '',
@@ -808,7 +801,6 @@ const ProductsTab = ({
                                 name: '',
                                 description: '',
                                 category: 'General',
-                                price: 0,
                                 lowStockThreshold: 10,
                                 initialStock: 0,
                                 collegeId: viewContext !== 'all' ? viewContext : '',
@@ -854,22 +846,7 @@ const ProductsTab = ({
                                     />
                                 </div>
 
-                                <div className="space-y-1">
-                                    <label className="block text-sm font-semibold text-gray-700">Selling Price (₹) *</label>
-                                    <div className="relative">
-                                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">₹</div>
-                                        <input
-                                            type="number"
-                                            required
-                                            min="0"
-                                            step="0.01"
-                                            placeholder="0.00"
-                                            value={productForm.price || ''}
-                                            onChange={(e) => setProductForm({ ...productForm, price: parseFloat(e.target.value) || 0 })}
-                                            className="w-full pl-8 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition-all"
-                                        />
-                                    </div>
-                                </div>
+
                                 <div className="space-y-1">
                                     <label className="block text-sm font-semibold text-gray-700">Low Stock Alert at</label>
                                     <input
@@ -976,7 +953,7 @@ const ProductsTab = ({
                         <thead className="bg-gray-50 border-b">
                             <tr>
                                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Product</th>
-                                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Price</th>
+
                                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Stock</th>
                                 <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>
                             </tr>
@@ -993,7 +970,7 @@ const ProductsTab = ({
                                         </div>
                                     </td>
 
-                                    <td className="px-4 py-3 text-right text-sm font-medium">₹{product.price.toFixed(2)}</td>
+
                                     <td className="px-4 py-3 text-right">
                                         <span className={`text-sm font-semibold ${product.stock <= product.lowStockThreshold ? 'text-red-600' : 'text-green-600'
                                             }`}>
@@ -1009,7 +986,6 @@ const ProductsTab = ({
                                                     setProductForm({
                                                         name: product.name,
                                                         description: product.description,
-                                                        price: product.price,
                                                         lowStockThreshold: product.lowStockThreshold,
                                                     });
                                                 }}
@@ -1423,9 +1399,7 @@ const DistributeTab = ({
                 <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                     <div className="px-6 py-4 border-b bg-gray-50 flex justify-between items-center">
                         <h3 className="font-semibold text-gray-800">Selected Items ({selectedProductList.length})</h3>
-                        <span className="text-sm font-medium text-gray-600">
-                            Total: ₹{totalAmount.toFixed(2)}
-                        </span>
+
                     </div>
 
                     {selectedProductList.length === 0 ? (
@@ -1440,9 +1414,9 @@ const DistributeTab = ({
                                     <tr className="border-b text-gray-500 bg-gray-50">
                                         <th className="px-6 py-3 font-medium">Product</th>
                                         <th className="px-6 py-3 font-medium text-center">Stock</th>
-                                        <th className="px-6 py-3 font-medium text-right">Price</th>
+
                                         <th className="px-6 py-3 font-medium text-center">Quantity</th>
-                                        <th className="px-6 py-3 font-medium text-right">Total</th>
+
                                         <th className="px-6 py-3 font-medium text-center">Action</th>
                                     </tr>
                                 </thead>
@@ -1458,7 +1432,7 @@ const DistributeTab = ({
                                                         {product.stock || 0}
                                                     </span>
                                                 </td>
-                                                <td className="px-6 py-3 text-right">₹{product.price.toFixed(2)}</td>
+
                                                 <td className="px-6 py-3">
                                                     <div className="flex items-center justify-center gap-2">
                                                         <button
@@ -1479,9 +1453,7 @@ const DistributeTab = ({
                                                         </button>
                                                     </div>
                                                 </td>
-                                                <td className="px-6 py-3 text-right font-medium">
-                                                    ₹{(product.price * quantity).toFixed(2)}
-                                                </td>
+
                                                 <td className="px-6 py-3 text-center">
                                                     <button
                                                         type="button"

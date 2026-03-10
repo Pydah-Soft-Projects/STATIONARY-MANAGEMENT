@@ -10,9 +10,9 @@ const asyncHandler = require('express-async-handler');
 const createProduct = asyncHandler(async (req, res) => {
   const { name, description, category, price, lowStockThreshold, initialStock, collegeId } = req.body;
 
-  if (!name || price === undefined) {
+  if (!name) {
     res.status(400);
-    throw new Error('Product name and price are required');
+    throw new Error('Product name is required');
   }
 
   // Check if product already exists
@@ -26,7 +26,7 @@ const createProduct = asyncHandler(async (req, res) => {
     name,
     description: description || '',
     category: category || 'General',
-    price: Number(price),
+    price: price !== undefined ? Number(price) : 0,
     lowStockThreshold: Number(lowStockThreshold) || 10,
   });
 

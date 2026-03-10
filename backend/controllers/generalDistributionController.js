@@ -33,9 +33,9 @@ const createDistribution = asyncHandler(async (req, res) => {
   const stockChanges = new Map();
 
   for (const item of items) {
-    if (!item.productId || item.quantity === undefined || item.price === undefined) {
+    if (!item.productId || item.quantity === undefined) {
       res.status(400);
-      throw new Error('Each item must have productId, quantity, and price');
+      throw new Error('Each item must have productId and quantity');
     }
 
     const product = await GeneralProduct.findById(item.productId);
@@ -45,7 +45,7 @@ const createDistribution = asyncHandler(async (req, res) => {
     }
 
     const requestedQuantity = Number(item.quantity);
-    const price = Number(item.price);
+    const price = item.price !== undefined ? Number(item.price) : 0;
     const itemTotal = requestedQuantity * price;
 
     // Check stock availability (Distribution always deducts stock now)

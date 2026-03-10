@@ -19,12 +19,14 @@ const distributionItemSchema = new mongoose.Schema(
     },
     price: {
       type: Number,
-      required: true,
+      required: false,
+      default: 0,
       min: 0,
     },
     total: {
       type: Number,
-      required: true,
+      required: false,
+      default: 0,
       min: 0,
     },
   },
@@ -67,7 +69,8 @@ const generalDistributionSchema = new mongoose.Schema(
     items: [distributionItemSchema],
     totalAmount: {
       type: Number,
-      required: true,
+      required: false,
+      default: 0,
       min: 0,
     },
     paymentMethod: {
