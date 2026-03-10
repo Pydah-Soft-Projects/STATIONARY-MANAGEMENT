@@ -109,7 +109,7 @@ const updateProduct = asyncHandler(async (req, res) => {
     throw new Error('Product not found');
   }
 
-  const { name, description, category, price, lowStockThreshold, imageUrl, isActive } = req.body;
+  const { name, description, category, price, lowStockThreshold, imageUrl, isActive, initialStock, collegeId } = req.body;
 
   // Check if name is being changed and if it conflicts
   if (name && name !== product.name) {
@@ -127,6 +127,26 @@ const updateProduct = asyncHandler(async (req, res) => {
   if (lowStockThreshold !== undefined) product.lowStockThreshold = Number(lowStockThreshold);
   if (imageUrl !== undefined) product.imageUrl = imageUrl;
   if (isActive !== undefined) product.isActive = isActive;
+
+  // If initialStock and collegeId are provided, update the stock level directly
+  if (initialStock !== undefined && collegeId) {
+    const college = await College.findById(collegeId);
+    if (college) {
+      const stockItem = college.generalStock.find((item) =>
+        item.product.toString() === product._id.toString()
+      );
+
+      if (stockItem) {
+        stockItem.quantity = Number(initialStock);
+      } else {
+        college.generalStock.push({
+          product: product._id,
+          quantity: Number(initialStock),
+        });
+      }
+      await college.save();
+    }
+  }
 
   const updatedProduct = await product.save();
   res.status(200).json(updatedProduct);

@@ -249,7 +249,7 @@ const GeneralStock = ({ currentUser }) => {
                     assignedId = assignedId._id || '';
                 }
                 submissionData.collegeId = String(assignedId);
-            } else if (!editingProduct && !submissionData.collegeId && viewContext !== 'all') {
+            } else if (!submissionData.collegeId && viewContext !== 'all') {
                 submissionData.collegeId = viewContext;
             }
 
@@ -848,7 +848,7 @@ const ProductsTab = ({
 
 
                                 <div className="space-y-1">
-                                    <label className="block text-sm font-semibold text-gray-700">Low Stock Alert at</label>
+                                    <label className="block text-sm font-semibold text-gray-700">Low Stock Threshold</label>
                                     <input
                                         type="number"
                                         min="0"
@@ -859,36 +859,36 @@ const ProductsTab = ({
                                     />
                                 </div>
 
-                                {!editingProduct && (
-                                    <>
-                                        <div className="space-y-1">
-                                            <label className="block text-sm font-semibold text-gray-700">Initial Stock Level</label>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                placeholder="0"
-                                                value={productForm.initialStock || ''}
-                                                onChange={(e) => setProductForm({ ...productForm, initialStock: parseInt(e.target.value) || 0 })}
-                                                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition-all"
-                                            />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <label className="block text-sm font-semibold text-gray-700">Target College *</label>
-                                            <select
-                                                required={productForm.initialStock > 0 && viewContext === 'all'}
-                                                disabled={viewContext !== 'all'}
-                                                value={productForm.collegeId}
-                                                onChange={(e) => setProductForm({ ...productForm, collegeId: e.target.value })}
-                                                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition-all disabled:opacity-75 disabled:cursor-not-allowed"
-                                            >
-                                                <option value="">{viewContext === 'all' ? 'Select College' : (colleges.find(c => c._id === viewContext)?.name || 'Current College')}</option>
-                                                {colleges.map(c => (
-                                                    <option key={c._id} value={c._id}>{c.name}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                    </>
-                                )}
+                                <div className="space-y-1">
+                                    <label className="block text-sm font-semibold text-gray-700">
+                                        {editingProduct ? 'Current Stock Level' : 'Initial Stock Level'}
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        placeholder="0"
+                                        value={productForm.initialStock || ''}
+                                        onChange={(e) => setProductForm({ ...productForm, initialStock: parseInt(e.target.value) || 0 })}
+                                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition-all"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="block text-sm font-semibold text-gray-700">
+                                        {editingProduct ? 'College' : 'Target College *'}
+                                    </label>
+                                    <select
+                                        required={!editingProduct && productForm.initialStock > 0 && viewContext === 'all'}
+                                        disabled={viewContext !== 'all' || editingProduct}
+                                        value={productForm.collegeId}
+                                        onChange={(e) => setProductForm({ ...productForm, collegeId: e.target.value })}
+                                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition-all disabled:opacity-75 disabled:cursor-not-allowed"
+                                    >
+                                        <option value="">{viewContext === 'all' ? 'Select College' : (colleges.find(c => c._id === viewContext)?.name || 'Current College')}</option>
+                                        {colleges.map(c => (
+                                            <option key={c._id} value={c._id}>{c.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
 
                                 <div className="md:col-span-2 space-y-1">
                                     <label className="block text-sm font-semibold text-gray-700">Description</label>
@@ -987,6 +987,8 @@ const ProductsTab = ({
                                                         name: product.name,
                                                         description: product.description,
                                                         lowStockThreshold: product.lowStockThreshold,
+                                                        initialStock: product.stock || 0,
+                                                        collegeId: viewContext !== 'all' ? viewContext : '',
                                                     });
                                                 }}
                                                 className="p-1 text-blue-600 hover:bg-blue-50 rounded"
