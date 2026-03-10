@@ -770,12 +770,12 @@ const ProductsTab = ({
 
     return (
         <div className="space-y-6">
-            {/* Header with Add Button */}
+            {/* Header with Search and Add Button */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
-                    <h3 className="text-lg font-semibold">Products ({allProductsCount})</h3>
+                    <h3 className="text-lg font-semibold text-gray-800">Products ({allProductsCount})</h3>
                     {productSearch && (
-                        <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+                        <span className="text-sm text-blue-600 bg-blue-50 px-2 py-1 rounded-full font-medium">
                             Found {products.length} matches
                         </span>
                     )}
@@ -832,10 +832,10 @@ const ProductsTab = ({
                     </button>
                 </div>
             </div>
+
             {/* Add/Edit Product Modal */}
             {(isFormExpanded || editingProduct) && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-                    {/* Backdrop */}
                     <div
                         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
                         onClick={() => {
@@ -852,9 +852,7 @@ const ProductsTab = ({
                         }}
                     ></div>
 
-                    {/* Modal Content */}
                     <div className="relative bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-                        {/* Modal Header */}
                         <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-gray-50/50">
                             <div>
                                 <h3 className="text-xl font-bold text-gray-900">
@@ -875,7 +873,6 @@ const ProductsTab = ({
                             </button>
                         </div>
 
-                        {/* Modal Body */}
                         <form onSubmit={handleProductSubmit} className="p-6">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                                 <div className="space-y-1">
@@ -889,7 +886,6 @@ const ProductsTab = ({
                                         className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition-all"
                                     />
                                 </div>
-
 
                                 <div className="space-y-1">
                                     <label className="block text-sm font-semibold text-gray-700">Low Stock Threshold</label>
@@ -946,7 +942,6 @@ const ProductsTab = ({
                                 </div>
                             </div>
 
-                            {/* Modal Footer */}
                             <div className="mt-8 flex items-center justify-end gap-3">
                                 <button
                                     type="button"
@@ -977,69 +972,75 @@ const ProductsTab = ({
             )}
 
             {/* Products List */}
-            <div>
-                <div className="flex items-center justify-end mb-4">
-                    {/* Search is now in the header above */}
-                </div>
-
-
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
                 <div className="overflow-x-auto">
                     <table className="w-full">
-                        <thead className="bg-gray-50 border-b">
+                        <thead className="bg-gray-50 border-b border-gray-100">
                             <tr>
-                                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Product</th>
-
-                                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Stock</th>
-                                <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>
+                                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Product</th>
+                                <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Stock</th>
+                                <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Actions</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y">
-                            {products.map(product => (
-                                <tr key={product._id} className="hover:bg-gray-50">
-                                    <td className="px-4 py-3">
-                                        <div>
-                                            <p className="font-medium text-gray-900">{product.name}</p>
-                                            {product.description && (
-                                                <p className="text-xs text-gray-500">{product.description}</p>
-                                            )}
-                                        </div>
-                                    </td>
-
-
-                                    <td className="px-4 py-3 text-right">
-                                        <span className={`text-sm font-semibold ${product.stock <= product.lowStockThreshold ? 'text-red-600' : 'text-green-600'
-                                            }`}>
-                                            {product.stock || 0}
-                                        </span>
-                                    </td>
-
-                                    <td className="px-4 py-3">
-                                        <div className="flex items-center justify-center gap-2">
-                                            <button
-                                                onClick={() => {
-                                                    setEditingProduct(product);
-                                                    setProductForm({
-                                                        name: product.name,
-                                                        description: product.description,
-                                                        lowStockThreshold: product.lowStockThreshold,
-                                                        initialStock: product.stock || 0,
-                                                        collegeId: viewContext !== 'all' ? viewContext : '',
-                                                    });
-                                                }}
-                                                className="p-1 text-blue-600 hover:bg-blue-50 rounded"
-                                            >
-                                                <Eye size={16} />
-                                            </button>
-                                            <button
-                                                onClick={() => handleDeleteProduct(product._id)}
-                                                className="p-1 text-red-600 hover:bg-red-50 rounded"
-                                            >
-                                                <Trash2 size={16} />
-                                            </button>
-                                        </div>
+                        <tbody className="divide-y divide-gray-100">
+                            {products.length === 0 ? (
+                                <tr>
+                                    <td colSpan="3" className="px-6 py-12 text-center text-gray-500">
+                                        <Package size={40} className="mx-auto text-gray-300 mb-3 opacity-50" />
+                                        <p className="font-medium">No products found</p>
+                                        <p className="text-xs mt-1">Try adjusting your search or add a new product</p>
                                     </td>
                                 </tr>
-                            ))}
+                            ) : (
+                                products.map(product => (
+                                    <tr key={product._id} className="hover:bg-gray-50/50 transition-colors">
+                                        <td className="px-6 py-4">
+                                            <div className="flex flex-col">
+                                                <span className="font-semibold text-gray-900">{product.name}</span>
+                                                {product.description && (
+                                                    <span className="text-xs text-gray-500 line-clamp-1 mt-0.5">{product.description}</span>
+                                                )}
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 text-right">
+                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${product.stock <= product.lowStockThreshold
+                                                ? 'bg-red-100 text-red-700'
+                                                : 'bg-green-100 text-green-700'
+                                                }`}>
+                                                {product.stock || 0}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <div className="flex items-center justify-center gap-1">
+                                                <button
+                                                    onClick={() => {
+                                                        setEditingProduct(product);
+                                                        setProductForm({
+                                                            name: product.name,
+                                                            description: product.description,
+                                                            category: product.category || 'General',
+                                                            lowStockThreshold: product.lowStockThreshold,
+                                                            initialStock: product.stock || 0,
+                                                            collegeId: viewContext !== 'all' ? viewContext : '',
+                                                        });
+                                                    }}
+                                                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
+                                                    title="Edit Product"
+                                                >
+                                                    <Eye size={18} />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteProduct(product._id)}
+                                                    className="p-2 text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                                                    title="Delete Product"
+                                                >
+                                                    <Trash2 size={18} />
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
                         </tbody>
                     </table>
                 </div>
