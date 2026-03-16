@@ -60,9 +60,9 @@ const HomePage = () => {
       <div className="absolute inset-0 bg-black/40 z-10" />
 
       {/* Content */}
-      <div className="relative z-20 text-center px-4  max-w-3xl">
+      <div className="relative z-20 text-center px-4  max-w-5xl">
         <h1 className="inline-block text-4xl md:text-6xl font-bold text-white mb-8 px-10 py-4 bg-white/10 backdrop-blur-md border border-white/20 rounded-full tracking-tight shadow-2xl shadow-black/20">
-          Stationary Portal
+          PYDAH STATIONARY PORTAL
         </h1>
         
         <p className="text-xl md:text-2xl text-blue-100 mb-12 font-medium max-w-3xl mx-auto leading-relaxed">
