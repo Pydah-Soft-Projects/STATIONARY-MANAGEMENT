@@ -78,7 +78,7 @@ const Login = ({ onLogin }) => {
       <div 
         className="absolute inset-0 z-0"
         style={{
-          backgroundImage: `url('/Stationary-landing.png')`,
+          backgroundImage: `url('/Stationary-landing-background.jpg')`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
           filter: 'brightness(0.9)'
