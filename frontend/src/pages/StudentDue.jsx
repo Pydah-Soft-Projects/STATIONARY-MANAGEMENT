@@ -654,8 +654,20 @@ const StudentDue = ({ currentUser }) => {
             pdf.setFont(undefined, 'bold');
 
             const headerText = `Course: ${course}    Branch: ${branch}    ${year}`;
+            const headerWidth = pdf.getTextWidth(headerText);
             pdf.text(headerText, 20, yPos);
-            yPos += 5;
+
+            // Move Branch Stats to the same row if enabled
+            if (reportFilters.includeSummary && branchStats[branch]) {
+              const b = branchStats[branch];
+              pdf.setFontSize(9);
+              pdf.setFont(undefined, 'normal');
+              const bStatsText = `(Total: ${b.total} | Paid: ${b.paid} | Unpaid: ${b.unpaid})`;
+              // Small vertical adjustment (0.5mm) to visually center smaller text with larger header
+              pdf.text(bStatsText, 20 + headerWidth + 5, yPos - 0.5);
+            }
+
+            yPos += 6;
 
             // Define group variables for filtering
             const branchNorm = normalizeValue(branch);
@@ -709,15 +721,6 @@ const StudentDue = ({ currentUser }) => {
               yPos += (splitKitText.length * 4) + 1;
             }
 
-            // Optional: Branch Specific Stats
-            if (reportFilters.includeSummary && branchStats[branch]) {
-              pdf.setFontSize(9);
-              pdf.setFont(undefined, 'normal');
-              const b = branchStats[branch];
-              const bStatsText = `Branch Stats - Total: ${b.total} | Paid: ${b.paid} | Unpaid: ${b.unpaid}`;
-              pdf.text(bStatsText, 20, yPos);
-              yPos += 5;
-            }
             yPos += 3;
 
             // Table Header
