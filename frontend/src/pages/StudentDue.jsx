@@ -657,6 +657,58 @@ const StudentDue = ({ currentUser }) => {
             pdf.text(headerText, 20, yPos);
             yPos += 5;
 
+            // Define group variables for filtering
+            const branchNorm = normalizeValue(branch);
+            const yearNum = parseInt(year.replace(/\D/g, ''));
+            
+            // Find kits matching this specific group (Branch, Course, Year)
+            const allMatchingKits = normalizedProducts.filter(p => {
+              if (!p.isSet) return false;
+              if (normalizeValue(course) !== p._normalizedCourse) return false;
+              
+              const isCommonBranch = branchNorm === 'common / no branch' || branchNorm === 'common';
+              const kitHasBranches = p._normalizedBranches && p._normalizedBranches.length > 0;
+              
+              let isBranchMatch = false;
+              const kitNameNorm = normalizeValue(p.name);
+              
+              if (isCommonBranch) {
+                isBranchMatch = !kitHasBranches; 
+              } else if (kitHasBranches) {
+                isBranchMatch = p._normalizedBranches.includes(branchNorm);
+              } else {
+                const hasThisBranch = kitNameNorm.includes(branchNorm);
+                const allOtherBranchNorms = branchOptions
+                  .map(b => normalizeValue(b))
+                  .filter(b => b && b !== branchNorm && b !== 'common' && b !== 'common / no branch');
+                const hasOtherMoreSpecificBranch = allOtherBranchNorms.some(other => 
+                  kitNameNorm.includes(other) && (other.length >= branchNorm.length)
+                );
+                isBranchMatch = hasThisBranch && !hasOtherMoreSpecificBranch;
+              }
+
+              const isYearMatch = isNaN(yearNum) || p._years.length === 0 || p._years.includes(yearNum);
+              return isBranchMatch && isYearMatch;
+            });
+
+            // If user explicitly selected kits, only show those THAT ALSO match this branch/year
+            let kitsToDisplay = allMatchingKits;
+            if (reportFilters.selectedKits.length > 0) {
+              kitsToDisplay = allMatchingKits.filter(p => reportFilters.selectedKits.includes(String(p._id)));
+            }
+
+            if (kitsToDisplay.length > 0) {
+              pdf.setFontSize(9);
+              pdf.setFont(undefined, 'bold');
+              // Use Rs instead of ₹ symbol to avoid "spaced-out" encoding issues in PDF
+              const kitText = kitsToDisplay.map(k => `${k.name} (Price: Rs ${Number(k.price).toFixed(2)})`).join(' | ');
+              
+              // Wrap long kit lists
+              const splitKitText = pdf.splitTextToSize(`Associated Kit: ${kitText}`, 170);
+              pdf.text(splitKitText, 20, yPos);
+              yPos += (splitKitText.length * 4) + 1;
+            }
+
             // Optional: Branch Specific Stats
             if (reportFilters.includeSummary && branchStats[branch]) {
               pdf.setFontSize(9);
@@ -681,7 +733,8 @@ const StudentDue = ({ currentUser }) => {
 
             pdf.text('Student Name', colName, yPos + 1);
             pdf.text('Roll Number', colRoll, yPos + 1);
-            const remarksLabel = reportFilters.includeItemDetails ? 'Pending Items' : 'Total Due';
+            // Changed to "Remark" as per user example output
+            const remarksLabel = reportFilters.includeItemDetails ? 'Pending Items' : 'Remark';
             pdf.text(remarksLabel, colRemarks, yPos + 1);
             yPos += 8;
 
@@ -749,7 +802,8 @@ const StudentDue = ({ currentUser }) => {
               if (reportFilters.includeItemDetails && splitItems) {
                 pdf.text(splitItems, colRemarks, yPos + 2);
               } else {
-                pdf.text(formatCurrencyForPDF(record.totalDue), colRemarks, yPos + 2);
+                // Return empty string for Remarks column as requested
+                pdf.text('', colRemarks, yPos + 2);
               }
 
               yPos += rowHeight;
