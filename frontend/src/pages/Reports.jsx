@@ -507,16 +507,24 @@ const Reports = ({ currentUser }) => {
     // Calculate statistics
     const totalAmount = revenueTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
     const regularTransactions = revenueTransactions.filter(t => !t.transactionType || t.transactionType === 'student' || t.transactionType === 'employee');
+    
+    // Standardized Online Payment check
+    const isOnline = (method) => ['online', 'gpay', 'phonepe', 'net banking'].includes((method || '').toLowerCase());
+
     const cashAmount = regularTransactions.filter(t => t.isPaid).reduce((sum, t) => {
-      if (t.paymentMethod === 'cash') return sum + (t.totalAmount || 0);
-      if (t.paymentMethod === 'split') return sum + (t.cashAmount || 0);
+      const method = (t.paymentMethod || '').toLowerCase();
+      if (method === 'cash') return sum + (t.totalAmount || 0);
+      if (method === 'split') return sum + (t.cashAmount || 0);
       return sum;
     }, 0);
+
     const onlineAmount = regularTransactions.filter(t => t.isPaid).reduce((sum, t) => {
-      if (t.paymentMethod === 'online') return sum + (t.totalAmount || 0);
-      if (t.paymentMethod === 'split') return sum + (t.onlineAmount || 0);
+      const method = (t.paymentMethod || '').toLowerCase();
+      if (isOnline(method)) return sum + (t.totalAmount || 0);
+      if (method === 'split') return sum + (t.onlineAmount || 0);
       return sum;
     }, 0);
+
     const paidCount = revenueTransactions.filter(t => t.isPaid).length;
     const paidAmount = revenueTransactions.filter(t => t.isPaid).reduce((sum, t) => sum + (t.totalAmount || 0), 0);
     const totalItemsSold = itemsSold.reduce((sum, item) => sum + item.quantity, 0);
@@ -985,9 +993,15 @@ const Reports = ({ currentUser }) => {
       });
     }
 
-    // Calculate day-wise breakdown for filtered transactions
+    // Revenue: exclude transfers as per user requirement for PDF reports
+    const revenueTransactions = filteredTransactions.filter(t => {
+      const isTransfer = t.transactionType === 'college_transfer' || t.transactionType === 'branch_transfer';
+      return !isTransfer;
+    });
+
+    // Calculate day-wise breakdown for filtered transactions (excluding transfers)
     const dayMap = new Map();
-    filteredTransactions.forEach(transaction => {
+    revenueTransactions.forEach(transaction => {
       const date = new Date(transaction.transactionDate);
       const dayKey = date.toISOString().split('T')[0];
       const dayName = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -1010,12 +1024,15 @@ const Reports = ({ currentUser }) => {
       dayData.totalAmount += transaction.totalAmount || 0;
       if (transaction.isPaid) {
         dayData.paidAmount += transaction.totalAmount || 0;
-        // Tracking cash vs online for paid amounts
+        // Tracking cash vs online for paid amounts (Handling Split Payments)
         const method = (transaction.paymentMethod || '').toLowerCase();
         if (method === 'cash') {
           dayData.cashAmount += transaction.totalAmount || 0;
         } else if (method === 'online' || method === 'gpay' || method === 'phonepe' || method === 'net banking') {
           dayData.onlineAmount += transaction.totalAmount || 0;
+        } else if (method === 'split') {
+          dayData.cashAmount += transaction.cashAmount || 0;
+          dayData.onlineAmount += transaction.onlineAmount || 0;
         }
       } else {
         dayData.unpaidAmount += transaction.totalAmount || 0;
@@ -1068,23 +1085,28 @@ const Reports = ({ currentUser }) => {
       (reportFilters.includeSummary || reportFilters.onlyStatistics);
 
     if (showStats) {
-      // Revenue: student (all) + paid college/branch transfers
-      const revenueTransactions = filteredTransactions.filter(t => {
-        if (t.transactionType === 'college_transfer' || t.transactionType === 'branch_transfer') return t.isPaid === true;
-        return true;
-      });
       const totalAmount = revenueTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
       const paidCount = revenueTransactions.filter(t => t.isPaid).length;
       const paidAmount = revenueTransactions.filter(t => t.isPaid).reduce((sum, t) => sum + (t.totalAmount || 0), 0);
 
-      // Cash/Online statistics for filtered range
-      const totalCash = revenueTransactions.filter(t => t.isPaid && (t.paymentMethod || '').toLowerCase() === 'cash').reduce((sum, t) => sum + (t.totalAmount || 0), 0);
-      const totalOnline = revenueTransactions.filter(t => t.isPaid && ['online', 'gpay', 'phonepe', 'net banking'].includes((t.paymentMethod || '').toLowerCase())).reduce((sum, t) => sum + (t.totalAmount || 0), 0);
+      // Cash/Online statistics for filtered range (Handling Split Payments)
+      const totalCash = revenueTransactions.filter(t => t.isPaid).reduce((sum, t) => {
+        const method = (t.paymentMethod || '').toLowerCase();
+        if (method === 'cash') return sum + (t.totalAmount || 0);
+        if (method === 'split') return sum + (t.cashAmount || 0);
+        return sum;
+      }, 0);
+      const totalOnline = revenueTransactions.filter(t => t.isPaid).reduce((sum, t) => {
+        const method = (t.paymentMethod || '').toLowerCase();
+        if (['online', 'gpay', 'phonepe', 'net banking'].includes(method)) return sum + (t.totalAmount || 0);
+        if (method === 'split') return sum + (t.onlineAmount || 0);
+        return sum;
+      }, 0);
 
       // Calculate day-end sales summary if enabled
       let salesSummary = null;
       if (reportFilters.includeDayEndSales) {
-        salesSummary = calculateDayEndSales(filteredTransactions);
+        salesSummary = calculateDayEndSales(revenueTransactions);
       }
 
       pdf.setFontSize(10);
