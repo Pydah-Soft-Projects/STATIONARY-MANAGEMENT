@@ -1,5 +1,66 @@
 const { Product } = require('../models/productModel');
 const { College } = require('../models/collegeModel');
+const { getMySqlPool } = require('../config/mysql');
+const { normalizeStudentRow } = require('./sqlStudentController');
+
+const resolveStudentNamesForProducts = async (products) => {
+  if (!products) return products;
+  
+  const isArray = Array.isArray(products);
+  const productsList = isArray ? products : [products];
+  
+  // 1. Collect all unique student IDs from 'student' mode products
+  const studentIds = new Set();
+  productsList.forEach(p => {
+    if (p.applicabilityMode === 'students' && p.applicableStudents && Array.isArray(p.applicableStudents)) {
+      p.applicableStudents.forEach(id => {
+        if (id && typeof id === 'string') studentIds.add(id.trim());
+        else if (id && typeof id === 'number') studentIds.add(String(id));
+      });
+    }
+  });
+
+  if (studentIds.size === 0) return products;
+
+  // 2. Fetch those student records from MySQL in one batch
+  const pool = getMySqlPool();
+  if (!pool) return products;
+
+  const tableName = process.env.DB_STUDENTS_TABLE || 'students';
+  const idsArray = Array.from(studentIds);
+  const placeholders = idsArray.map(() => '?').join(',');
+  const sql = `SELECT * FROM \`${tableName}\` WHERE id IN (${placeholders})`;
+
+  try {
+    const [rows] = await pool.query(sql, idsArray);
+    const studentMap = new Map();
+    if (Array.isArray(rows)) {
+      rows.forEach(row => {
+        const student = normalizeStudentRow(row);
+        studentMap.set(String(student.id), {
+          _id: String(student.id),
+          name: student.name,
+          studentId: student.studentId
+        });
+      });
+    }
+
+    // 3. Map IDs back to objects for frontend compatibility
+    productsList.forEach(p => {
+      if (p.applicabilityMode === 'students' && Array.isArray(p.applicableStudents)) {
+        p.applicableStudents = p.applicableStudents.map(id => {
+          const sid = String(id).trim();
+          return studentMap.get(sid) || { _id: sid, name: `Student ID: ${sid}`, studentId: sid };
+        });
+      }
+    });
+
+    return isArray ? productsList : productsList[0];
+  } catch (err) {
+    console.error('[MySQL Search] Student name resolution failed:', err);
+    return products; // Return original if resolution fails
+  }
+};
 
 const sanitizeSetItems = async (setItems) => {
   if (!Array.isArray(setItems) || setItems.length === 0) return [];
@@ -157,8 +218,9 @@ const getProducts = async (req, res) => {
         ];
       }
     }
-    const products = await Product.find(filter).populate({ path: 'setItems.product', select: 'name price isSet' });
-    res.status(200).json(products);
+    const products = await Product.find(filter).populate({ path: 'setItems.product', select: 'name price isSet' }).lean();
+    const resolvedProducts = await resolveStudentNamesForProducts(products);
+    res.status(200).json(resolvedProducts);
   } catch (error) {
     res.status(500).json({ message: 'Error fetching products', error: error.message });
   }
@@ -171,10 +233,11 @@ const getProducts = async (req, res) => {
  */
 const getProductById = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id).populate({ path: 'setItems.product', select: 'name price isSet' });
+    const product = await Product.findById(req.params.id).populate({ path: 'setItems.product', select: 'name price isSet' }).lean();
 
     if (product) {
-      res.status(200).json(product);
+      const resolvedProduct = await resolveStudentNamesForProducts(product);
+      res.status(200).json(resolvedProduct);
     } else {
       res.status(404).json({ message: 'Product not found' });
     }

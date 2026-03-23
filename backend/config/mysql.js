@@ -34,6 +34,9 @@ const getMySqlPool = () => {
       waitForConnections: true,
       connectionLimit: 10,
       queueLimit: 0,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10000,
+      connectTimeout: 10000,
       ssl:
         typeof DB_SSL === 'string' && DB_SSL.toLowerCase() === 'true'
           ? { rejectUnauthorized: false }

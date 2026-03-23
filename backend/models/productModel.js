@@ -150,10 +150,7 @@ const productSchema = new mongoose.Schema(
     },
     // List of specific students this product applies to (if mode is 'students')
     applicableStudents: {
-      type: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-      }],
+      type: [String],
       default: [],
     },
   },

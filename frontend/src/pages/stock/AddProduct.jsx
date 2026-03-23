@@ -590,7 +590,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
         const data = await res.json();
         // SQL API returns { students: [], total, ... } or just [] depending on implementation.
         // Based on sqlStudentController, it returns { students: [...], ... }
-        const students = data.students || (Array.isArray(data) ? data : []);
+        const students = data.rows || data.students || (Array.isArray(data) ? data : []);
 
         // Map SQL student data to expected format if necessary
         // The component expects { _id (or id), name, studentId }

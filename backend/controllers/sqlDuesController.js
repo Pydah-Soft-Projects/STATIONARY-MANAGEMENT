@@ -154,7 +154,7 @@ const getStudentDues = asyncHandler(async (req, res) => {
             });
         }
 
-        // 3. Fetch Paid Transactions (Optimized Batching)
+        // 3. Fetch Transactions (Paid + Credit)
         const CHUNK_SIZE = 500;
         const transactionPromises = [];
 
@@ -163,18 +163,19 @@ const getStudentDues = asyncHandler(async (req, res) => {
             const chunkSqlIds = chunk.map(s => String(s.id));
             const chunkAdmNos = chunk.map(s => String(s.studentId));
 
-            // Combine IDs to query 'student.sqlId' effectively (it might hold either ID type during migration)
+            // Combine IDs to query 'student.sqlId' effectively
             const distinctIds = [...new Set([...chunkSqlIds, ...chunkAdmNos])];
 
             transactionPromises.push(
                 Transaction.find({
-                    isPaid: true,
+                    // Logic update: Include all transactions regardless of isPaid status
+                    // Valid items are determined by their status later
                     $or: [
                         { 'student.sqlId': { $in: distinctIds } },
-                        { 'student.studentId': { $in: chunkAdmNos } } // Check legacy admission numbers too
+                        { 'student.studentId': { $in: chunkAdmNos } }
                     ]
                 })
-                    .select('student items isPaid') // OPTIMIZATION: Projection
+                    .select('student items isPaid createdAt') 
                     .lean()
             );
         }
@@ -184,9 +185,16 @@ const getStudentDues = asyncHandler(async (req, res) => {
         const transactions = transactionResults.flat();
         console.timeEnd('FetchTransactions');
 
+        // Pre-calculate Kit Component Map for Implicit Kit Satisfaction
+        const kitMap = new Map();
+        allProducts.forEach(p => {
+            if (p.isSet && p.setItems) {
+                kitMap.set(String(p._id), p.setItems.map(item => String(item.product)));
+            }
+        });
+
         // Build Transaction Map: StudentID -> Set<ItemKey>
         const studentItemsMap = {};
-        // Helper to add item
         const addItem = (sid, itemName) => {
             if (!studentItemsMap[sid]) studentItemsMap[sid] = new Set();
             const key = itemName.toLowerCase().replace(/\s+/g, '_');
@@ -202,17 +210,32 @@ const getStudentDues = asyncHandler(async (req, res) => {
             if (txn.items) {
                 txn.items.forEach(item => {
                     // Logic Update: Only count fulfilled items as Received.
-                    // If an item is 'partial' (due to zero stock), it should still be considered a DUE.
+                    // Items with 'partial' status (out of stock) are NOT considered received.
                     if (item.status === 'partial') return;
 
-                    // Add to BOTH keys to ensure we find it regardless of which ID the student record has
                     if (sqlId) {
                         addItem(sqlId, item.name);
                         if (item.productId) addItem(sqlId, `id:${item.productId}`);
+                        
+                        // NEW: If it's a kit, also mark components as received
+                        if (item.isSet && item.setComponents) {
+                            item.setComponents.forEach(comp => {
+                                if (comp.taken && comp.productId) addItem(sqlId, `id:${comp.productId}`);
+                                if (comp.taken && comp.name) addItem(sqlId, comp.name);
+                            });
+                        }
                     }
                     if (admNo) {
                         addItem(admNo, item.name);
                         if (item.productId) addItem(admNo, `id:${item.productId}`);
+
+                        // NEW: If it's a kit, also mark components as received
+                        if (item.isSet && item.setComponents) {
+                            item.setComponents.forEach(comp => {
+                                if (comp.taken && comp.productId) addItem(admNo, `id:${comp.productId}`);
+                                if (comp.taken && comp.name) addItem(admNo, comp.name);
+                            });
+                        }
                     }
                 });
             }
@@ -230,50 +253,29 @@ const getStudentDues = asyncHandler(async (req, res) => {
 
             // Filter Applicable Products for *this* student
             const applicableProducts = allProducts.filter(product => {
-                // Normalize Helper (Match frontend StudentDetail: remove special chars)
                 const norm = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-                // 1. Add-on Check (frontend: isAddOnProduct)
-                // If forCourse is empty, it's an add-on -> Not a Due.
-                // Unless applicabilityMode is students (handled below)
                 if (product.applicabilityMode !== 'students' && !product.forCourse) return false;
-
-                // Course Mismatch
                 if (product.forCourse && norm(product.forCourse) !== norm(student.course)) return false;
 
-                // Mode: Students
                 if (product.applicabilityMode === 'students') {
-                    // Check if student ID is in list
                     const allowedIds = (product.applicableStudents || []).map(String);
                     return allowedIds.includes(sid1) || allowedIds.includes(sid2);
                 }
 
-                // Mode: Rules (Year/Semester/Branch)
-
-                // Year Check
                 const productYears = Array.isArray(product.years) ? product.years : (product.year ? [product.year] : []);
                 const studentYear = Number(student.year);
-
-                // DEBUG: Log first few students to check their year
-                if (allStudents.indexOf(student) < 5 && product.name.includes("M.TECH")) {
-                    console.log(`[Dues Debug] Student: ${student.name}, Year: "${student.year}" (Parsed: ${studentYear}) vs Product Years: [${productYears}]`);
-                }
-
                 if (productYears.length > 0 && !productYears.includes(studentYear)) return false;
 
-                // Semester Check (Optional in product)
                 const productSemesters = product.semesters || [];
                 const studentSemester = Number(student.semester);
                 if (productSemesters.length > 0) {
                     if (!studentSemester || !productSemesters.includes(studentSemester)) return false;
                 }
 
-                // Branch Check
                 const productBranches = Array.isArray(product.branch) ? product.branch : (product.branch ? [product.branch] : []);
-                // Normalize branches
                 const normProductBranches = productBranches.map(norm);
                 const studentBranch = norm(student.branch);
-
                 if (normProductBranches.length > 0 && !normProductBranches.includes(studentBranch)) return false;
 
                 return true;
@@ -283,46 +285,42 @@ const getStudentDues = asyncHandler(async (req, res) => {
             const pendingItems = [];
             let pendingCost = 0;
 
-            // Kit Filter Logic (if applied)
-            if (selectedKitIds.length > 0) {
-                // If specific KITS are filtered, we only care if they are missing THOSE kits (or parts of them).
-                const targetKits = applicableProducts.filter(p => selectedKitIds.includes(String(p._id)));
+            applicableProducts.forEach(prod => {
+                const receivedByName = studentReceivedItems.has(prod._key);
+                const receivedById = prod._id && studentReceivedItems.has(`id:${prod._id}`);
                 
-                if (targetKits.length === 0) return null; // None of the selected kits are applicable to this student
+                let isReceived = receivedByName || receivedById;
 
-                targetKits.forEach(targetKit => {
-                    const receivedByName = studentReceivedItems.has(targetKit._key);
-                    const receivedById = targetKit._id && studentReceivedItems.has(`id:${targetKit._id}`);
-
-                    if (!receivedByName && !receivedById) {
-                        pendingItems.push({
-                            _id: targetKit._id,
-                            name: targetKit.name,
-                            price: targetKit.price,
-                            type: targetKit.isSet ? 'Kit' : 'Item',
-                            _key: targetKit._key
-                        });
-                        pendingCost += (Number(targetKit.price) || 0);
+                // NEW: Implicit Kit Satisfaction Check
+                // If a student received all components of a kit individually, mark the kit as satisfied.
+                if (!isReceived && prod.isSet) {
+                    const componentIds = kitMap.get(String(prod._id)) || [];
+                    if (componentIds.length > 0) {
+                        const allComponentsReceived = componentIds.every(compId => 
+                            studentReceivedItems.has(`id:${compId}`)
+                        );
+                        if (allComponentsReceived) {
+                            isReceived = true;
+                        }
                     }
-                });
-            } else {
-                // Standard Check for all applicable
-                applicableProducts.forEach(prod => {
-                    const receivedByName = studentReceivedItems.has(prod._key);
-                    const receivedById = prod._id && studentReceivedItems.has(`id:${prod._id}`);
+                }
 
-                    if (!receivedByName && !receivedById) {
-                        pendingItems.push({
-                            _id: prod._id,
-                            name: prod.name,
-                            price: prod.price,
-                            type: prod.isSet ? 'Kit' : 'Item',
-                            _key: prod._key // Include key for potential frontend debugging
-                        });
-                        pendingCost += (Number(prod.price) || 0);
+                if (!isReceived) {
+                    // If specific KITS are filtered, only add to pending if it's one of them
+                    if (selectedKitIds.length > 0 && !selectedKitIds.includes(String(prod._id))) {
+                        return;
                     }
-                });
-            }
+
+                    pendingItems.push({
+                        _id: prod._id,
+                        name: prod.name,
+                        price: prod.price,
+                        type: prod.isSet ? 'Kit' : 'Item',
+                        _key: prod._key
+                    });
+                    pendingCost += (Number(prod.price) || 0);
+                }
+            });
 
             if (pendingItems.length === 0 && !req.query.showAll) return null; // Skip if no dues (unless showing all)
 
