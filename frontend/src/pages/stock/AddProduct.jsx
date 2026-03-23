@@ -60,7 +60,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
     const query = studentSearchQuery.toLowerCase().trim();
     return list.filter(student =>
       (student.name || '').toLowerCase().includes(query) ||
-      (student.studentId || '').toLowerCase().includes(query)
+      String(student.studentId || '').toLowerCase().includes(query)
     );
   }, [fetchedStudents, studentSearchQuery]);
 
@@ -598,7 +598,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
         const mappedStudents = students.map(s => ({
           _id: s.id, // Use SQL ID as _id for frontend compatibility
           name: s.name,
-          studentId: s.admission_number || s.pin || s.id // Fallback for display
+          studentId: String(s.admission_number || s.pin || s.id) // Ensure string for toLowerCase()
         }));
 
         setFetchedStudents(mappedStudents);
