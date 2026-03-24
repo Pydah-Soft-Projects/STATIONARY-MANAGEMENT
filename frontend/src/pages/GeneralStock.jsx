@@ -1,7 +1,23 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useReactToPrint } from 'react-to-print';
-import { Package, ShoppingCart, History, Plus, Minus, Search, Save, X, Eye, Trash2, Filter, Building2, UserPlus, FileText, Calendar, DollarSign, Printer } from 'lucide-react';
+import { Package, Search, Plus, Trash2, Eye, Filter, Save, FileText, UserPlus, Building2, ShoppingCart, Minus, X, Printer, LayoutGrid, List, History, Calendar, DollarSign } from 'lucide-react';
 import { apiUrl } from '../utils/api';
+
+const AUTHORITIES = [
+    "P. V. Surya Prakash (Engineering Principal sir)",
+    "S. U. V. N. Suresh kumar (Degree Principal sir)",
+    "N. P. V. S. Subba Rao (HR sir)",
+    "M. Suma Medam (HOD)-TPO",
+    "Dr. T. K. V. Kesava Rao (Pharmacy Principal sir)",
+    "S. Karimulla Tanesha (A.O) - Engineering",
+    "Bashir Hamad babu MD (A.O) - Diploma",
+    "Devi. B. V. Raghava Swamy (A.O) - Degree",
+    "Prasanna kumar Reddy (A.O) - Pharmacy",
+    "Dean sir",
+    "Ravikumar (Via Principal)",
+    "Nithya medam",
+    "Sriram Sir"
+];
 
 const GeneralStock = ({ currentUser }) => {
     const [activeTab, setActiveTab] = useState('products');
@@ -1351,13 +1367,19 @@ const DistributeTab = ({
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-800 mb-1">Authorized By *</label>
-                            <input
-                                type="text"
+                            <select
                                 required
                                 value={distributionForm.authorizedBy}
                                 onChange={(e) => setDistributionForm({ ...distributionForm, authorizedBy: e.target.value })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                            />
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+                            >
+                                <option value="">Select Authority</option>
+                                {AUTHORITIES.map((auth, idx) => (
+                                    <option key={idx} value={auth}>
+                                        {auth}
+                                    </option>
+                                ))}
+                            </select>
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-800 mb-1">Contact Number</label>
