@@ -581,9 +581,8 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
       if (studentFilters.course) queryParams.append('course', studentFilters.course);
       if (studentFilters.year) queryParams.append('year', studentFilters.year);
       if (studentFilters.branch) queryParams.append('branch', studentFilters.branch);
-      // Ensure we get enough results or handle pagination if needed. 
-      // For now, let's assume the API returns a reasonable list or we might need to add a limit.
-      // SQL API might require explicit limit or return all matching.
+      if (studentSearchQuery.trim()) queryParams.append('search', studentSearchQuery.trim());
+      queryParams.append('limit', '250'); // Increase limit for modal selection
 
       const res = await fetch(apiUrl(`/api/sql/students?${queryParams.toString()}`));
       if (res.ok) {
@@ -897,7 +896,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                 <div className="flex items-end">
                   <button
                     onClick={handleFetchStudents}
-                    disabled={isFetchingStudents || !studentFilters.course || !studentFilters.year}
+                    disabled={isFetchingStudents || (!studentFilters.course && !studentFilters.year && !studentFilters.branch && !studentSearchQuery.trim())}
                     className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
                   >
                     {isFetchingStudents ? 'Fetching...' : 'Fetch Students'}
@@ -926,6 +925,11 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                         placeholder="Search students by name or ID..."
                         value={studentSearchQuery}
                         onChange={(e) => setStudentSearchQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleFetchStudents();
+                          }
+                        }}
                         className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                       />
                       {studentSearchQuery && (
