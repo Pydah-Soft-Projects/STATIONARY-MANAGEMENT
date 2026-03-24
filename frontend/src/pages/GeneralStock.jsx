@@ -14,7 +14,7 @@ const AUTHORITIES = [
     "Devi. B. V. Raghava Swamy (A.O) - Degree",
     "Prasanna kumar Reddy (A.O) - Pharmacy",
     "Dean sir",
-    "Ravikumar (Via Principal)",
+    "Ravikumar (Vice Principal)",
     "Nithya medam",
     "Sriram Sir"
 ];
