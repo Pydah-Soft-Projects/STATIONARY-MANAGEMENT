@@ -209,12 +209,20 @@ const GeneralStock = ({ currentUser }) => {
 
     // Fetch purchases and distributions
     const fetchTransactions = useCallback(async () => {
+        if (!viewContext) return;
+        
+        // Guard against object being passed as ID
+        if (typeof viewContext === 'object') {
+            console.warn('Invalid viewContext (object detected) in fetchTransactions, skipping fetch:', viewContext);
+            return;
+        }
+
         setIsFetching(true);
         try {
             // Fetch vendor purchases
             const purchaseParams = new URLSearchParams();
             if (viewContext !== 'all') {
-                purchaseParams.append('college', viewContext);
+                purchaseParams.append('college', String(viewContext));
             }
             const purchaseRes = await fetch(apiUrl(`/api/general-purchases?${purchaseParams.toString()}`));
             if (purchaseRes.ok) {
@@ -1745,12 +1753,12 @@ const HistoryTab = ({
                 <h3 className="text-lg font-semibold mb-4">Filters</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Buyer Name</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Recipient Name</label>
                         <input
                             type="text"
-                            placeholder="Search by buyer..."
-                            value={historyFilters.buyerName}
-                            onChange={(e) => setHistoryFilters({ ...historyFilters, buyerName: e.target.value })}
+                            placeholder="Search by recipient..."
+                            value={historyFilters.recipientName}
+                            onChange={(e) => setHistoryFilters({ ...historyFilters, recipientName: e.target.value })}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                         />
                     </div>
@@ -1763,6 +1771,15 @@ const HistoryTab = ({
                             onChange={(e) => setHistoryFilters({ ...historyFilters, department: e.target.value })}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                         />
+                    </div>
+                    <div className="flex items-end">
+                        <button
+                            type="button"
+                            onClick={() => setHistoryFilters({ recipientName: '', department: '', isPaid: '' })}
+                            className="px-4 py-2 text-sm text-blue-600 hover:text-blue-700 font-medium bg-blue-50 rounded-lg transition-colors flex items-center gap-2 mb-0.5"
+                        >
+                            <X size={14} /> Clear Filters
+                        </button>
                     </div>
                 </div>
             </div>

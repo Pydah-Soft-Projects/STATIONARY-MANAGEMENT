@@ -9,7 +9,7 @@ const asyncHandler = require('express-async-handler');
  * @access  Public
  */
 const createDistribution = asyncHandler(async (req, res) => {
-  const { recipientName, department, authorizedBy, contactNumber, items, remarks, collegeId } = req.body;
+  const { recipientName, department, authorizedBy, contactNumber, items, remarks, collegeId, distributionDate } = req.body;
 
   if (!recipientName || !department || !authorizedBy || !items || !Array.isArray(items) || items.length === 0) {
     res.status(400);
