@@ -106,7 +106,7 @@ const createDistribution = asyncHandler(async (req, res) => {
     paidAt: new Date(),
     remarks: remarks || '',
     stockDeducted: true,
-    distributionDate: new Date(),
+    distributionDate: distributionDate || new Date(),
     collegeId,
   });
 

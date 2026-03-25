@@ -74,6 +74,7 @@ const GeneralStock = ({ currentUser }) => {
         contactNumber: '',
         remarks: '',
         collegeId: '',
+        distributionDate: new Date().toISOString().split('T')[0],
     });
     const [selectedItems, setSelectedItems] = useState({});
 
@@ -533,6 +534,7 @@ const GeneralStock = ({ currentUser }) => {
                     contactNumber: '',
                     remarks: '',
                     collegeId: '',
+                    distributionDate: new Date().toISOString().split('T')[0],
                 });
                 setSelectedItems({});
                 if (isSuperAdmin) fetchColleges(); // Refresh aggregated view
@@ -544,6 +546,30 @@ const GeneralStock = ({ currentUser }) => {
             }
         } catch (error) {
             setMessage({ type: 'error', text: 'Error creating distribution' });
+        } finally {
+            setLoading(false);
+        }
+    };
+    
+    const handleDeleteDistribution = async (id) => {
+        if (!window.confirm('Are you sure you want to delete this distribution record? Stock will be automatically reverted.')) return;
+
+        setLoading(true);
+        try {
+            const res = await fetch(apiUrl(`/api/general-distributions/${id}`), {
+                method: 'DELETE',
+            });
+
+            if (res.ok) {
+                setMessage({ type: 'success', text: 'Distribution record deleted and stock reverted successfully' });
+                fetchProducts();
+                fetchTransactions();
+            } else {
+                const error = await res.json();
+                setMessage({ type: 'error', text: error.message || 'Failed to delete distribution' });
+            }
+        } catch (error) {
+            setMessage({ type: 'error', text: 'Error deleting distribution' });
         } finally {
             setLoading(false);
         }
@@ -753,6 +779,7 @@ const GeneralStock = ({ currentUser }) => {
                                     selectedTransaction={selectedTransaction}
                                     setSelectedTransaction={setSelectedTransaction}
                                     selectedCollegeName={selectedCollegeName}
+                                    handleDeleteDistribution={handleDeleteDistribution}
                                 />
                             )}
                         </>
@@ -1409,6 +1436,16 @@ const DistributeTab = ({
                             </div>
                         )}
                         <div>
+                            <label className="block text-sm font-medium text-gray-800 mb-1">Distribution Date *</label>
+                            <input
+                                type="date"
+                                required
+                                value={distributionForm.distributionDate}
+                                onChange={(e) => setDistributionForm({ ...distributionForm, distributionDate: e.target.value })}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            />
+                        </div>
+                        <div>
                             <label className="block text-sm font-medium text-gray-800 mb-1">Remarks</label>
                             <textarea
                                 value={distributionForm.remarks}
@@ -1695,7 +1732,8 @@ const HistoryTab = ({
     setHistoryFilters,
     selectedTransaction,
     setSelectedTransaction,
-    selectedCollegeName
+    selectedCollegeName,
+    handleDeleteDistribution
 }) => {
     // Separate state for purchase modal (vendor) vs distribution modal (recipient)
     // For simplicity, we can use the same modal structure but populate different data, or use selectedTransaction
@@ -1768,6 +1806,13 @@ const HistoryTab = ({
                                                     title="View Details"
                                                 >
                                                     <Eye size={16} />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteDistribution(dist._id)}
+                                                    className="p-1 text-red-500 hover:bg-red-50 rounded"
+                                                    title="Delete Distribution"
+                                                >
+                                                    <Trash2 size={16} />
                                                 </button>
                                             </div>
                                         </td>
@@ -1951,7 +1996,7 @@ const HistoryTab = ({
                             </div>
 
                             {/* Thermal Receipt Template - Hidden unless printing */}
-                            <ThermalReceipt transaction={selectedTransaction} collegeName={selectedCollegeName} />
+                            <ThermalReceiptTemplate transaction={selectedTransaction} collegeName={selectedCollegeName} />
                         </div>
                     </div>
                 </div>
