@@ -30,7 +30,11 @@ const createPurchase = asyncHandler(async (req, res) => {
       throw new Error(`Product not found: ${item.product}`);
     }
 
-    totalAmount += Number(item.quantity) * Number(item.purchasePrice);
+    const itemQty = Number(item.quantity);
+    const itemPrice = Number(item.purchasePrice);
+    const itemGst = Number(item.gstPercent) || 0;
+    
+    totalAmount += itemQty * itemPrice * (1 + itemGst / 100);
   }
 
   // Generate unique purchase ID

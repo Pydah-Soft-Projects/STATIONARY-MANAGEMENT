@@ -18,6 +18,12 @@ const purchaseItemSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+    gstPercent: {
+      type: Number,
+      required: false,
+      default: 0,
+      min: 0,
+    },
   },
   { _id: false }
 );

@@ -64,6 +64,7 @@ const GeneralStock = ({ currentUser }) => {
         product: '',
         quantity: '',
         purchasePrice: '',
+        gstPercent: 0,
     });
 
     // Distribution state (deducts stock)
@@ -386,16 +387,21 @@ const GeneralStock = ({ currentUser }) => {
         }
 
         const productObj = products.find(p => p._id === currentPurchaseItem.product);
+        const itemQty = Number(currentPurchaseItem.quantity);
+        const itemPrice = Number(currentPurchaseItem.purchasePrice) || 0;
+        const itemGst = Number(currentPurchaseItem.gstPercent) || 0;
+
         const newItem = {
             ...currentPurchaseItem,
             productName: productObj?.name || 'Unknown',
-            quantity: Number(currentPurchaseItem.quantity),
-            purchasePrice: Number(currentPurchaseItem.purchasePrice) || 0,
-            total: Number(currentPurchaseItem.quantity) * (Number(currentPurchaseItem.purchasePrice) || 0)
+            quantity: itemQty,
+            purchasePrice: itemPrice,
+            gstPercent: itemGst,
+            total: itemQty * itemPrice * (1 + itemGst / 100)
         };
 
         setPurchaseItems([...purchaseItems, newItem]);
-        setCurrentPurchaseItem({ product: '', quantity: '', purchasePrice: '' });
+        setCurrentPurchaseItem({ product: '', quantity: '', purchasePrice: '', gstPercent: 0 });
     };
 
     const handleRemovePurchaseItem = (index) => {
@@ -448,7 +454,8 @@ const GeneralStock = ({ currentUser }) => {
                     items: purchaseItems.map(i => ({
                         product: i.product,
                         quantity: i.quantity,
-                        purchasePrice: i.purchasePrice
+                        purchasePrice: i.purchasePrice,
+                        gstPercent: i.gstPercent
                     })),
                     totalAmount,
                     remarks: purchaseForm.remarks,
@@ -1251,7 +1258,7 @@ const VendorPurchaseTab = ({
                         </div>
 
                         {/* Price */}
-                        <div className="md:col-span-3">
+                        <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-800 mb-1">Unit Price</label>
                             <input
                                 type="number"
@@ -1260,6 +1267,20 @@ const VendorPurchaseTab = ({
                                 value={currentPurchaseItem.purchasePrice}
                                 onChange={(e) => setCurrentPurchaseItem({ ...currentPurchaseItem, purchasePrice: e.target.value })}
                                 placeholder="0.00"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            />
+                        </div>
+
+                        {/* GST % */}
+                        <div className="md:col-span-2">
+                            <label className="block text-sm font-medium text-gray-800 mb-1">GST %</label>
+                            <input
+                                type="number"
+                                min="0"
+                                step="0.1"
+                                value={currentPurchaseItem.gstPercent}
+                                onChange={(e) => setCurrentPurchaseItem({ ...currentPurchaseItem, gstPercent: e.target.value })}
+                                placeholder="0"
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                             />
                         </div>
@@ -1299,6 +1320,7 @@ const VendorPurchaseTab = ({
                                         <th className="px-6 py-3 font-medium">Product</th>
                                         <th className="px-6 py-3 font-medium text-right">Qty</th>
                                         <th className="px-6 py-3 font-medium text-right">Price</th>
+                                        <th className="px-6 py-3 font-medium text-right">GST %</th>
                                         <th className="px-6 py-3 font-medium text-right">Total</th>
                                         <th className="px-6 py-3 font-medium text-center">Action</th>
                                     </tr>
@@ -1309,7 +1331,8 @@ const VendorPurchaseTab = ({
                                             <td className="px-6 py-3 text-gray-900 font-medium">{item.productName}</td>
                                             <td className="px-6 py-3 text-right">{item.quantity}</td>
                                             <td className="px-6 py-3 text-right">₹{item.purchasePrice}</td>
-                                            <td className="px-6 py-3 text-right">₹{item.total}</td>
+                                            <td className="px-6 py-3 text-right">{item.gstPercent}%</td>
+                                            <td className="px-6 py-3 text-right">₹{item.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                             <td className="px-6 py-3 text-center">
                                                 <button
                                                     onClick={() => handleRemovePurchaseItem(idx)}
@@ -1668,10 +1691,10 @@ const ThermalReceiptTemplate = ({ transaction }) => {
                             {transaction.type !== 'distribution' && (
                                 <>
                                     <td style={{ padding: '2px 0', textAlign: 'right', verticalAlign: 'top' }}>
-                                        {Number(item.price || item.purchasePrice || 0).toFixed(0)}
+                                        {Number(item.purchasePrice || 0).toFixed(0)}{item.gstPercent > 0 ? ` (+${item.gstPercent}%)` : ''}
                                     </td>
                                     <td style={{ padding: '2px 0', textAlign: 'right', verticalAlign: 'top' }}>
-                                        {Number(item.total || (item.quantity * (item.price || item.purchasePrice || 0))).toFixed(0)}
+                                        {Number(item.total || (item.quantity * (item.purchasePrice || 0) * (1 + (item.gstPercent || 0) / 100))).toFixed(0)}
                                     </td>
                                 </>
                             )}
@@ -1857,7 +1880,8 @@ const HistoryTab = ({
                                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Date</th>
                                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Vendor</th>
                                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Invoice</th>
-                                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Amount</th>
+                                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Without GST</th>
+                                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">With GST</th>
                                     <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>
                                 </tr>
                             </thead>
@@ -1869,7 +1893,12 @@ const HistoryTab = ({
                                         </td>
                                         <td className="px-4 py-3 text-sm text-gray-900">{purchase.vendor?.name || 'Unknown'}</td>
                                         <td className="px-4 py-3 text-sm text-gray-600">{purchase.invoiceNumber || '-'}</td>
-                                        <td className="px-4 py-3 text-right text-sm font-medium">₹{purchase.totalAmount.toFixed(2)}</td>
+                                        <td className="px-4 py-3 text-right text-sm text-gray-600">
+                                            ₹{(purchase.items || []).reduce((sum, item) => sum + (item.quantity * (item.purchasePrice || 0)), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </td>
+                                        <td className="px-4 py-3 text-right text-sm font-bold text-gray-900">
+                                            ₹{purchase.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </td>
                                         <td className="px-4 py-3">
                                             <div className="flex items-center justify-center gap-2">
                                                 <PrintButton transaction={{ ...purchase, type: 'purchase' }} />
@@ -1982,12 +2011,13 @@ const HistoryTab = ({
                                                     <p className="font-medium">{item.name || item.product?.name || 'Item'}</p>
                                                     <p className="text-sm text-gray-600">
                                                         Qty: {item.quantity}
-                                                        {selectedTransaction.type !== 'distribution' && ` × ₹${item.purchasePrice?.toFixed(2)}`}
+                                                        {' × ₹'}{item.purchasePrice?.toFixed(2)}
+                                                        {item.gstPercent > 0 && ` (+${item.gstPercent}% GST)`}
                                                     </p>
                                                 </div>
                                                 {selectedTransaction.type !== 'distribution' && (
-                                                    <p className="font-semibold">
-                                                        ₹{(item.quantity * item.purchasePrice)?.toFixed(2)}
+                                                    <p className="font-semibold text-right">
+                                                        ₹{(item.total || (item.quantity * item.purchasePrice * (1 + (item.gstPercent || 0) / 100)))?.toFixed(2)}
                                                     </p>
                                                 )}
                                             </div>
