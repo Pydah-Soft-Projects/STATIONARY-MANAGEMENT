@@ -589,6 +589,30 @@ const GeneralStock = ({ currentUser }) => {
             setLoading(false);
         }
     };
+    
+    const handleDeletePurchase = async (id) => {
+        if (!window.confirm('Are you sure you want to delete this purchase record? Stock will be automatically reverted.')) return;
+
+        setLoading(true);
+        try {
+            const res = await fetch(apiUrl(`/api/general-purchases/${id}`), {
+                method: 'DELETE',
+            });
+
+            if (res.ok) {
+                setMessage({ type: 'success', text: 'Purchase record deleted and stock reverted successfully' });
+                fetchProducts();
+                fetchTransactions();
+            } else {
+                const error = await res.json();
+                setMessage({ type: 'error', text: error.message || 'Failed to delete purchase' });
+            }
+        } catch (error) {
+            setMessage({ type: 'error', text: 'Error deleting purchase' });
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const handleQuantityChange = (productId, delta) => {
         setSelectedItems(prev => {
@@ -795,6 +819,7 @@ const GeneralStock = ({ currentUser }) => {
                                     setSelectedTransaction={setSelectedTransaction}
                                     selectedCollegeName={selectedCollegeName}
                                     handleDeleteDistribution={handleDeleteDistribution}
+                                    handleDeletePurchase={handleDeletePurchase}
                                 />
                             )}
                         </>
@@ -1764,7 +1789,8 @@ const HistoryTab = ({
     selectedTransaction,
     setSelectedTransaction,
     selectedCollegeName,
-    handleDeleteDistribution
+    handleDeleteDistribution,
+    handleDeletePurchase
 }) => {
     // Separate state for purchase modal (vendor) vs distribution modal (recipient)
     // For simplicity, we can use the same modal structure but populate different data, or use selectedTransaction
@@ -1908,6 +1934,13 @@ const HistoryTab = ({
                                                     title="View Details"
                                                 >
                                                     <Eye size={16} />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeletePurchase(purchase._id)}
+                                                    className="p-1 text-red-500 hover:bg-red-50 rounded"
+                                                    title="Delete Purchase"
+                                                >
+                                                    <Trash2 size={16} />
                                                 </button>
                                             </div>
                                         </td>
