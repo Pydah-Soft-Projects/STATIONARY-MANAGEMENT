@@ -27,6 +27,8 @@ const Dashboard = () => {
     totalVendors: 0,
     todayTransactions: 0,
     todayRevenue: 0,
+    todayCashRevenue: 0,
+    todayOnlineRevenue: 0,
     zeroStockDuesStudents: 0,
   });
   const [zeroStockDuesData, setZeroStockDuesData] = useState([]);
@@ -349,13 +351,35 @@ const Dashboard = () => {
                   <ShoppingCart size={24} className="text-white" />
                 </div>
               </div>
-              <div className="flex items-center justify-between p-4 bg-white/20 rounded-lg backdrop-blur-sm">
-                <div>
-                  <p className="text-sm text-teal-100 mb-1">Revenue</p>
-                  <p className="text-2xl font-bold text-white">{formatCurrency(stats.todayRevenue)}</p>
+              <div className="p-4 bg-white/20 rounded-lg backdrop-blur-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className="text-sm text-teal-100 mb-1">Today's Revenue</p>
+                    <p className="text-2xl font-bold text-white">{formatCurrency(stats.todayRevenue)}</p>
+                  </div>
+                  <div className="w-12 h-12 bg-white/30 rounded-lg flex items-center justify-center">
+                    <DollarSign size={24} className="text-white" />
+                  </div>
                 </div>
-                <div className="w-12 h-12 bg-white/30 rounded-lg flex items-center justify-center">
-                  <DollarSign size={24} className="text-white" />
+                <div className="grid grid-cols-2 gap-3 pt-3 border-t border-white/10">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-white/20 rounded-md">
+                      <Wallet size={14} className="text-white" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-teal-100 uppercase font-semibold">Cash</p>
+                      <p className="text-sm font-bold text-white">{formatCurrency(stats.todayCashRevenue)}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-white/20 rounded-md">
+                      <CreditCard size={14} className="text-white" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-teal-100 uppercase font-semibold">Online</p>
+                      <p className="text-sm font-bold text-white">{formatCurrency(stats.todayOnlineRevenue)}</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

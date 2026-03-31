@@ -53,6 +53,24 @@ const getDashboardStats = asyncHandler(async (req, res) => {
             ] 
           } 
         },
+        todayCashRevenue: { 
+          $sum: { 
+            $cond: [
+              { $and: [{ $eq: ['$isPaid', true] }, { $gte: ['$transactionDate', today] }] }, 
+              { $ifNull: ['$cashAmount', 0] }, 
+              0
+            ] 
+          } 
+        },
+        todayOnlineRevenue: { 
+          $sum: { 
+            $cond: [
+              { $and: [{ $eq: ['$isPaid', true] }, { $gte: ['$transactionDate', today] }] }, 
+              { $ifNull: ['$onlineAmount', 0] }, 
+              0
+            ] 
+          } 
+        },
         todayTransactions: {
           $sum: { $cond: [{ $gte: ['$transactionDate', today] }, 1, 0] }
         }
@@ -65,6 +83,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     pendingRevenue: 0,
     totalTransactions: 0,
     todayRevenue: 0,
+    todayCashRevenue: 0,
+    todayOnlineRevenue: 0,
     todayTransactions: 0
   };
 
@@ -164,6 +184,8 @@ const getDashboardStats = asyncHandler(async (req, res) => {
     lowStockItems,
     todayTransactions: rev.todayTransactions,
     todayRevenue: rev.todayRevenue,
+    todayCashRevenue: rev.todayCashRevenue || 0,
+    todayOnlineRevenue: rev.todayOnlineRevenue || 0,
     zeroStockDuesStudents,
     zeroStockDuesData,
     recentTransactions
