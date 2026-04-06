@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import { useReactToPrint } from 'react-to-print';
-import { Package, Search, Plus, Trash2, Eye, Filter, Save, FileText, UserPlus, Building2, ShoppingCart, Minus, X, Printer, LayoutGrid, List, History, Calendar, DollarSign } from 'lucide-react';
+import { Package, Search, Plus, Trash2, Eye, Save, FileText, UserPlus, Building2, ShoppingCart, Minus, X, Printer, LayoutGrid, List, History, Calendar, DollarSign, BarChart3, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiUrl } from '../utils/api';
+
+const emptyReportSummary = () => ({ byAuthorizedBy: [], byDepartment: [] });
 
 const AUTHORITIES = [
     "P. V. Surya Prakash (Engineering Principal sir)",
@@ -91,6 +93,10 @@ const GeneralStock = ({ currentUser }) => {
 
     const [loading, setLoading] = useState(false);
     const [isFetching, setIsFetching] = useState(false);
+    const [reportSummary, setReportSummary] = useState(emptyReportSummary);
+    const [reportLoading, setReportLoading] = useState(false);
+    const [reportStartDate, setReportStartDate] = useState('');
+    const [reportEndDate, setReportEndDate] = useState('');
     const [message, setMessage] = useState({ type: '', text: '' });
 
     // List of colleges for dropdowns
@@ -252,6 +258,37 @@ const GeneralStock = ({ currentUser }) => {
         }
     }, [viewContext, historyFilters]);
 
+    const fetchDistributionReports = useCallback(async () => {
+        if (!viewContext) return;
+        setReportLoading(true);
+        try {
+            const params = new URLSearchParams();
+            if (viewContext !== 'all') {
+                params.append('collegeId', viewContext);
+            }
+            if (reportStartDate) params.append('startDate', reportStartDate);
+            if (reportEndDate) params.append('endDate', reportEndDate);
+            const q = params.toString();
+            const url = apiUrl(`/api/general-distributions/reports/summary${q ? `?${q}` : ''}`);
+            const res = await fetch(url);
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message || 'Failed to load report');
+            }
+            const data = await res.json();
+            setReportSummary({
+                byAuthorizedBy: Array.isArray(data.byAuthorizedBy) ? data.byAuthorizedBy : [],
+                byDepartment: Array.isArray(data.byDepartment) ? data.byDepartment : [],
+            });
+        } catch (error) {
+            console.error('Error fetching distribution reports:', error);
+            setReportSummary(emptyReportSummary());
+            setMessage({ type: 'error', text: error.message || 'Could not load distribution report' });
+        } finally {
+            setReportLoading(false);
+        }
+    }, [viewContext, reportStartDate, reportEndDate]);
+
     useEffect(() => {
         if (viewContext) {
             fetchProducts();
@@ -263,6 +300,15 @@ const GeneralStock = ({ currentUser }) => {
             fetchTransactions();
         }
     }, [activeTab, viewContext, fetchTransactions]);
+
+    useEffect(() => {
+        if (activeTab === 'reports' && viewContext) {
+            fetchDistributionReports();
+        }
+    }, [activeTab, viewContext, fetchDistributionReports]);
+
+    const showMainLoader =
+        activeTab === 'reports' ? reportLoading : isFetching;
 
     // Product handlers
     const handleProductSubmit = async (e) => {
@@ -660,13 +706,24 @@ const GeneralStock = ({ currentUser }) => {
                 {/* Header */}
                 <div className="mb-6">
                     <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                        <div className="flex items-center gap-4">
-                            <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg">
+                        <div className="flex items-center gap-4 min-w-0">
+                            <div className="w-14 h-14 shrink-0 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg">
                                 <ShoppingCart className="w-7 h-7 text-white" />
                             </div>
-                            <div>
+                            <div className="flex flex-col gap-2 min-w-0 flex-1">
                                 <h1 className="text-2xl font-semibold text-gray-900">General Stock</h1>
-                                <p className="text-gray-600 mt-1 text-sm">Manage products and track staff/guest consumption</p>
+                                {isSuperAdmin && (
+                                    <select
+                                        className="text-sm border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 w-full max-w-md"
+                                        value={viewContext}
+                                        onChange={(e) => setViewContext(e.target.value)}
+                                    >
+                                        <option value="all">All Colleges (Aggregated)</option>
+                                        {colleges.map(c => (
+                                            <option key={c._id} value={c._id}>{c.name}</option>
+                                        ))}
+                                    </select>
+                                )}
                             </div>
                         </div>
 
@@ -712,27 +769,18 @@ const GeneralStock = ({ currentUser }) => {
                                 <History size={16} />
                                 <span>Transaction History</span>
                             </button>
+                            <button
+                                onClick={() => setActiveTab('reports')}
+                                className={`flex-1 min-w-[140px] md:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'reports'
+                                    ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-md'
+                                    : 'text-gray-600 hover:bg-gray-100'
+                                    }`}
+                            >
+                                <BarChart3 size={16} />
+                                <span>Reports</span>
+                            </button>
                         </div>
                     </div>
-
-                    {/* College Filter */}
-                    {isSuperAdmin && (
-                        <div className="mt-4 flex items-center gap-2 justify-end">
-                            <span className="text-sm font-medium text-gray-700 flex items-center gap-1">
-                                <Filter size={14} className="text-gray-500" /> View Stock For:
-                            </span>
-                            <select
-                                className="text-sm border-gray-300 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                                value={viewContext}
-                                onChange={(e) => setViewContext(e.target.value)}
-                            >
-                                <option value="all">All Colleges (Aggregated)</option>
-                                {colleges.map(c => (
-                                    <option key={c._id} value={c._id}>{c.name}</option>
-                                ))}
-                            </select>
-                        </div>
-                    )}
                 </div>
 
                 {/* Message */}
@@ -747,7 +795,7 @@ const GeneralStock = ({ currentUser }) => {
 
                 {/* Tab Content */}
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                    {isFetching ? (
+                    {showMainLoader ? (
                         <div className="flex flex-col items-center justify-center py-12">
                             <div className="w-12 h-12 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mb-4"></div>
                             <p className="text-gray-500 font-medium">Crunching your data...</p>
@@ -820,6 +868,18 @@ const GeneralStock = ({ currentUser }) => {
                                     selectedCollegeName={selectedCollegeName}
                                     handleDeleteDistribution={handleDeleteDistribution}
                                     handleDeletePurchase={handleDeletePurchase}
+                                />
+                            )}
+
+                            {activeTab === 'reports' && (
+                                <DistributionReportsTab
+                                    byAuthorizedBy={reportSummary.byAuthorizedBy}
+                                    byDepartment={reportSummary.byDepartment}
+                                    reportStartDate={reportStartDate}
+                                    reportEndDate={reportEndDate}
+                                    setReportStartDate={setReportStartDate}
+                                    setReportEndDate={setReportEndDate}
+                                    onApplyFilters={fetchDistributionReports}
                                 />
                             )}
                         </>
@@ -1777,6 +1837,238 @@ const PrintButton = ({ transaction }) => {
                 <Printer size={16} />
             </button>
         </>
+    );
+};
+
+const ReportBreakdownTable = ({ rows, rowLabel, rowAccessor }) => {
+    const [expandedKeys, setExpandedKeys] = useState(() => new Set());
+
+    const toggleKey = (key) => {
+        setExpandedKeys((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
+
+    if (!rows || rows.length === 0) {
+        return (
+            <div className="text-center py-10 bg-gray-50 rounded-xl border border-dashed border-gray-200 text-gray-600 text-sm">
+                No rows for this breakdown.
+            </div>
+        );
+    }
+
+    return (
+        <div className="overflow-x-auto rounded-lg border border-gray-200">
+            <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                        <th className="w-10 px-2 py-3" aria-hidden="true" />
+                        <th className="px-4 py-3 text-left font-semibold text-gray-700">{rowLabel}</th>
+                        <th className="px-4 py-3 text-right font-semibold text-gray-700">Distributions</th>
+                        <th className="px-4 py-3 text-right font-semibold text-gray-700">Total units</th>
+                        <th className="px-4 py-3 text-right font-semibold text-gray-700">Item types</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                    {rows.map((row) => {
+                        const keyVal = row[rowAccessor];
+                        const rowKey = `${rowAccessor}:${String(keyVal)}`;
+                        const isOpen = expandedKeys.has(rowKey);
+                        const items = row.items || [];
+                        const itemTypeCount = items.length;
+                        const canExpand = itemTypeCount > 0;
+
+                        return (
+                            <Fragment key={rowKey}>
+                                <tr
+                                    className={`hover:bg-gray-50/80 ${canExpand ? 'cursor-pointer' : ''}`}
+                                    onClick={() => canExpand && toggleKey(rowKey)}
+                                    onKeyDown={(e) => {
+                                        if (!canExpand) return;
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            toggleKey(rowKey);
+                                        }
+                                    }}
+                                    tabIndex={canExpand ? 0 : undefined}
+                                    aria-expanded={canExpand ? isOpen : undefined}
+                                    aria-label={
+                                        canExpand
+                                            ? `${isOpen ? 'Collapse' : 'Expand'} item breakdown for ${keyVal}`
+                                            : undefined
+                                    }
+                                >
+                                    <td className="px-2 py-3 align-middle">
+                                        {canExpand ? (
+                                            <span
+                                                className="inline-flex p-1.5 rounded-lg text-gray-600"
+                                                aria-hidden
+                                            >
+                                                {isOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                                            </span>
+                                        ) : (
+                                            <span className="inline-block w-8" />
+                                        )}
+                                    </td>
+                                    <td className="px-4 py-3 text-gray-900 font-medium align-middle">{keyVal}</td>
+                                    <td className="px-4 py-3 text-right text-gray-800 tabular-nums align-middle">
+                                        {row.distributionCount}
+                                    </td>
+                                    <td className="px-4 py-3 text-right text-gray-800 font-semibold tabular-nums align-middle">
+                                        {row.totalItemQuantity}
+                                    </td>
+                                    <td className="px-4 py-3 text-right text-gray-600 tabular-nums align-middle">
+                                        {itemTypeCount}
+                                    </td>
+                                </tr>
+                                {isOpen && canExpand && (
+                                    <tr className="bg-slate-50/90">
+                                        <td colSpan={5} className="px-4 py-3 pl-12 border-t border-slate-100">
+                                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                                                Item breakdown
+                                            </p>
+                                            <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                                                {items.map((it, idx) => (
+                                                    <li
+                                                        key={`${it.name}-${idx}`}
+                                                        className="flex justify-between gap-3 text-sm bg-white border border-gray-200 rounded-lg px-3 py-2"
+                                                    >
+                                                        <span className="text-gray-800 truncate">{it.name}</span>
+                                                        <span className="tabular-nums font-medium text-gray-900 shrink-0">
+                                                            {it.quantity}
+                                                        </span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </td>
+                                    </tr>
+                                )}
+                            </Fragment>
+                        );
+                    })}
+                </tbody>
+            </table>
+        </div>
+    );
+};
+
+// Reports: by authorizer and by department (general distributions)
+const DistributionReportsTab = ({
+    byAuthorizedBy,
+    byDepartment,
+    reportStartDate,
+    reportEndDate,
+    setReportStartDate,
+    setReportEndDate,
+    onApplyFilters,
+}) => {
+    const [reportBreakdownTab, setReportBreakdownTab] = useState('authorized');
+
+    const hasAny =
+        (byAuthorizedBy && byAuthorizedBy.length > 0) ||
+        (byDepartment && byDepartment.length > 0);
+
+    const activeRows = reportBreakdownTab === 'authorized' ? byAuthorizedBy : byDepartment;
+    const activeRowLabel = reportBreakdownTab === 'authorized' ? 'Authorized by' : 'Department';
+    const activeRowAccessor = reportBreakdownTab === 'authorized' ? 'authorizedBy' : 'department';
+
+    return (
+        <div className="space-y-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between pb-4 border-b border-gray-100">
+                <div className="flex flex-wrap gap-4 items-end">
+                    <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">From</label>
+                        <input
+                            type="date"
+                            value={reportStartDate}
+                            onChange={(e) => setReportStartDate(e.target.value)}
+                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">To</label>
+                        <input
+                            type="date"
+                            value={reportEndDate}
+                            onChange={(e) => setReportEndDate(e.target.value)}
+                            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => onApplyFilters()}
+                        className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                        Apply / Refresh
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setReportStartDate('');
+                            setReportEndDate('');
+                        }}
+                        className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                    >
+                        Clear dates
+                    </button>
+                </div>
+                <div
+                    className="flex rounded-xl border border-gray-200 bg-gray-50 p-1 gap-0.5 shrink-0 sm:ml-auto"
+                    role="tablist"
+                    aria-label="Report breakdown"
+                >
+                    <button
+                        type="button"
+                        role="tab"
+                        aria-selected={reportBreakdownTab === 'authorized'}
+                        onClick={() => setReportBreakdownTab('authorized')}
+                        className={`px-3 py-2 text-sm font-medium rounded-lg transition-all whitespace-nowrap ${reportBreakdownTab === 'authorized'
+                            ? 'bg-white text-blue-700 shadow-sm ring-1 ring-gray-200'
+                            : 'text-gray-600 hover:text-gray-900'
+                            }`}
+                    >
+                        By authorized
+                    </button>
+                    <button
+                        type="button"
+                        role="tab"
+                        aria-selected={reportBreakdownTab === 'department'}
+                        onClick={() => setReportBreakdownTab('department')}
+                        className={`px-3 py-2 text-sm font-medium rounded-lg transition-all whitespace-nowrap ${reportBreakdownTab === 'department'
+                            ? 'bg-white text-blue-700 shadow-sm ring-1 ring-gray-200'
+                            : 'text-gray-600 hover:text-gray-900'
+                            }`}
+                    >
+                        By department
+                    </button>
+                </div>
+            </div>
+
+            {!hasAny ? (
+                <div className="text-center py-14 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                    <BarChart3 className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                    <p className="text-gray-600 font-medium">No distribution data for this scope</p>
+                    <p className="text-sm text-gray-500 mt-1">Try another college or date range.</p>
+                </div>
+            ) : (
+                <div className="space-y-2">
+                    {reportBreakdownTab === 'department' && (
+                        <p className="text-xs text-gray-500">
+                            Grouped by recipient department on each distribution. Blank values appear as —.
+                        </p>
+                    )}
+                    <ReportBreakdownTable
+                        key={reportBreakdownTab}
+                        rows={activeRows}
+                        rowLabel={activeRowLabel}
+                        rowAccessor={activeRowAccessor}
+                    />
+                </div>
+            )}
+        </div>
     );
 };
 

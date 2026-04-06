@@ -3,6 +3,7 @@ const router = express.Router();
 const {
   createDistribution,
   getAllDistributions,
+  getDistributionReportsSummary,
   getDistributionById,
   updateDistribution,
   deleteDistribution,
@@ -11,6 +12,7 @@ const {
 // Distribution routes
 router.post('/', createDistribution);
 router.get('/', getAllDistributions);
+router.get('/reports/summary', getDistributionReportsSummary);
 router.get('/:id', getDistributionById);
 router.put('/:id', updateDistribution);
 router.delete('/:id', deleteDistribution);

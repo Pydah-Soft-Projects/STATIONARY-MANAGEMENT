@@ -1,7 +1,47 @@
+const mongoose = require('mongoose');
 const { GeneralDistribution } = require('../models/generalDistributionModel');
 const { GeneralProduct } = require('../models/generalProductModel');
 const { College } = require('../models/collegeModel');
 const asyncHandler = require('express-async-handler');
+
+function buildDistributionReportMatch(query) {
+  const { collegeId, startDate, endDate } = query;
+  const match = {};
+  if (collegeId) {
+    if (!mongoose.Types.ObjectId.isValid(collegeId)) {
+      return { error: 'Invalid college ID' };
+    }
+    match.collegeId = new mongoose.Types.ObjectId(collegeId);
+  }
+  if (startDate || endDate) {
+    match.distributionDate = {};
+    if (startDate) match.distributionDate.$gte = new Date(startDate);
+    if (endDate) match.distributionDate.$lte = new Date(`${endDate}T23:59:59.999`);
+  }
+  return { match };
+}
+
+function mergeGroupedReport(distributionCounts, itemStats, keyName) {
+  const countMap = Object.fromEntries(
+    distributionCounts.map((d) => [d._id, d.distributionCount])
+  );
+  const itemsMap = Object.fromEntries(
+    itemStats.map((d) => [d._id, d.items || []])
+  );
+  const allKeys = new Set([...Object.keys(countMap), ...Object.keys(itemsMap)]);
+  const rows = [...allKeys].map((key) => {
+    const items = itemsMap[key] || [];
+    const totalItemQuantity = items.reduce((s, it) => s + (it.quantity || 0), 0);
+    return {
+      [keyName]: key,
+      distributionCount: countMap[key] || 0,
+      totalItemQuantity,
+      items,
+    };
+  });
+  rows.sort((a, b) => b.totalItemQuantity - a.totalItemQuantity);
+  return rows;
+}
 
 /**
  * @desc    Create a new distribution (deducts stock)
@@ -154,6 +194,100 @@ const getAllDistributions = asyncHandler(async (req, res) => {
 });
 
 /**
+ * @desc    Report: by authorizedBy and by department (item breakdowns)
+ * @route   GET /api/general-distributions/reports/summary
+ * @access  Public
+ */
+const getDistributionReportsSummary = asyncHandler(async (req, res) => {
+  const built = buildDistributionReportMatch(req.query);
+  if (built.error) {
+    res.status(400);
+    throw new Error(built.error);
+  }
+  const { match } = built;
+
+  const [facetResult] = await GeneralDistribution.aggregate([
+    { $match: match },
+    {
+      $addFields: {
+        departmentNorm: {
+          $let: {
+            vars: {
+              d: { $trim: { input: { $ifNull: ['$department', ''] } } },
+            },
+            in: {
+              $cond: {
+                if: { $eq: ['$$d', ''] },
+                then: '—',
+                else: '$$d',
+              },
+            },
+          },
+        },
+      },
+    },
+    {
+      $facet: {
+        authDistributionCounts: [
+          { $group: { _id: '$authorizedBy', distributionCount: { $sum: 1 } } },
+          { $sort: { distributionCount: -1 } },
+        ],
+        authItemStats: [
+          { $unwind: '$items' },
+          {
+            $group: {
+              _id: { authorizedBy: '$authorizedBy', itemName: '$items.name' },
+              quantity: { $sum: '$items.quantity' },
+            },
+          },
+          { $sort: { quantity: -1 } },
+          {
+            $group: {
+              _id: '$_id.authorizedBy',
+              items: { $push: { name: '$_id.itemName', quantity: '$quantity' } },
+            },
+          },
+        ],
+        deptDistributionCounts: [
+          { $group: { _id: '$departmentNorm', distributionCount: { $sum: 1 } } },
+          { $sort: { distributionCount: -1 } },
+        ],
+        deptItemStats: [
+          { $unwind: '$items' },
+          {
+            $group: {
+              _id: { department: '$departmentNorm', itemName: '$items.name' },
+              quantity: { $sum: '$items.quantity' },
+            },
+          },
+          { $sort: { quantity: -1 } },
+          {
+            $group: {
+              _id: '$_id.department',
+              items: { $push: { name: '$_id.itemName', quantity: '$quantity' } },
+            },
+          },
+        ],
+      },
+    },
+  ]);
+
+  const fr = facetResult || {};
+  const byAuthorizedBy = mergeGroupedReport(
+    fr.authDistributionCounts || [],
+    fr.authItemStats || [],
+    'authorizedBy'
+  );
+  const byDepartment = mergeGroupedReport(
+    fr.deptDistributionCounts || [],
+    fr.deptItemStats || [],
+    'department'
+  );
+
+  res.status(200).json({ byAuthorizedBy, byDepartment });
+});
+
+/**
  * @desc    Get distribution by ID
  * @route   GET /api/general-distributions/:id
  * @access  Public
@@ -233,6 +367,7 @@ const deleteDistribution = asyncHandler(async (req, res) => {
 module.exports = {
   createDistribution,
   getAllDistributions,
+  getDistributionReportsSummary,
   getDistributionById,
   updateDistribution,
   deleteDistribution,
