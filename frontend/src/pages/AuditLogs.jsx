@@ -58,6 +58,7 @@ const AuditLogs = ({ currentUser }) => {
   const [productsLoading, setProductsLoading] = useState(false);
   const [productsError, setProductsError] = useState('');
   const [entryValues, setEntryValues] = useState({});
+  const [beforeTouched, setBeforeTouched] = useState({});
   const [entryStatus, setEntryStatus] = useState({});
   const [isSubmittingAll, setIsSubmittingAll] = useState(false);
   const [pendingLogs, setPendingLogs] = useState([]);
@@ -141,6 +142,7 @@ const AuditLogs = ({ currentUser }) => {
   const userCollegeId =
     currentUserInfo?.assignedCollege?._id ||
     (typeof currentUserInfo?.assignedCollege === 'string' ? currentUserInfo?.assignedCollege : null);
+  const targetCollegeId = userCollegeId && !isSuperAdmin ? userCollegeId : selectedCollege;
 
   useEffect(() => {
     // Initialize selectedCollege: if SubAdmin, force to their college. If SA, kept null (Central)
@@ -148,6 +150,11 @@ const AuditLogs = ({ currentUser }) => {
       setSelectedCollege(userCollegeId);
     }
   }, [userCollegeId, isSuperAdmin]);
+
+  useEffect(() => {
+    // Reset manual "Before Audit" edits when switching stock context.
+    setBeforeTouched({});
+  }, [targetCollegeId]);
 
   const fetchColleges = async () => {
     try {
@@ -167,7 +174,7 @@ const AuditLogs = ({ currentUser }) => {
       setLogsError('');
       // If Sub-Admin, filter by their college. SuperAdmin sees all or filtered by selectedCollege
       let query = '?status=pending';
-      const targetCollege = userCollegeId && !isSuperAdmin ? userCollegeId : selectedCollege;
+      const targetCollege = targetCollegeId;
 
       if (targetCollege) {
         query += `&collegeId=${targetCollege}`;
@@ -207,7 +214,7 @@ const AuditLogs = ({ currentUser }) => {
       setHistoryLoading(true);
       setHistoryError('');
       let query = '?status=all';
-      const targetCollege = userCollegeId && !isSuperAdmin ? userCollegeId : selectedCollege;
+      const targetCollege = targetCollegeId;
       if (targetCollege) query += `&collegeId=${targetCollege}`;
 
       const response = await fetch(apiUrl(`/api/audit-logs${query}`));
@@ -234,7 +241,7 @@ const AuditLogs = ({ currentUser }) => {
   const [collegeStockMap, setCollegeStockMap] = useState({});
 
   useEffect(() => {
-    const targetCollege = userCollegeId && !isSuperAdmin ? userCollegeId : selectedCollege;
+    const targetCollege = targetCollegeId;
 
     if (targetCollege) {
       // Fetch college stock to override central stock display
@@ -245,8 +252,13 @@ const AuditLogs = ({ currentUser }) => {
             const data = await res.json();
             const map = {};
             (data.stock || []).forEach(item => {
-              const pId = typeof item.product === 'object' ? item.product._id : item.product;
-              map[pId] = item.quantity;
+              const rawProductId =
+                typeof item.product === 'object'
+                  ? (item.product?._id ?? item.product?.id)
+                  : item.product;
+              if (rawProductId !== undefined && rawProductId !== null) {
+                map[String(rawProductId)] = Number(item.quantity) || 0;
+              }
             });
             setCollegeStockMap(map);
           }
@@ -257,14 +269,14 @@ const AuditLogs = ({ currentUser }) => {
       // Reset if central (mostly for SA switching back to Central)
       setCollegeStockMap({});
     }
-  }, [userCollegeId, isSuperAdmin, selectedCollege, refreshKey]);
+  }, [targetCollegeId, refreshKey]);
 
   useEffect(() => {
     fetchProducts();
     if (isSuperAdmin) fetchColleges(); // Fetch colleges for SA
     fetchPendingLogs();
     fetchHistoryLogs();
-  }, [refreshKey, selectedCollege]); // Re-fetch logs when college selection changes
+  }, [refreshKey, selectedCollege, targetCollegeId]); // Re-fetch logs when college selection changes
 
   useEffect(() => {
     if (!products?.length) return;
@@ -273,29 +285,27 @@ const AuditLogs = ({ currentUser }) => {
       products.forEach(product => {
         const existing = next[product._id] || {};
         // Determine correct stock to show based on context
-        const contextStock = (selectedCollege)
-          ? (collegeStockMap[product._id] ?? 0)
+        const contextStock = targetCollegeId
+          ? (collegeStockMap[String(product._id)] ?? 0)
           : (product.stock ?? 0);
+        const shouldUseContextBefore = !beforeTouched[product._id];
 
-        if (existing.beforeQuantity === undefined || existing.beforeQuantity === '') {
-          next[product._id] = {
-            beforeQuantity: Number(contextStock),
-            afterQuantity: existing.afterQuantity ?? '',
-            notes: existing.notes ?? '',
-          };
-        } else {
-          next[product._id] = {
-            beforeQuantity: existing.beforeQuantity,
-            afterQuantity: existing.afterQuantity ?? '',
-            notes: existing.notes ?? '',
-          };
-        }
+        next[product._id] = {
+          beforeQuantity: shouldUseContextBefore
+            ? Number(contextStock)
+            : (existing.beforeQuantity ?? Number(contextStock)),
+          afterQuantity: existing.afterQuantity ?? '',
+          notes: existing.notes ?? '',
+        };
       });
       return next;
     });
-  }, [products, collegeStockMap, selectedCollege]); // Dependency on collegeStockMap
+  }, [products, collegeStockMap, targetCollegeId, beforeTouched]); // Dependency on collegeStockMap
 
   const handleEntryChange = (productId, field, value) => {
+    if (field === 'beforeQuantity') {
+      setBeforeTouched(prev => ({ ...prev, [productId]: true }));
+    }
     setEntryValues(prev => ({
       ...prev,
       [productId]: {
@@ -309,8 +319,8 @@ const AuditLogs = ({ currentUser }) => {
     const values = entryValues[product._id] || {};
 
     // Fallback logic for initial beforeQuantity
-    const contextStock = (selectedCollege)
-      ? (collegeStockMap[product._id] ?? 0)
+    const contextStock = targetCollegeId
+      ? (collegeStockMap[String(product._id)] ?? 0)
       : (product.stock ?? 0);
 
     const beforeQuantity = values.beforeQuantity !== undefined && values.beforeQuantity !== ''
@@ -338,7 +348,7 @@ const AuditLogs = ({ currentUser }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           productId: product._id,
-          collegeId: selectedCollege || null, // Send selected college (or null for central)
+          collegeId: targetCollegeId || null, // Send selected college (or null for central)
           beforeQuantity,
           afterQuantity,
           notes: values.notes || '',
@@ -364,6 +374,7 @@ const AuditLogs = ({ currentUser }) => {
           notes: '',
         },
       }));
+      setBeforeTouched(prev => ({ ...prev, [product._id]: false }));
 
       setPendingLogs(prev => [created, ...prev]);
       setEntryStatus(prev => ({ ...prev, [product._id]: 'success' }));
@@ -627,8 +638,8 @@ const AuditLogs = ({ currentUser }) => {
                       {products.map(product => {
                         const values = entryValues[product._id] || {};
                         const status = entryStatus[product._id];
-                        const currentStock = (selectedCollege)
-                          ? (collegeStockMap[product._id] ?? 0)
+                        const currentStock = targetCollegeId
+                          ? (collegeStockMap[String(product._id)] ?? 0)
                           : (product.stock ?? 0);
 
                         return (
