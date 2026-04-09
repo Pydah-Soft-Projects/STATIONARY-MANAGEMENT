@@ -10,12 +10,6 @@ const getTodayDate = () => {
   const today = new Date();
   return today.toISOString().split('T')[0];
 };
-const getDefaultStartDate = () => {
-  const d = new Date();
-  d.setDate(d.getDate() - 90);
-  return d.toISOString().split('T')[0];
-};
-
 const Reports = ({ currentUser }) => {
   // Check access level
   const isSuperAdmin = currentUser?.role === 'Administrator';
@@ -29,8 +23,8 @@ const Reports = ({ currentUser }) => {
     transactionType: '',
     paymentMethod: '',
     isPaid: '',
-    startDate: getDefaultStartDate(),
-    endDate: getTodayDate(),
+    startDate: '',
+    endDate: '',
   });
   const [colleges, setColleges] = useState([]);
   const [selectedCollege, setSelectedCollege] = useState('');
