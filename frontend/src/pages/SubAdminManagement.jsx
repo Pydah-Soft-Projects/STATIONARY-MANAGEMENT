@@ -85,7 +85,8 @@ const normalizePermissions = (perms = []) => {
     if (!permObj['profit-report']) permObj['profit-report'] = transAccess;
     if (!permObj['student-due']) permObj['student-due'] = transAccess;
   }
-  // No need to delete transactions as it's still used as a fallback/group key
+  // Remove legacy parent key so hidden stale full access cannot survive edits.
+  delete permObj['transactions'];
 
   // Handle legacy manage-stock permission
   if (hasLegacyManageStock) {

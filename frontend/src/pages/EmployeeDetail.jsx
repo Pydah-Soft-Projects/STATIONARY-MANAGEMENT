@@ -4,6 +4,7 @@ import { ArrowLeft, User, Package, Receipt, History, Calendar, DollarSign, Print
 import { useReactToPrint } from 'react-to-print';
 import { apiUrl } from '../utils/api';
 import EmployeeReceiptModal from './EmployeeReceiptModal';
+import { hasFullAccess } from '../utils/permissions';
 
 const EmployeeDetail = ({ products = [], setProducts, currentUser, isOnline }) => {
     const { id } = useParams();
@@ -20,6 +21,9 @@ const EmployeeDetail = ({ products = [], setProducts, currentUser, isOnline }) =
         receiptHeader: 'PYDAH GROUP OF INSTITUTIONS',
         receiptSubheader: 'Stationery Management System',
     });
+    const canManageTransactions =
+        currentUser?.role === 'Administrator' ||
+        hasFullAccess(currentUser?.permissions || [], 'transactions');
 
     // Fetch employee details
     const fetchEmployee = useCallback(async () => {
@@ -189,7 +193,7 @@ const EmployeeDetail = ({ products = [], setProducts, currentUser, isOnline }) =
                             <ArrowLeft size={16} />
                             Back
                         </button>
-                        {(currentUser?.role === 'Administrator' || (currentUser?.permissions && currentUser.permissions.some(p => p === 'employee-dashboard:full' || p === 'employee-dashboard'))) && (
+                        {canManageTransactions && (
                             <button
                                 onClick={() => setShowTransactionModal(true)}
                                 className="flex items-center gap-2 px-5 py-2.5 bg-white text-blue-800 rounded-xl hover:bg-blue-50 transition-all font-semibold shadow-lg"
@@ -489,7 +493,7 @@ const EmployeeDetail = ({ products = [], setProducts, currentUser, isOnline }) =
             </div>
 
             {
-                showTransactionModal && (
+                canManageTransactions && showTransactionModal && (
                     <EmployeeReceiptModal
                         employee={employee}
                         products={products}

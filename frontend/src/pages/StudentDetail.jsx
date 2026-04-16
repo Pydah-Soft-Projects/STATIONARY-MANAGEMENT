@@ -4,6 +4,7 @@ import { ArrowLeft, User, Package, Receipt, History, Calendar, DollarSign, Print
 import { useReactToPrint } from 'react-to-print';
 import StudentReceiptModal from './StudentReceipt.jsx';
 import { apiUrl } from '../utils/api';
+import { hasFullAccess } from '../utils/permissions';
 
 const StudentDetail = ({
   students = [],
@@ -32,6 +33,9 @@ const StudentDetail = ({
     receiptHeader: 'PYDAH GROUP OF INSTITUTIONS',
     receiptSubheader: 'Stationery Management System',
   });
+  const canManageTransactions =
+    currentUser?.role === 'Administrator' ||
+    hasFullAccess(currentUser?.permissions || [], 'transactions');
 
   const normalizeCourse = (value) => {
     if (!value) return '';
@@ -820,13 +824,15 @@ const StudentDetail = ({
               <ArrowLeft size={16} />
               Back
             </button>
-            <button
-              onClick={() => handleOpenTransaction(addOnProducts, 'addon')}
-              className="flex items-center gap-2 px-5 py-2.5 bg-white text-blue-800 rounded-xl hover:bg-blue-50 transition-all font-semibold shadow-lg"
-            >
-              <Receipt size={18} />
-              Add-On Items
-            </button>
+            {canManageTransactions && (
+              <button
+                onClick={() => handleOpenTransaction(addOnProducts, 'addon')}
+                className="flex items-center gap-2 px-5 py-2.5 bg-white text-blue-800 rounded-xl hover:bg-blue-50 transition-all font-semibold shadow-lg"
+              >
+                <Receipt size={18} />
+                Add-On Items
+              </button>
+            )}
           </div>
         </header>
 
@@ -930,7 +936,7 @@ const StudentDetail = ({
                   <div className="space-y-6">
                     <div className="flex items-center justify-between">
                       <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Pending Allocation</h4>
-                      {pendingItems.length > 0 && (
+                      {canManageTransactions && pendingItems.length > 0 && (
                         <button
                           onClick={() => handleOpenTransaction(pendingItems.map(({ product }) => product), 'mapped')}
                           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-500 transition-colors shadow"
@@ -1073,7 +1079,7 @@ const StudentDetail = ({
                                       Stock Pending
                                     </span>
                                   )}
-                                  {(!transaction.isPaid || (transaction.isPaid && !transaction.stockDeducted)) && !transaction.isPending && (
+                                  {canManageTransactions && (!transaction.isPaid || (transaction.isPaid && !transaction.stockDeducted)) && !transaction.isPending && (
                                     <button
                                       onClick={() => handleMarkAsPaid(transaction)}
                                       disabled={!isOnline || componentUpdating === `paid:${transaction._id || transaction.id}`}
@@ -1169,7 +1175,7 @@ const StudentDetail = ({
                                             </span>
                                           </span>
 
-                                          {item.status === 'partial' && !item.isSet && (
+                                          {canManageTransactions && item.status === 'partial' && !item.isSet && (
                                             <button
                                               type="button"
                                               onClick={() => handleMarkItemFulfilled(transaction, item)}
@@ -1210,7 +1216,7 @@ const StudentDetail = ({
                                                     <span className="font-semibold">
                                                       × {component.quantity}
                                                     </span>
-                                                    {component.taken === false && (
+                                                    {canManageTransactions && component.taken === false && (
                                                       <div className="flex items-center gap-2">
                                                         <span className="uppercase font-semibold text-red-600">
                                                           Not Taken
@@ -1503,7 +1509,7 @@ const StudentDetail = ({
 
       {/* Transaction Modal */}
       {
-        showTransactionModal && student && (
+        canManageTransactions && showTransactionModal && student && (
           <StudentReceiptModal
             student={student}
             products={products}

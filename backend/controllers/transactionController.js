@@ -28,10 +28,10 @@ const getProjectedStock = (productId, stockMap, changeMap) => {
 // Helper: Apply stock changes to the College (not global Product)
 // changeMap: Map<productId, delta> (negative delta means deduction)
 // collegeId: ObjectId of the college to update
-const applyStockChanges = async (changeMap, collegeId) => {
+const applyStockChanges = async (changeMap, collegeId, session = null) => {
   if (!changeMap || changeMap.size === 0 || !collegeId) return;
 
-  const college = await College.findById(collegeId);
+  const college = await College.findById(collegeId).session(session);
   if (!college) throw new Error('College not found during stock update');
 
   // Convert map to array for easier processing
@@ -61,13 +61,13 @@ const applyStockChanges = async (changeMap, collegeId) => {
   });
 
   college.stock = updatedStock;
-  await college.save();
+  await college.save({ session });
 };
 
-const loadCollegeStock = async (collegeId, productIds) => {
+const loadCollegeStock = async (collegeId, productIds, session = null) => {
   if (!collegeId) return new Map();
   
-  const college = await College.findById(collegeId).select('stock');
+  const college = await College.findById(collegeId).select('stock').session(session);
   if (!college) return new Map();
 
   const stockMap = new Map();
@@ -397,8 +397,9 @@ const createTransaction = asyncHandler(async (req, res) => {
     } else {
       // CHECK COLLEGE STOCK IF PAID
       if (isPaid) {
+        const available = getProjectedStock(productId, collegeStockMap, stockChanges);
         accumulateStockChange(stockChanges, productId, -requestedQuantity);
-        if (getProjectedStock(productId, collegeStockMap, new Map()) < requestedQuantity) {
+        if (available < requestedQuantity) {
           if (explicitStatus !== 'fulfilled') itemStatus = 'partial'; // Mark as partial if stock is insufficient even if paid
         }
       }
@@ -443,7 +444,7 @@ const createTransaction = asyncHandler(async (req, res) => {
     paymentMethod: paymentMethod || 'cash',
     isPaid: isPaid || false,
     paidAt: isPaid ? new Date() : null,
-    stockDeducted: (isPaid && stockChanges.size > 0 && Array.from(stockChanges.values()).every(v => v < 0)) || false, 
+    stockDeducted: Boolean(isPaid && stockChanges.size > 0),
     transactionDate: new Date(),
     remarks: remarks || '',
     cashAmount: paymentMethod === 'split' ? (Number(cashAmount) || 0) : (paymentMethod === 'cash' ? totalAmount : 0),
@@ -654,7 +655,9 @@ const updateTransaction = asyncHandler(async (req, res) => {
     }
 
     const newProductIds = new Set(items.map((item) => item.productId));
-    const { productMap: newProductMap, stockMap: newStockMap } = await loadProductsWithComponents(newProductIds);
+    const { productMap: newProductMap } = await loadProductsWithComponents(newProductIds);
+    const txCollegeId = transaction.collegeId || transaction.branchId;
+    const newCollegeStockMap = await loadCollegeStock(txCollegeId, newProductIds);
 
     let totalAmount = 0;
     const validatedItems = [];
@@ -749,8 +752,9 @@ const updateTransaction = asyncHandler(async (req, res) => {
         }
       } else {
         if (targetIsPaid) {
+          const available = getProjectedStock(productId, newCollegeStockMap, stockChanges);
           accumulateStockChange(stockChanges, productId, -requestedQuantity);
-          if (getProjectedStock(productId, newStockMap, new Map()) < requestedQuantity) {
+          if (available < requestedQuantity) {
             if (explicitStatus !== 'fulfilled') itemStatus = 'partial';
           }
         }
@@ -779,7 +783,7 @@ const updateTransaction = asyncHandler(async (req, res) => {
     if (targetIsPaid && stockChanges.size > 0) {
       await applyStockChanges(stockChanges, colId);
     }
-    transaction.stockDeducted = targetIsPaid;
+    transaction.stockDeducted = Boolean(targetIsPaid && stockChanges.size > 0);
 
     transaction.items = validatedItems;
     transaction.totalAmount = totalAmount;

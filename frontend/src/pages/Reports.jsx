@@ -13,7 +13,12 @@ const getTodayDate = () => {
 const Reports = ({ currentUser }) => {
   // Check access level
   const isSuperAdmin = currentUser?.role === 'Administrator';
-  const canEdit = isSuperAdmin || hasFullAccess(currentUser?.permissions || [], 'transactions');
+  const canEdit = isSuperAdmin || [
+    'reports-daily',
+    'reports-monthly',
+    'reports-stock',
+    'transactions',
+  ].some((key) => hasFullAccess(currentUser?.permissions || [], key));
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -2374,12 +2379,14 @@ const Reports = ({ currentUser }) => {
                                       >
                                         <Eye size={14} />
                                       </button>
-                                      <button
-                                        onClick={() => handleDelete(transaction._id)}
-                                        className="flex items-center gap-1 px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
-                                      >
-                                        <Trash2 size={14} />
-                                      </button>
+                                      {canEdit && (
+                                        <button
+                                          onClick={() => handleDelete(transaction._id)}
+                                          className="flex items-center gap-1 px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
+                                        >
+                                          <Trash2 size={14} />
+                                        </button>
+                                      )}
                                     </div>
                                   </td>
                                 </tr>
@@ -2551,12 +2558,14 @@ const Reports = ({ currentUser }) => {
                                       >
                                         <Eye size={14} />
                                       </button>
-                                      <button
-                                        onClick={() => handleDelete(transaction._id)}
-                                        className="flex items-center gap-1 px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
-                                      >
-                                        <Trash2 size={14} />
-                                      </button>
+                                      {canEdit && (
+                                        <button
+                                          onClick={() => handleDelete(transaction._id)}
+                                          className="flex items-center gap-1 px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
+                                        >
+                                          <Trash2 size={14} />
+                                        </button>
+                                      )}
                                     </div>
                                   </td>
                                 </tr>
