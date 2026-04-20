@@ -1387,30 +1387,28 @@ const Reports = ({ currentUser }) => {
       if (!response.ok) throw new Error('Failed to fetch products for report');
 
       const data = await response.json();
-      let products = [];
+      let productsList = [];
 
       if (selectedCollegeId) {
         if (isGeneral) {
-          // General stock response structure: { _id, name, generalStock: [...] }
-          products = (data.generalStock || []).map(item => ({
+          productsList = (data.generalStock || []).map(item => ({
             ...item.product,
             stock: item.quantity
           }));
         } else {
-          // College stock (Academic) response structure: { _id, name, stock: [...] }
-          products = (data.stock || []).map(item => ({
+          productsList = (data.stock || []).map(item => ({
             ...item.product,
             stock: item.quantity
           }));
         }
       } else {
         const allProducts = data;
-        products = Array.isArray(allProducts) ? allProducts.filter(product => !product?.isSet) : [];
+        productsList = Array.isArray(allProducts) ? allProducts.filter(product => !product?.isSet) : [];
       }
 
       // Apply existing filters
       if (reportFilters.productCategory) {
-        products = products.filter(p => p.category === reportFilters.productCategory);
+        productsList = productsList.filter(p => p.category === reportFilters.productCategory);
       }
 
       const pdf = new jsPDF({
@@ -1428,112 +1426,181 @@ const Reports = ({ currentUser }) => {
       const headerText = collegeData ? collegeData.name.toUpperCase() : receiptSettings.receiptHeader;
 
       pdf.text(headerText, 105, 15, { align: 'center' });
-      pdf.setFontSize(12);
-      pdf.setTextColor(0, 0, 0);
+      pdf.setFontSize(10);
+      pdf.setTextColor(100, 100, 100);
       pdf.setFont(undefined, 'normal');
-      pdf.text(receiptSettings.receiptSubheader, 105, 22, { align: 'center' });
+      pdf.text(receiptSettings.receiptSubheader, 105, 20, { align: 'center' });
+      
       pdf.setFontSize(14);
       pdf.setTextColor(0, 0, 0);
       pdf.setFont(undefined, 'bold');
-
       const reportTitle = isGeneral ? 'General/Distribute Stock Report' : 'Academic Stock Report';
-      pdf.text(reportTitle, 105, 30, { align: 'center' });
+      pdf.text(reportTitle, 105, 28, { align: 'center' });
 
       // Draw line under header
-      pdf.setDrawColor(200, 200, 200);
-      pdf.line(20, 35, 190, 35);
+      pdf.setDrawColor(0, 0, 0);
+      pdf.setLineWidth(0.5);
+      pdf.line(20, 32, 190, 32);
 
-      let yPos = 42;
+      let yPos = 40;
 
-      // Report Info Section - REMOVED
+      // Filter info if any
+      pdf.setFontSize(9);
+      pdf.setFont(undefined, 'normal');
+      pdf.setTextColor(50, 50, 50);
+      const filterText = [];
+      if (reportFilters.productCategory) filterText.push(`Category: ${reportFilters.productCategory}`);
+      if (collegeData) filterText.push(`College: ${collegeData.name}`);
+      
+      if (filterText.length > 0) {
+        pdf.text(filterText.join(' | '), 20, yPos);
+        yPos += 7;
+      }
 
       // Summary Section
-      if (reportFilters.includeSummary && products.length > 0) {
-        const totalStock = products.reduce((sum, p) => sum + (p.stock || 0), 0);
-        const totalValue = products.reduce((sum, p) => sum + ((p.stock || 0) * (p.price || 0)), 0);
-        const lowStockCount = products.filter(p => (p.stock || 0) < 10).length;
-        const outOfStockCount = products.filter(p => (p.stock || 0) === 0).length;
+      if (reportFilters.includeSummary && productsList.length > 0) {
+        const totalStock = productsList.reduce((sum, p) => sum + (p.stock || 0), 0);
+        const totalValue = productsList.reduce((sum, p) => sum + ((p.stock || 0) * (p.price || 0)), 0);
+        const lowStockCount = productsList.filter(p => (p.stock || 0) < 10).length;
+        const outOfStockCount = productsList.filter(p => (p.stock || 0) === 0).length;
 
-        pdf.setFontSize(9); // Slightly smaller to fit all info
+        pdf.setFontSize(9);
         pdf.setFont(undefined, 'bold');
         pdf.setFillColor(245, 245, 245);
-        pdf.rect(20, yPos - 4, 170, 8, 'F'); // Background for single line stats
-        pdf.text('Summary:', 22, yPos);
+        pdf.rect(20, yPos - 4, 170, 8, 'F');
+        pdf.setTextColor(0, 0, 0);
+        pdf.text('Summary:', 22, yPos + 1);
 
         pdf.setFont(undefined, 'normal');
-        // Combined stats on one line
         const statsText = isGeneral
-          ? `Products: ${products.length} | Stock: ${totalStock} | LowStock: ${lowStockCount} | OutOfStock: ${outOfStockCount}`
-          : `Products: ${products.length} | Stock: ${totalStock} | Val: ${formatCurrencyForPDF(totalValue)} | LowStock: ${lowStockCount} | OutOfStock: ${outOfStockCount}`;
-        pdf.text(statsText, 45, yPos);
+          ? `Products: ${productsList.length} | Total Stock: ${totalStock} | Low Stock: ${lowStockCount} | Out of Stock: ${outOfStockCount}`
+          : `Products: ${productsList.length} | Total Stock: ${totalStock} | Total Value: ${formatCurrencyForPDF(totalValue)} | Low Stock: ${lowStockCount} | Out of Stock: ${outOfStockCount}`;
+        pdf.text(statsText, 45, yPos + 1);
 
-        yPos += 10;
+        yPos += 12;
       }
 
       // Stock Details Table
-      if (products.length > 0) {
-        // Table Headers
-        pdf.setFontSize(8);
-        pdf.setFont(undefined, 'bold');
-        pdf.setFillColor(230, 230, 230);
-        pdf.rect(20, yPos - 3, 170, 6, 'F');
-        pdf.text('Product Name', 22, yPos + 1);
-        if (!isGeneral) {
-          pdf.text('Price', 110, yPos + 1);
-          pdf.text('Stock', 140, yPos + 1);
-          pdf.text('Value', 170, yPos + 1);
-        } else {
-          pdf.text('Stock', 170, yPos + 1);
-        }
-        yPos += 8;
+      if (productsList.length > 0) {
+        // Table Configuration
+        const startX = 20;
+        const endX = 190;
+        const tableWidth = endX - startX;
+        
+        // Column positions and widths
+        const cols = isGeneral ? {
+          sno: { x: startX, w: 10, align: 'center', label: 'S.No' },
+          name: { x: startX + 10, w: 95, align: 'left', label: 'Product Name' },
+          stock: { x: startX + 105, w: 25, align: 'right', label: 'Stock' },
+          remarks: { x: startX + 130, w: 40, align: 'left', label: 'Remarks' }
+        } : {
+          sno: { x: startX, w: 10, align: 'center', label: 'S.No' },
+          name: { x: startX + 10, w: 65, align: 'left', label: 'Product Name' },
+          price: { x: startX + 75, w: 20, align: 'right', label: 'Price' },
+          stock: { x: startX + 95, w: 20, align: 'right', label: 'Stock' },
+          value: { x: startX + 115, w: 25, align: 'right', label: 'Value' },
+          remarks: { x: startX + 140, w: 30, align: 'left', label: 'Remarks' }
+        };
+
+        const drawTableHeader = (y) => {
+          pdf.setFontSize(9);
+          pdf.setFont(undefined, 'bold');
+          pdf.setFillColor(230, 230, 230);
+          pdf.rect(startX, y - 5, tableWidth, 7, 'F');
+          pdf.setDrawColor(0, 0, 0);
+          pdf.setLineWidth(0.2);
+          pdf.rect(startX, y - 5, tableWidth, 7, 'D');
+
+          // Header Text
+          Object.values(cols).forEach(col => {
+            let xOffset = col.x;
+            if (col.align === 'center') xOffset += col.w / 2;
+            if (col.align === 'right') xOffset += col.w - 2;
+            if (col.align === 'left') xOffset += 2;
+            pdf.text(col.label, xOffset, y, { align: col.align });
+          });
+
+          // Vertical lines for header
+          let currentX = startX;
+          Object.values(cols).forEach((col, idx) => {
+            if (idx < Object.values(cols).length - 1) {
+              currentX += col.w;
+              pdf.line(currentX, y - 5, currentX, y + 2);
+            }
+          });
+        };
+
+        drawTableHeader(yPos);
+        yPos += 7;
 
         pdf.setFont(undefined, 'normal');
         pdf.setFontSize(8);
 
-        products.forEach((product, index) => {
-          // Check if we need a new page
+        productsList.forEach((product, index) => {
+          // Check for page break
           if (yPos > 275) {
             pdf.addPage();
             yPos = 20;
-            // Redraw table headers on new page
-            pdf.setFont(undefined, 'bold');
-            pdf.setFontSize(8);
-            pdf.setFillColor(230, 230, 230);
-            pdf.rect(20, yPos - 3, 170, 6, 'F');
-            pdf.text('Product Name', 22, yPos + 1);
-            if (!isGeneral) {
-              pdf.text('Price', 110, yPos + 1);
-              pdf.text('Stock', 140, yPos + 1);
-              pdf.text('Value', 170, yPos + 1);
-            } else {
-              pdf.text('Stock', 170, yPos + 1);
-            }
-            yPos += 8;
+            drawTableHeader(yPos);
+            yPos += 7;
             pdf.setFont(undefined, 'normal');
+            pdf.setFontSize(8);
           }
 
-          const productName = (product.name || 'N/A').substring(0, 45);
-          const price = formatCurrencyForPDF(product.price || 0);
-          const stock = product.stock || 0;
-          const value = formatCurrencyForPDF((product.stock || 0) * (product.price || 0));
-
-          // Alternate row background
-          if (index % 2 === 0) {
-            pdf.setFillColor(252, 252, 252);
-            pdf.rect(20, yPos - 4, 170, 6, 'F');
+          const rowHeight = 6;
+          
+          // Draw row background for alternating colors
+          if (index % 2 === 1) {
+            pdf.setFillColor(250, 250, 250);
+            pdf.rect(startX, yPos - 4.5, tableWidth, rowHeight, 'F');
           }
 
-          pdf.text(productName, 22, yPos);
-          if (!isGeneral) {
-            pdf.text(price, 110, yPos);
-            pdf.text(stock.toString(), 140, yPos);
-            pdf.text(value, 170, yPos);
+          // Draw row border
+          pdf.setDrawColor(200, 200, 200);
+          pdf.rect(startX, yPos - 4.5, tableWidth, rowHeight, 'D');
+
+          // Vertical lines for rows
+          pdf.setDrawColor(200, 200, 200);
+          let currentX = startX;
+          Object.values(cols).forEach((col, idx) => {
+            if (idx < Object.values(cols).length - 1) {
+              currentX += col.w;
+              pdf.line(currentX, yPos - 4.5, currentX, yPos - 4.5 + rowHeight);
+            }
+          });
+
+          // Draw Data
+          const sno = (index + 1).toString();
+          const pName = (product.name || 'N/A').substring(0, isGeneral ? 60 : 40);
+          const pStock = (product.stock || 0).toString();
+          const pRemarks = (product.remarks || '').substring(0, isGeneral ? 25 : 18);
+          
+          // Helper to draw text in col
+          const drawInCol = (key, text) => {
+            const col = cols[key];
+            let xOffset = col.x;
+            if (col.align === 'center') xOffset += col.w / 2;
+            if (col.align === 'right') xOffset += col.w - 2;
+            if (col.align === 'left') xOffset += 2;
+            pdf.text(text, xOffset, yPos, { align: col.align });
+          };
+
+          drawInCol('sno', sno);
+          drawInCol('name', pName);
+          
+          if (isGeneral) {
+            drawInCol('stock', pStock);
+            drawInCol('remarks', pRemarks);
           } else {
-            pdf.text(stock.toString(), 170, yPos);
+            const pPrice = formatCurrencyForPDF(product.price || 0);
+            const pValue = formatCurrencyForPDF((product.stock || 0) * (product.price || 0));
+            drawInCol('price', pPrice);
+            drawInCol('stock', pStock);
+            drawInCol('value', pValue);
+            drawInCol('remarks', pRemarks);
           }
-          yPos += 6;
 
-          // Removed underlines
+          yPos += rowHeight;
         });
       } else {
         pdf.setFontSize(10);
@@ -1555,6 +1622,8 @@ const Reports = ({ currentUser }) => {
     } catch (error) {
       console.error('Error generating stock report:', error);
       throw error;
+    } finally {
+      setProductsLoading(false);
     }
   };
 
