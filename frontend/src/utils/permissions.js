@@ -81,6 +81,25 @@ export const hasFullAccess = (permissions, key) => {
 };
 
 /**
+ * Whether the user may create/edit student or employee counter transactions (receipts).
+ * Must stay aligned with how sub-admin "Reports" permissions are stored: legacy `transactions`
+ * is normalized away into granular keys like `reports-daily`, so checking only `transactions`
+ * hides action buttons for sub-admins who have full access on those report keys instead.
+ */
+const TRANSACTION_RECORDING_KEYS = [
+  'transactions',
+  'reports-daily',
+  'reports-monthly',
+  'reports-stock',
+  'student-due',
+];
+
+export const canRecordCounterTransactions = (permissions) => {
+  if (!permissions || !Array.isArray(permissions)) return false;
+  return TRANSACTION_RECORDING_KEYS.some((key) => hasFullAccess(permissions, key));
+};
+
+/**
  * Convert permissions array to object format for easier management
  * @param {Array<string>} permissions - Array of permission strings
  * @returns {Object} - Object with permission keys as keys and access levels as values

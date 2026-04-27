@@ -4,7 +4,7 @@ import { ArrowLeft, User, Package, Receipt, History, Calendar, DollarSign, Print
 import { useReactToPrint } from 'react-to-print';
 import { apiUrl } from '../utils/api';
 import EmployeeReceiptModal from './EmployeeReceiptModal';
-import { hasFullAccess } from '../utils/permissions';
+import { canRecordCounterTransactions } from '../utils/permissions';
 
 const EmployeeDetail = ({ products = [], setProducts, currentUser, isOnline }) => {
     const { id } = useParams();
@@ -23,7 +23,7 @@ const EmployeeDetail = ({ products = [], setProducts, currentUser, isOnline }) =
     });
     const canManageTransactions =
         currentUser?.role === 'Administrator' ||
-        hasFullAccess(currentUser?.permissions || [], 'transactions');
+        canRecordCounterTransactions(currentUser?.permissions || []);
 
     // Fetch employee details
     const fetchEmployee = useCallback(async () => {

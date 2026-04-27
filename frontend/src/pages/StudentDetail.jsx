@@ -4,7 +4,7 @@ import { ArrowLeft, User, Package, Receipt, History, Calendar, DollarSign, Print
 import { useReactToPrint } from 'react-to-print';
 import StudentReceiptModal from './StudentReceipt.jsx';
 import { apiUrl } from '../utils/api';
-import { hasFullAccess } from '../utils/permissions';
+import { canRecordCounterTransactions } from '../utils/permissions';
 
 const StudentDetail = ({
   students = [],
@@ -35,7 +35,7 @@ const StudentDetail = ({
   });
   const canManageTransactions =
     currentUser?.role === 'Administrator' ||
-    hasFullAccess(currentUser?.permissions || [], 'transactions');
+    canRecordCounterTransactions(currentUser?.permissions || []);
 
   const normalizeCourse = (value) => {
     if (!value) return '';
