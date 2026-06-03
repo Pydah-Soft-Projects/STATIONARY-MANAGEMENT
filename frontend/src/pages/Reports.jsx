@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Search, Trash2, Receipt, Download, Eye, X, FileText, Calendar, Package, Building2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Filter, Printer, DollarSign, TrendingUp, ShoppingCart, AlertCircle, Loader2 } from 'lucide-react';
 import { apiUrl } from '../utils/api';
 import { hasFullAccess } from '../utils/permissions';
+import { exportMonthlySaleReportExcel, exportDailyBreakdownReportExcel } from '../utils/reportExcelExport';
 import jsPDF from 'jspdf';
 import { useReactToPrint } from 'react-to-print';
 
@@ -78,6 +79,7 @@ const Reports = ({ currentUser }) => {
   const [monthlyReportSubTab, setMonthlyReportSubTab] = useState('monthly-sale'); // 'monthly-sale', 'daily-breakdown'
   const [expandedDays, setExpandedDays] = useState(new Set()); // Track expanded days: "monthKey-dayKey"
   const [generatingPDF, setGeneratingPDF] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
 
   useEffect(() => {
     fetchColleges();
@@ -941,6 +943,60 @@ const Reports = ({ currentUser }) => {
       monthName: selectedMonth.month
     };
   }, [selectedMonthForDaily, monthlyStats]);
+
+  const warehouseName = selectedCollegeData?.name || '';
+
+  const handleDownloadMonthlySaleExcel = async () => {
+    if (comprehensiveMonthlyReport.items.length === 0) return;
+    setExportingExcel(true);
+    try {
+      await exportMonthlySaleReportExcel({
+        report: comprehensiveMonthlyReport,
+        formatCurrency,
+        getProductPrice,
+        warehouseName,
+      });
+    } catch (error) {
+      console.error('Failed to export monthly sale report:', error);
+      alert('Failed to download Excel file. Please try again.');
+    } finally {
+      setExportingExcel(false);
+    }
+  };
+
+  const handleDownloadDailyBreakdownExcel = async () => {
+    if (!dailyBreakdownReport || dailyBreakdownReport.items.length === 0) {
+      alert('Please select a month with daily data to download.');
+      return;
+    }
+    setExportingExcel(true);
+    try {
+      await exportDailyBreakdownReportExcel({
+        report: dailyBreakdownReport,
+        formatCurrency,
+        getProductPrice,
+        warehouseName,
+      });
+    } catch (error) {
+      console.error('Failed to export daily breakdown report:', error);
+      alert('Failed to download Excel file. Please try again.');
+    } finally {
+      setExportingExcel(false);
+    }
+  };
+
+  const handleDownloadReportExcel = () => {
+    if (monthlyReportSubTab === 'monthly-sale') {
+      handleDownloadMonthlySaleExcel();
+      return;
+    }
+    handleDownloadDailyBreakdownExcel();
+  };
+
+  const canDownloadReportExcel =
+    monthlyReportSubTab === 'monthly-sale'
+      ? comprehensiveMonthlyReport.items.length > 0
+      : Boolean(dailyBreakdownReport && dailyBreakdownReport.items.length > 0);
 
   // Calculate day-wise breakdown (revenue includes paid college/branch transfers)
   const dayWiseBreakdown = useMemo(() => {
@@ -2818,6 +2874,24 @@ const Reports = ({ currentUser }) => {
                           ))}
                         </select>
                       )}
+                      <button
+                        type="button"
+                        onClick={handleDownloadReportExcel}
+                        disabled={!canDownloadReportExcel || exportingExcel}
+                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                        title={
+                          monthlyReportSubTab === 'monthly-sale'
+                            ? 'Download monthly sale report as Excel'
+                            : 'Download daily breakdown report as Excel'
+                        }
+                      >
+                        {exportingExcel ? (
+                          <Loader2 size={16} className="animate-spin" />
+                        ) : (
+                          <Download size={16} />
+                        )}
+                        <span>{exportingExcel ? 'Exporting...' : 'Download Excel'}</span>
+                      </button>
                       <div className="flex items-center gap-1 bg-white p-1 rounded-lg shadow-sm">
                         <button
                           onClick={() => setMonthlyReportSubTab('monthly-sale')}
