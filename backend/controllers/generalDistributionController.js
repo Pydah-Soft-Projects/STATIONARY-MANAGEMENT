@@ -43,6 +43,45 @@ function mergeGroupedReport(distributionCounts, itemStats, keyName) {
   return rows;
 }
 
+function mergeByItemReport(itemDistributionCounts, itemAuthRecipientStats) {
+  const countMap = Object.fromEntries(
+    (itemDistributionCounts || []).map((d) => [d._id, d.distributionCount])
+  );
+
+  const itemMap = {};
+  for (const row of itemAuthRecipientStats || []) {
+    const itemName = row._id?.itemName;
+    const authorizedBy = row._id?.authorizedBy;
+    if (!itemName || !authorizedBy) continue;
+
+    if (!itemMap[itemName]) {
+      itemMap[itemName] = { itemName, authorizedBy: [], totalItemQuantity: 0 };
+    }
+
+    const recipients = (row.recipients || [])
+      .map((r) => ({ name: r.name, quantity: r.quantity || 0 }))
+      .sort((a, b) => b.quantity - a.quantity);
+
+    const authTotal = recipients.reduce((s, r) => s + r.quantity, 0);
+    itemMap[itemName].authorizedBy.push({
+      authorizedBy,
+      distributionCount: row.distributionCount || 0,
+      totalItemQuantity: row.totalItemQuantity ?? authTotal,
+      recipients,
+    });
+    itemMap[itemName].totalItemQuantity += authTotal;
+  }
+
+  const rows = Object.values(itemMap).map((item) => ({
+    itemName: item.itemName,
+    distributionCount: countMap[item.itemName] || 0,
+    totalItemQuantity: item.totalItemQuantity,
+    authorizedBy: item.authorizedBy.sort((a, b) => b.totalItemQuantity - a.totalItemQuantity),
+  }));
+  rows.sort((a, b) => b.totalItemQuantity - a.totalItemQuantity);
+  return rows;
+}
+
 /**
  * @desc    Create a new distribution (deducts stock)
  * @route   POST /api/general-distributions
@@ -194,7 +233,7 @@ const getAllDistributions = asyncHandler(async (req, res) => {
 });
 
 /**
- * @desc    Report: by authorizedBy and by department (item breakdowns)
+ * @desc    Report: by authorizedBy, department, item, and recipient (nested breakdowns)
  * @route   GET /api/general-distributions/reports/summary
  * @access  Public
  */
@@ -268,6 +307,95 @@ const getDistributionReportsSummary = asyncHandler(async (req, res) => {
             },
           },
         ],
+        personDistributionCounts: [
+          { $group: { _id: '$recipientName', distributionCount: { $sum: 1 } } },
+          { $sort: { distributionCount: -1 } },
+        ],
+        personItemStats: [
+          { $unwind: '$items' },
+          {
+            $group: {
+              _id: { recipientName: '$recipientName', itemName: '$items.name' },
+              quantity: { $sum: '$items.quantity' },
+            },
+          },
+          { $sort: { quantity: -1 } },
+          {
+            $group: {
+              _id: '$_id.recipientName',
+              items: { $push: { name: '$_id.itemName', quantity: '$quantity' } },
+            },
+          },
+        ],
+        itemDistributionCounts: [
+          { $unwind: '$items' },
+          {
+            $group: {
+              _id: '$items.name',
+              distributionIds: { $addToSet: '$_id' },
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+              distributionCount: { $size: '$distributionIds' },
+            },
+          },
+          { $sort: { distributionCount: -1 } },
+        ],
+        itemAuthRecipientStats: [
+          { $unwind: '$items' },
+          {
+            $group: {
+              _id: {
+                itemName: '$items.name',
+                authorizedBy: '$authorizedBy',
+                recipientName: '$recipientName',
+                distributionId: '$_id',
+              },
+              quantity: { $sum: '$items.quantity' },
+            },
+          },
+          {
+            $group: {
+              _id: {
+                itemName: '$_id.itemName',
+                authorizedBy: '$_id.authorizedBy',
+                recipientName: '$_id.recipientName',
+              },
+              quantity: { $sum: '$quantity' },
+              distributionIds: { $addToSet: '$_id.distributionId' },
+            },
+          },
+          { $sort: { quantity: -1 } },
+          {
+            $group: {
+              _id: { itemName: '$_id.itemName', authorizedBy: '$_id.authorizedBy' },
+              recipients: {
+                $push: { name: '$_id.recipientName', quantity: '$quantity' },
+              },
+              totalItemQuantity: { $sum: '$quantity' },
+              distributionIds: { $push: '$distributionIds' },
+            },
+          },
+          {
+            $addFields: {
+              distributionIds: {
+                $reduce: {
+                  input: '$distributionIds',
+                  initialValue: [],
+                  in: { $setUnion: ['$$value', '$$this'] },
+                },
+              },
+            },
+          },
+          {
+            $addFields: {
+              distributionCount: { $size: '$distributionIds' },
+            },
+          },
+          { $project: { distributionIds: 0 } },
+        ],
       },
     },
   ]);
@@ -283,8 +411,17 @@ const getDistributionReportsSummary = asyncHandler(async (req, res) => {
     fr.deptItemStats || [],
     'department'
   );
+  const byPerson = mergeGroupedReport(
+    fr.personDistributionCounts || [],
+    fr.personItemStats || [],
+    'recipientName'
+  );
+  const byItem = mergeByItemReport(
+    fr.itemDistributionCounts || [],
+    fr.itemAuthRecipientStats || []
+  );
 
-  res.status(200).json({ byAuthorizedBy, byDepartment });
+  res.status(200).json({ byAuthorizedBy, byDepartment, byPerson, byItem });
 });
 
 /**

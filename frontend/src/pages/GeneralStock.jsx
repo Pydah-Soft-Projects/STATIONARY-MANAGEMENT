@@ -3,7 +3,12 @@ import { useReactToPrint } from 'react-to-print';
 import { Package, Search, Plus, Trash2, Eye, Save, FileText, UserPlus, Building2, ShoppingCart, Minus, X, Printer, LayoutGrid, List, History, Calendar, DollarSign, BarChart3, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiUrl } from '../utils/api';
 
-const emptyReportSummary = () => ({ byAuthorizedBy: [], byDepartment: [] });
+const emptyReportSummary = () => ({
+    byAuthorizedBy: [],
+    byDepartment: [],
+    byPerson: [],
+    byItem: [],
+});
 
 const AUTHORITIES = [
     "P. V. Surya Prakash (Engineering Principal sir)",
@@ -279,6 +284,8 @@ const GeneralStock = ({ currentUser }) => {
             setReportSummary({
                 byAuthorizedBy: Array.isArray(data.byAuthorizedBy) ? data.byAuthorizedBy : [],
                 byDepartment: Array.isArray(data.byDepartment) ? data.byDepartment : [],
+                byPerson: Array.isArray(data.byPerson) ? data.byPerson : [],
+                byItem: Array.isArray(data.byItem) ? data.byItem : [],
             });
         } catch (error) {
             console.error('Error fetching distribution reports:', error);
@@ -875,6 +882,8 @@ const GeneralStock = ({ currentUser }) => {
                                 <DistributionReportsTab
                                     byAuthorizedBy={reportSummary.byAuthorizedBy}
                                     byDepartment={reportSummary.byDepartment}
+                                    byPerson={reportSummary.byPerson}
+                                    byItem={reportSummary.byItem}
                                     reportStartDate={reportStartDate}
                                     reportEndDate={reportEndDate}
                                     setReportStartDate={setReportStartDate}
@@ -1840,7 +1849,13 @@ const PrintButton = ({ transaction }) => {
     );
 };
 
-const ReportBreakdownTable = ({ rows, rowLabel, rowAccessor }) => {
+const ReportBreakdownTable = ({
+    rows,
+    rowLabel,
+    rowAccessor,
+    detailColumnLabel = 'Item types',
+    detailSectionTitle = 'Item breakdown',
+}) => {
     const [expandedKeys, setExpandedKeys] = useState(() => new Set());
 
     const toggleKey = (key) => {
@@ -1869,7 +1884,7 @@ const ReportBreakdownTable = ({ rows, rowLabel, rowAccessor }) => {
                         <th className="px-4 py-3 text-left font-semibold text-gray-700">{rowLabel}</th>
                         <th className="px-4 py-3 text-right font-semibold text-gray-700">Distributions</th>
                         <th className="px-4 py-3 text-right font-semibold text-gray-700">Total units</th>
-                        <th className="px-4 py-3 text-right font-semibold text-gray-700">Item types</th>
+                        <th className="px-4 py-3 text-right font-semibold text-gray-700">{detailColumnLabel}</th>
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -1928,7 +1943,7 @@ const ReportBreakdownTable = ({ rows, rowLabel, rowAccessor }) => {
                                     <tr className="bg-slate-50/90">
                                         <td colSpan={5} className="px-4 py-3 pl-12 border-t border-slate-100">
                                             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                                                Item breakdown
+                                                {detailSectionTitle}
                                             </p>
                                             <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                                                 {items.map((it, idx) => (
@@ -1955,10 +1970,224 @@ const ReportBreakdownTable = ({ rows, rowLabel, rowAccessor }) => {
     );
 };
 
-// Reports: by authorizer and by department (general distributions)
+const ItemReportBreakdownTable = ({ rows }) => {
+    const [expandedItems, setExpandedItems] = useState(() => new Set());
+    const [expandedAuth, setExpandedAuth] = useState(() => new Set());
+
+    const toggleItem = (itemName) => {
+        const key = `item:${itemName}`;
+        setExpandedItems((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
+
+    const toggleAuth = (itemName, authorizedBy) => {
+        const key = `item:${itemName}|auth:${authorizedBy}`;
+        setExpandedAuth((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
+
+    if (!rows || rows.length === 0) {
+        return (
+            <div className="text-center py-10 bg-gray-50 rounded-xl border border-dashed border-gray-200 text-gray-600 text-sm">
+                No rows for this breakdown.
+            </div>
+        );
+    }
+
+    return (
+        <div className="overflow-x-auto rounded-lg border border-gray-200">
+            <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                        <th className="w-10 px-2 py-3" aria-hidden="true" />
+                        <th className="px-4 py-3 text-left font-semibold text-gray-700">Item</th>
+                        <th className="px-4 py-3 text-right font-semibold text-gray-700">Distributions</th>
+                        <th className="px-4 py-3 text-right font-semibold text-gray-700">Total units</th>
+                        <th className="px-4 py-3 text-right font-semibold text-gray-700">Authorizers</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                    {rows.map((row) => {
+                        const itemName = row.itemName;
+                        const itemKey = `item:${itemName}`;
+                        const isItemOpen = expandedItems.has(itemKey);
+                        const authorizers = row.authorizedBy || [];
+                        const canExpandItem = authorizers.length > 0;
+
+                        return (
+                            <Fragment key={itemKey}>
+                                <tr
+                                    className={`hover:bg-gray-50/80 ${canExpandItem ? 'cursor-pointer' : ''}`}
+                                    onClick={() => canExpandItem && toggleItem(itemName)}
+                                    onKeyDown={(e) => {
+                                        if (!canExpandItem) return;
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            toggleItem(itemName);
+                                        }
+                                    }}
+                                    tabIndex={canExpandItem ? 0 : undefined}
+                                    aria-expanded={canExpandItem ? isItemOpen : undefined}
+                                >
+                                    <td className="px-2 py-3 align-middle">
+                                        {canExpandItem ? (
+                                            <span className="inline-flex p-1.5 rounded-lg text-gray-600" aria-hidden>
+                                                {isItemOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                                            </span>
+                                        ) : (
+                                            <span className="inline-block w-8" />
+                                        )}
+                                    </td>
+                                    <td className="px-4 py-3 text-gray-900 font-medium align-middle">{itemName}</td>
+                                    <td className="px-4 py-3 text-right text-gray-800 tabular-nums align-middle">
+                                        {row.distributionCount}
+                                    </td>
+                                    <td className="px-4 py-3 text-right text-gray-800 font-semibold tabular-nums align-middle">
+                                        {row.totalItemQuantity}
+                                    </td>
+                                    <td className="px-4 py-3 text-right text-gray-600 tabular-nums align-middle">
+                                        {authorizers.length}
+                                    </td>
+                                </tr>
+                                {isItemOpen && canExpandItem && (
+                                    <tr className="bg-slate-50/90">
+                                        <td colSpan={5} className="px-4 py-3 pl-10 border-t border-slate-100">
+                                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                                                By authorized
+                                            </p>
+                                            <div className="space-y-1 rounded-lg border border-gray-200 overflow-hidden bg-white">
+                                                {authorizers.map((auth) => {
+                                                    const authKey = `item:${itemName}|auth:${auth.authorizedBy}`;
+                                                    const isAuthOpen = expandedAuth.has(authKey);
+                                                    const recipients = auth.recipients || [];
+                                                    const canExpandAuth = recipients.length > 0;
+
+                                                    return (
+                                                        <div key={authKey} className="border-b border-gray-100 last:border-b-0">
+                                                            <div
+                                                                role="button"
+                                                                tabIndex={canExpandAuth ? 0 : undefined}
+                                                                className={`flex items-center gap-2 px-3 py-2.5 hover:bg-gray-50 ${canExpandAuth ? 'cursor-pointer' : ''}`}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    if (canExpandAuth) toggleAuth(itemName, auth.authorizedBy);
+                                                                }}
+                                                                onKeyDown={(e) => {
+                                                                    if (!canExpandAuth) return;
+                                                                    if (e.key === 'Enter' || e.key === ' ') {
+                                                                        e.preventDefault();
+                                                                        e.stopPropagation();
+                                                                        toggleAuth(itemName, auth.authorizedBy);
+                                                                    }
+                                                                }}
+                                                                aria-expanded={canExpandAuth ? isAuthOpen : undefined}
+                                                            >
+                                                                <span className="inline-flex p-1 text-gray-500 shrink-0" aria-hidden>
+                                                                    {canExpandAuth ? (
+                                                                        isAuthOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />
+                                                                    ) : (
+                                                                        <span className="w-4" />
+                                                                    )}
+                                                                </span>
+                                                                <span className="flex-1 text-sm font-medium text-gray-900 truncate">
+                                                                    {auth.authorizedBy}
+                                                                </span>
+                                                                <span className="text-xs text-gray-500 tabular-nums shrink-0">
+                                                                    {auth.distributionCount} dist.
+                                                                </span>
+                                                                <span className="text-sm font-semibold text-gray-800 tabular-nums shrink-0 min-w-[3rem] text-right">
+                                                                    {auth.totalItemQuantity}
+                                                                </span>
+                                                            </div>
+                                                            {isAuthOpen && canExpandAuth && (
+                                                                <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 px-3 pb-3 pl-9 bg-slate-50/80">
+                                                                    {recipients.map((r, idx) => (
+                                                                        <li
+                                                                            key={`${r.name}-${idx}`}
+                                                                            className="flex justify-between gap-3 text-sm bg-white border border-gray-200 rounded-lg px-3 py-2"
+                                                                        >
+                                                                            <span className="text-gray-800 truncate">{r.name}</span>
+                                                                            <span className="tabular-nums font-medium text-gray-900 shrink-0">
+                                                                                {r.quantity}
+                                                                            </span>
+                                                                        </li>
+                                                                    ))}
+                                                                </ul>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                )}
+                            </Fragment>
+                        );
+                    })}
+                </tbody>
+            </table>
+        </div>
+    );
+};
+
+const REPORT_BREAKDOWN_TABS = [
+    {
+        id: 'authorized',
+        label: 'By authorized',
+        rowsKey: 'byAuthorizedBy',
+        rowLabel: 'Authorized by',
+        rowAccessor: 'authorizedBy',
+        detailColumnLabel: 'Item types',
+        detailSectionTitle: 'Item breakdown',
+        hint: null,
+    },
+    {
+        id: 'department',
+        label: 'By department',
+        rowsKey: 'byDepartment',
+        rowLabel: 'Department',
+        rowAccessor: 'department',
+        detailColumnLabel: 'Item types',
+        detailSectionTitle: 'Item breakdown',
+        hint: 'Grouped by recipient department on each distribution. Blank values appear as —.',
+    },
+    {
+        id: 'item',
+        label: 'By item',
+        rowsKey: 'byItem',
+        rowLabel: 'Item',
+        rowAccessor: 'itemName',
+        detailColumnLabel: 'Authorizers',
+        detailSectionTitle: 'By authorized',
+        hint: 'Expand an item to see authorizers; expand an authorizer to see recipients and unit counts.',
+        useItemTable: true,
+    },
+    {
+        id: 'person',
+        label: 'By person',
+        rowsKey: 'byPerson',
+        rowLabel: 'Recipient',
+        rowAccessor: 'recipientName',
+        detailColumnLabel: 'Item types',
+        detailSectionTitle: 'Item breakdown',
+        hint: 'Grouped by recipient name on each distribution record.',
+    },
+];
+
+// Reports: general distribution breakdowns (authorized, department, item, person)
 const DistributionReportsTab = ({
     byAuthorizedBy,
     byDepartment,
+    byPerson,
+    byItem,
     reportStartDate,
     reportEndDate,
     setReportStartDate,
@@ -1967,13 +2196,20 @@ const DistributionReportsTab = ({
 }) => {
     const [reportBreakdownTab, setReportBreakdownTab] = useState('authorized');
 
-    const hasAny =
-        (byAuthorizedBy && byAuthorizedBy.length > 0) ||
-        (byDepartment && byDepartment.length > 0);
+    const reportData = {
+        byAuthorizedBy: byAuthorizedBy || [],
+        byDepartment: byDepartment || [],
+        byItem: byItem || [],
+        byPerson: byPerson || [],
+    };
 
-    const activeRows = reportBreakdownTab === 'authorized' ? byAuthorizedBy : byDepartment;
-    const activeRowLabel = reportBreakdownTab === 'authorized' ? 'Authorized by' : 'Department';
-    const activeRowAccessor = reportBreakdownTab === 'authorized' ? 'authorizedBy' : 'department';
+    const hasAny = REPORT_BREAKDOWN_TABS.some(
+        (tab) => (reportData[tab.rowsKey] || []).length > 0
+    );
+
+    const activeTabConfig =
+        REPORT_BREAKDOWN_TABS.find((t) => t.id === reportBreakdownTab) || REPORT_BREAKDOWN_TABS[0];
+    const activeRows = reportData[activeTabConfig.rowsKey] || [];
 
     return (
         <div className="space-y-6">
@@ -2016,34 +2252,25 @@ const DistributionReportsTab = ({
                     </button>
                 </div>
                 <div
-                    className="flex rounded-xl border border-gray-200 bg-gray-50 p-1 gap-0.5 shrink-0 sm:ml-auto"
+                    className="flex flex-wrap rounded-xl border border-gray-200 bg-gray-50 p-1 gap-0.5 shrink-0 sm:ml-auto max-w-full"
                     role="tablist"
                     aria-label="Report breakdown"
                 >
-                    <button
-                        type="button"
-                        role="tab"
-                        aria-selected={reportBreakdownTab === 'authorized'}
-                        onClick={() => setReportBreakdownTab('authorized')}
-                        className={`px-3 py-2 text-sm font-medium rounded-lg transition-all whitespace-nowrap ${reportBreakdownTab === 'authorized'
-                            ? 'bg-white text-blue-700 shadow-sm ring-1 ring-gray-200'
-                            : 'text-gray-600 hover:text-gray-900'
-                            }`}
-                    >
-                        By authorized
-                    </button>
-                    <button
-                        type="button"
-                        role="tab"
-                        aria-selected={reportBreakdownTab === 'department'}
-                        onClick={() => setReportBreakdownTab('department')}
-                        className={`px-3 py-2 text-sm font-medium rounded-lg transition-all whitespace-nowrap ${reportBreakdownTab === 'department'
-                            ? 'bg-white text-blue-700 shadow-sm ring-1 ring-gray-200'
-                            : 'text-gray-600 hover:text-gray-900'
-                            }`}
-                    >
-                        By department
-                    </button>
+                    {REPORT_BREAKDOWN_TABS.map((tab) => (
+                        <button
+                            key={tab.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={reportBreakdownTab === tab.id}
+                            onClick={() => setReportBreakdownTab(tab.id)}
+                            className={`px-3 py-2 text-sm font-medium rounded-lg transition-all whitespace-nowrap ${reportBreakdownTab === tab.id
+                                ? 'bg-white text-blue-700 shadow-sm ring-1 ring-gray-200'
+                                : 'text-gray-600 hover:text-gray-900'
+                                }`}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
                 </div>
             </div>
 
@@ -2055,17 +2282,21 @@ const DistributionReportsTab = ({
                 </div>
             ) : (
                 <div className="space-y-2">
-                    {reportBreakdownTab === 'department' && (
-                        <p className="text-xs text-gray-500">
-                            Grouped by recipient department on each distribution. Blank values appear as —.
-                        </p>
+                    {activeTabConfig.hint && (
+                        <p className="text-xs text-gray-500">{activeTabConfig.hint}</p>
                     )}
-                    <ReportBreakdownTable
-                        key={reportBreakdownTab}
-                        rows={activeRows}
-                        rowLabel={activeRowLabel}
-                        rowAccessor={activeRowAccessor}
-                    />
+                    {activeTabConfig.useItemTable ? (
+                        <ItemReportBreakdownTable key="by-item" rows={activeRows} />
+                    ) : (
+                        <ReportBreakdownTable
+                            key={reportBreakdownTab}
+                            rows={activeRows}
+                            rowLabel={activeTabConfig.rowLabel}
+                            rowAccessor={activeTabConfig.rowAccessor}
+                            detailColumnLabel={activeTabConfig.detailColumnLabel}
+                            detailSectionTitle={activeTabConfig.detailSectionTitle}
+                        />
+                    )}
                 </div>
             )}
         </div>
