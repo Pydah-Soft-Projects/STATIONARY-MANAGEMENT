@@ -2138,6 +2138,328 @@ const ItemReportBreakdownTable = ({ rows }) => {
     );
 };
 
+const escapeReportPrintHtml = (val) =>
+    String(val ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+
+const formatReportPrintDateRange = (startDate, endDate) => {
+    if (!startDate && !endDate) return 'All dates';
+    if (startDate && endDate) return `${startDate} to ${endDate}`;
+    if (startDate) return `From ${startDate}`;
+    return `Until ${endDate}`;
+};
+
+const REPORT_PRINT_BASE_STYLES = `
+  @page { size: A4 portrait; margin: 12mm; }
+  body { font-family: Arial, sans-serif; padding: 0; margin: 0; color: #0f172a; background: #fff; font-size: 12px; }
+  .wrapper { max-width: 100%; margin: 0 auto; }
+  .header { text-align: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 16px; }
+  .brand { font-size: 18px; font-weight: 800; color: #1d4ed8; }
+  .title { font-size: 15px; font-weight: 700; margin-top: 6px; }
+  .meta { margin-top: 8px; font-size: 11px; color: #475569; }
+  .section-title { font-size: 13px; font-weight: 700; margin: 16px 0 8px; color: #0f172a; page-break-after: avoid; }
+  .table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 11px; }
+  .table th, .table td { padding: 7px 8px; border: 1px solid #cbd5e1; text-align: left; vertical-align: top; }
+  .table th { background: #f1f5f9; font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: 0.03em; color: #475569; }
+  .table td.num, .table th.num { text-align: right; }
+  .group-header { text-transform: none; font-size: 13px; color: #0f172a; background: #e2e8f0; text-align: left; letter-spacing: 0; }
+  .detail-stats-row th { text-transform: none; font-weight: 600; background: #eff6ff; color: #334155; font-size: 11px; letter-spacing: 0; text-align: left; }
+  .stat-label { color: #475569; font-weight: 600; margin-right: 4px; }
+  .stat-highlight { color: #1d4ed8; font-weight: 800; background: #dbeafe; padding: 2px 8px; border-radius: 4px; }
+  .stat-sep { color: #94a3b8; margin: 0 10px; }
+  .item-cell-main { font-weight: 700; color: #0f172a; }
+  .item-stats-inline { display: block; margin-top: 4px; font-size: 10px; font-weight: 600; color: #64748b; line-height: 1.35; white-space: nowrap; text-transform: none; letter-spacing: 0; }
+  .item-stats-inline .stat-highlight { background: none; padding: 0; border-radius: 0; color: #1d4ed8; font-weight: 700; }
+  .grouped-report-print-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  .grouped-report-print-table thead { display: table-header-group; }
+  .group-print-group { page-break-inside: auto; break-inside: auto; }
+  .group-print-group .group-header-cell {
+    font-weight: 700;
+    font-size: 13px;
+    color: #0f172a;
+    background: #e2e8f0;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .group-print-group .detail-stats-row td {
+    text-transform: none;
+    font-weight: 600;
+    background: #eff6ff;
+    color: #334155;
+    font-size: 11px;
+    letter-spacing: 0;
+  }
+  .group-print-group .column-header-row td {
+    background: #f1f5f9;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.03em;
+    color: #475569;
+  }
+  .detail-block { margin-top: 14px; }
+  .detail-heading { font-size: 12px; font-weight: 700; color: #1e293b; margin: 0 0 6px; padding: 6px 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; }
+  .sub-heading { font-size: 11px; font-weight: 600; color: #334155; margin: 10px 0 4px 12px; }
+  .nested-table { width: 100%; margin-left: 0; }
+  .item-report-print-table { width: 100%; border-collapse: collapse; }
+  .item-report-print-table thead { display: table-header-group; }
+  .item-print-cell { vertical-align: top; min-width: 140px; background: #f8fafc; }
+  tbody.item-print-group { page-break-inside: avoid; break-inside: avoid-page; }
+  .empty { color: #64748b; font-style: italic; padding: 12px; text-align: center; }
+  @media print {
+    html, body { width: auto !important; max-width: none !important; }
+    .grouped-report-print-table thead { display: table-header-group; }
+    .item-report-print-table thead { display: table-header-group; }
+    tbody.item-print-group { page-break-inside: auto; break-inside: auto; }
+  }
+`;
+
+const printReportHtmlDocument = (title, bodyContent) => {
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${escapeReportPrintHtml(title)}</title><style>${REPORT_PRINT_BASE_STYLES}</style></head><body><div class="wrapper">${bodyContent}</div></body></html>`;
+
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document;
+    if (!doc) {
+        document.body.removeChild(iframe);
+        return;
+    }
+
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    const runPrint = () => {
+        try {
+            iframe.contentWindow?.focus();
+            iframe.contentWindow?.print();
+        } finally {
+            setTimeout(() => {
+                if (iframe.parentNode) document.body.removeChild(iframe);
+            }, 500);
+        }
+    };
+
+    // Allow layout to finish before print (avoids blank first page in iframe)
+    if (iframe.contentWindow?.document?.readyState === 'complete') {
+        setTimeout(runPrint, 300);
+    } else {
+        iframe.onload = () => setTimeout(runPrint, 300);
+    }
+};
+
+const buildPrintStatsHeaderCells = (colSpan, distributionCount, totalQuantity) => `
+  <span class="stat-label">Distributions:</span>
+  <span class="stat-highlight">${escapeReportPrintHtml(distributionCount)}</span>
+  <span class="stat-sep" aria-hidden="true">·</span>
+  <span class="stat-label">Total units:</span>
+  <span class="stat-highlight">${escapeReportPrintHtml(totalQuantity)}</span>
+`;
+
+const buildPrintStatsHeaderRow = (colSpan, distributionCount, totalQuantity) => `
+  <tr class="detail-stats-row">
+    <th colspan="${colSpan}">
+      ${buildPrintStatsHeaderCells(colSpan, distributionCount, totalQuantity)}
+    </th>
+  </tr>
+`;
+
+const buildPrintItemStatsInline = (distributionCount, totalQuantity) => `
+  <span class="item-stats-inline">
+    <span class="stat-label">Distributions:</span>
+    <span class="stat-highlight">${escapeReportPrintHtml(distributionCount)}</span>
+    <span class="stat-sep" aria-hidden="true"> · </span>
+    <span class="stat-label">Total units:</span>
+    <span class="stat-highlight">${escapeReportPrintHtml(totalQuantity)}</span>
+  </span>
+`;
+
+const buildReportPrintHeader = (reportTitle, reportStartDate, reportEndDate) => `
+  <div class="header">
+    <div class="brand">Pydah Group</div>
+    <div class="title">General Stock — ${escapeReportPrintHtml(reportTitle)}</div>
+    <div class="meta">
+      <div><strong>Generated:</strong> ${escapeReportPrintHtml(new Date().toLocaleString('en-IN'))}</div>
+      <div><strong>Date range:</strong> ${escapeReportPrintHtml(formatReportPrintDateRange(reportStartDate, reportEndDate))}</div>
+    </div>
+  </div>
+`;
+
+const buildGroupedPrintTableBody = (rows, groupAccessor) =>
+    rows
+        .map((row) => {
+            const groupName = row[groupAccessor] ?? '—';
+            const items = row.items || [];
+            const itemRows =
+                items.length > 0
+                    ? items
+                          .map(
+                              (it) => `
+        <tr>
+          <td>${escapeReportPrintHtml(it.name)}</td>
+          <td class="num">${escapeReportPrintHtml(it.quantity)}</td>
+        </tr>`
+                          )
+                          .join('')
+                    : '<tr><td colspan="2" class="empty">No item breakdown</td></tr>';
+
+            return `
+      <tbody class="group-print-group">
+        <tr>
+          <td colspan="2" class="group-header-cell">${escapeReportPrintHtml(groupName)}</td>
+        </tr>
+        <tr class="detail-stats-row">
+          <td colspan="2">${buildPrintStatsHeaderCells(2, row.distributionCount, row.totalItemQuantity)}</td>
+        </tr>
+        <tr class="column-header-row">
+          <td>Item</td>
+          <td class="num">Quantity</td>
+        </tr>
+        ${itemRows}
+      </tbody>`;
+        })
+        .join('');
+
+const printGroupedBreakdownReport = (
+    rows,
+    reportStartDate,
+    reportEndDate,
+    { groupAccessor, reportTitle, documentTitle }
+) => {
+    if (!rows || rows.length === 0) return;
+
+    const body = `
+    ${buildReportPrintHeader(reportTitle, reportStartDate, reportEndDate)}
+    <table class="table grouped-report-print-table">
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th class="num">Quantity</th>
+        </tr>
+      </thead>
+      ${buildGroupedPrintTableBody(rows, groupAccessor)}
+    </table>
+  `;
+
+    printReportHtmlDocument(documentTitle, body);
+};
+
+const printPersonDistributionReport = (rows, reportStartDate, reportEndDate) =>
+    printGroupedBreakdownReport(rows, reportStartDate, reportEndDate, {
+        groupAccessor: 'recipientName',
+        reportTitle: 'Distribution Report (By Person)',
+        documentTitle: 'General Stock Report - By Person',
+    });
+
+const printAuthorizedDistributionReport = (rows, reportStartDate, reportEndDate) =>
+    printGroupedBreakdownReport(rows, reportStartDate, reportEndDate, {
+        groupAccessor: 'authorizedBy',
+        reportTitle: 'Distribution Report (By Authorized)',
+        documentTitle: 'General Stock Report - By Authorized',
+    });
+
+const printDepartmentDistributionReport = (rows, reportStartDate, reportEndDate) =>
+    printGroupedBreakdownReport(rows, reportStartDate, reportEndDate, {
+        groupAccessor: 'department',
+        reportTitle: 'Distribution Report (By Department)',
+        documentTitle: 'General Stock Report - By Department',
+    });
+
+const buildItemGroupPrintTableBody = (row) => {
+    const authorizers = row.authorizedBy || [];
+    const itemCellHtml = `
+      <div class="item-cell-main">${escapeReportPrintHtml(row.itemName)}</div>
+      ${buildPrintItemStatsInline(row.distributionCount, row.totalItemQuantity)}
+    `;
+
+    if (authorizers.length === 0) {
+        return `<tr>
+          <td class="item-print-cell">${itemCellHtml}</td>
+          <td>—</td>
+          <td>—</td>
+          <td class="num">—</td>
+        </tr>`;
+    }
+
+    const flat = [];
+    for (const auth of authorizers) {
+        const recipients = auth.recipients || [];
+        if (recipients.length === 0) {
+            flat.push({ authorizedBy: auth.authorizedBy, recipientName: '—', quantity: null });
+        } else {
+            for (const recipient of recipients) {
+                flat.push({
+                    authorizedBy: auth.authorizedBy,
+                    recipientName: recipient.name,
+                    quantity: recipient.quantity,
+                });
+            }
+        }
+    }
+
+    const parts = [];
+    const itemRowSpan = flat.length;
+    let authStart = 0;
+
+    while (authStart < flat.length) {
+        const authorizedBy = flat[authStart].authorizedBy;
+        let authEnd = authStart;
+        while (authEnd < flat.length && flat[authEnd].authorizedBy === authorizedBy) {
+            authEnd += 1;
+        }
+        const authRowSpan = authEnd - authStart;
+
+        for (let r = authStart; r < authEnd; r += 1) {
+            const line = flat[r];
+            parts.push('<tr>');
+            if (r === 0) {
+                parts.push(`<td class="item-print-cell" rowspan="${itemRowSpan}">${itemCellHtml}</td>`);
+            }
+            if (r === authStart) {
+                parts.push(`<td rowspan="${authRowSpan}">${escapeReportPrintHtml(line.authorizedBy)}</td>`);
+            }
+            parts.push(`<td>${escapeReportPrintHtml(line.recipientName)}</td>`);
+            parts.push(
+                `<td class="num">${line.quantity == null ? '—' : escapeReportPrintHtml(line.quantity)}</td>`
+            );
+            parts.push('</tr>');
+        }
+        authStart = authEnd;
+    }
+
+    return parts.join('');
+};
+
+const printItemDistributionReport = (rows, reportStartDate, reportEndDate) => {
+    if (!rows || rows.length === 0) return;
+
+    const itemGroups = rows
+        .map((row) => `<tbody class="item-print-group">${buildItemGroupPrintTableBody(row)}</tbody>`)
+        .join('');
+
+    const body = `
+    ${buildReportPrintHeader('Distribution Report (By Item)', reportStartDate, reportEndDate)}
+    <table class="table item-report-print-table">
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Authorized by</th>
+          <th>Recipient</th>
+          <th class="num">Quantity</th>
+        </tr>
+      </thead>
+      ${itemGroups}
+    </table>
+  `;
+
+    printReportHtmlDocument('General Stock Report - By Item', body);
+};
+
 const REPORT_BREAKDOWN_TABS = [
     {
         id: 'authorized',
@@ -2210,6 +2532,27 @@ const DistributionReportsTab = ({
     const activeTabConfig =
         REPORT_BREAKDOWN_TABS.find((t) => t.id === reportBreakdownTab) || REPORT_BREAKDOWN_TABS[0];
     const activeRows = reportData[activeTabConfig.rowsKey] || [];
+    const hasActiveRows = activeRows.length > 0;
+
+    const handlePrintActiveReport = () => {
+        if (!hasActiveRows) return;
+        switch (reportBreakdownTab) {
+            case 'person':
+                printPersonDistributionReport(activeRows, reportStartDate, reportEndDate);
+                break;
+            case 'authorized':
+                printAuthorizedDistributionReport(activeRows, reportStartDate, reportEndDate);
+                break;
+            case 'department':
+                printDepartmentDistributionReport(activeRows, reportStartDate, reportEndDate);
+                break;
+            case 'item':
+                printItemDistributionReport(activeRows, reportStartDate, reportEndDate);
+                break;
+            default:
+                break;
+        }
+    };
 
     return (
         <div className="space-y-6">
@@ -2282,9 +2625,23 @@ const DistributionReportsTab = ({
                 </div>
             ) : (
                 <div className="space-y-2">
-                    {activeTabConfig.hint && (
-                        <p className="text-xs text-gray-500">{activeTabConfig.hint}</p>
-                    )}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        {activeTabConfig.hint ? (
+                            <p className="text-xs text-gray-500 flex-1 min-w-0">{activeTabConfig.hint}</p>
+                        ) : (
+                            <span className="flex-1" />
+                        )}
+                        <button
+                            type="button"
+                            onClick={handlePrintActiveReport}
+                            disabled={!hasActiveRows}
+                            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                            title="Print report with full tabular breakdown"
+                        >
+                            <Printer size={16} />
+                            Print report
+                        </button>
+                    </div>
                     {activeTabConfig.useItemTable ? (
                         <ItemReportBreakdownTable key="by-item" rows={activeRows} />
                     ) : (
