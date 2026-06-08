@@ -2,7 +2,6 @@
  * Client-side product ↔ student matching (mirrors backend/utils/productApplicability.js).
  */
 
-import { getDefaultAcademicYear } from './academicYears';
 
 export const normalizeCourse = (value) => {
   if (!value) return '';
@@ -77,14 +76,8 @@ export const productMatchesStudentRules = (product, student) => {
     if (!studentYear || !productYears.includes(studentYear)) return false;
   }
 
-  if (product.isSet) {
-    const productAcademicYears = getProductAcademicYears(product);
-    if (productAcademicYears.length > 0) {
-      const currentSession = normalizeAcademicYear(getDefaultAcademicYear());
-      const normalized = productAcademicYears.map(normalizeAcademicYear);
-      if (!normalized.includes(currentSession)) return false;
-    }
-  }
+  // Kit academicYears is a catalogue label only (e.g. 2025-26) — not validated at match time.
+  // Applicability is course + study year + branch + semester.
 
   const productBranchIds = Array.isArray(product.branchIds) ? product.branchIds : [];
   if (productBranchIds.length > 0 && student.branchId) {

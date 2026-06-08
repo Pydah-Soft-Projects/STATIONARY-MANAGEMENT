@@ -64,7 +64,12 @@ const getProfitStats = asyncHandler(async (req, res) => {
       e.product.toString() === productId.toString() &&
       new Date(e.createdAt) <= new Date(date)
     );
-    return entry ? entry.purchasePrice : 0;
+    if (!entry) return 0;
+    if (entry.totalCost && entry.quantity) {
+      return entry.totalCost / entry.quantity;
+    }
+    const gst = Number(entry.gstPercent) || 0;
+    return (entry.purchasePrice || 0) * (1 + gst / 100);
   };
 
   // Helper to find selling price for an item

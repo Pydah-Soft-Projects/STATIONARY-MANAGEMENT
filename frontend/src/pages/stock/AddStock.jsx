@@ -33,7 +33,15 @@ const AddStock = ({ products = [], setProducts, currentUser }) => {
     product: '',
     quantity: '',
     purchasePrice: '',
+    gstPercent: 0,
   });
+
+  const calcLineTotal = (quantity, purchasePrice, gstPercent = 0) => {
+    const qty = Number(quantity) || 0;
+    const price = Number(purchasePrice) || 0;
+    const gst = Number(gstPercent) || 0;
+    return qty * price * (1 + gst / 100);
+  };
 
   // ADDED ITEMS LIST
   const [addedItems, setAddedItems] = useState([]);
@@ -161,16 +169,21 @@ const AddStock = ({ products = [], setProducts, currentUser }) => {
 
     const productObj = products.find(p => p._id === itemData.product);
 
+    const itemQty = Number(itemData.quantity);
+    const itemPrice = Number(itemData.purchasePrice) || 0;
+    const itemGst = Number(itemData.gstPercent) || 0;
+
     const newItem = {
       ...itemData,
       productName: productObj?.name || 'Unknown',
-      quantity: Number(itemData.quantity),
-      purchasePrice: Number(itemData.purchasePrice) || 0,
-      total: Number(itemData.quantity) * (Number(itemData.purchasePrice) || 0)
+      quantity: itemQty,
+      purchasePrice: itemPrice,
+      gstPercent: itemGst,
+      total: calcLineTotal(itemQty, itemPrice, itemGst),
     };
 
     setAddedItems([...addedItems, newItem]);
-    setItemData({ product: '', quantity: '', purchasePrice: '' }); // Reset item form
+    setItemData({ product: '', quantity: '', purchasePrice: '', gstPercent: 0 });
   };
 
   const handleRemoveItem = (index) => {
@@ -220,7 +233,8 @@ const AddStock = ({ products = [], setProducts, currentUser }) => {
         items: addedItems.map(i => ({
           product: i.product,
           quantity: i.quantity,
-          purchasePrice: i.purchasePrice
+          purchasePrice: i.purchasePrice,
+          gstPercent: i.gstPercent || 0,
         }))
       };
 
@@ -417,7 +431,7 @@ const AddStock = ({ products = [], setProducts, currentUser }) => {
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
               {/* Product Select */}
-              <div className="md:col-span-5 space-y-2">
+              <div className="md:col-span-4 space-y-2">
                 <label className="block text-sm font-medium text-gray-800">Product</label>
                 <select
                   name="product"
@@ -438,7 +452,7 @@ const AddStock = ({ products = [], setProducts, currentUser }) => {
               </div>
 
               {/* Quantity */}
-              <div className="md:col-span-3 space-y-2">
+              <div className="md:col-span-2 space-y-2">
                 <label className="block text-sm font-medium text-gray-800">Qty</label>
                 <input
                   type="number"
@@ -451,8 +465,8 @@ const AddStock = ({ products = [], setProducts, currentUser }) => {
                 />
               </div>
 
-              {/* Price */}
-              <div className="md:col-span-3 space-y-2">
+              {/* Price (excl. GST) */}
+              <div className="md:col-span-2 space-y-2">
                 <label className="block text-sm font-medium text-gray-800">Unit Price</label>
                 <div className="relative">
                   <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
@@ -462,10 +476,26 @@ const AddStock = ({ products = [], setProducts, currentUser }) => {
                     value={itemData.purchasePrice}
                     onChange={handleItemChange}
                     min="0"
-                    className={`${inputCls} pl-8`} // Adjust padding for icon
+                    step="0.01"
+                    className={`${inputCls} pl-8`}
                     placeholder="0.00"
                   />
                 </div>
+              </div>
+
+              {/* GST % */}
+              <div className="md:col-span-2 space-y-2">
+                <label className="block text-sm font-medium text-gray-800">GST %</label>
+                <input
+                  type="number"
+                  name="gstPercent"
+                  value={itemData.gstPercent}
+                  onChange={handleItemChange}
+                  min="0"
+                  step="0.1"
+                  className={inputCls}
+                  placeholder="0"
+                />
               </div>
 
               {/* Add Button */}
@@ -503,6 +533,7 @@ const AddStock = ({ products = [], setProducts, currentUser }) => {
                       <th className="px-6 py-3 font-medium">Product</th>
                       <th className="px-6 py-3 font-medium text-right">Qty</th>
                       <th className="px-6 py-3 font-medium text-right">Price</th>
+                      <th className="px-6 py-3 font-medium text-right">GST %</th>
                       <th className="px-6 py-3 font-medium text-right">Total</th>
                       <th className="px-6 py-3 font-medium text-center">Action</th>
                     </tr>
@@ -513,7 +544,8 @@ const AddStock = ({ products = [], setProducts, currentUser }) => {
                         <td className="px-6 py-3 text-gray-900 font-medium">{item.productName}</td>
                         <td className="px-6 py-3 text-right">{item.quantity}</td>
                         <td className="px-6 py-3 text-right">₹{item.purchasePrice}</td>
-                        <td className="px-6 py-3 text-right">₹{item.total}</td>
+                        <td className="px-6 py-3 text-right">{item.gstPercent || 0}%</td>
+                        <td className="px-6 py-3 text-right">₹{item.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         <td className="px-6 py-3 text-center">
                           <button
                             onClick={() => handleRemoveItem(idx)}

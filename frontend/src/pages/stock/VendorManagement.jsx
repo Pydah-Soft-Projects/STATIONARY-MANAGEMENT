@@ -829,6 +829,7 @@ const VendorManagement = ({ currentUser }) => {
                               <span className="text-sm text-gray-600">Unit Price: </span>
                               <span className="font-semibold text-gray-900">
                                 {formatCurrency(entry.purchasePrice || 0)}
+                                {Number(entry.gstPercent) > 0 && ` (+${entry.gstPercent}% GST)`}
                               </span>
                             </div>
                             <div className="pt-2 border-t border-gray-200">

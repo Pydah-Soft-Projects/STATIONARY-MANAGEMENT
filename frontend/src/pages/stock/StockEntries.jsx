@@ -33,8 +33,16 @@ const StockEntries = ({ currentUser, viewContext = 'central' }) => {
     invoiceNumber: '',
     invoiceDate: '',
     purchasePrice: '',
+    gstPercent: 0,
     remarks: '',
   });
+
+  const calcLineTotal = (quantity, purchasePrice, gstPercent = 0) => {
+    const qty = Number(quantity) || 0;
+    const price = Number(purchasePrice) || 0;
+    const gst = Number(gstPercent) || 0;
+    return qty * price * (1 + gst / 100);
+  };
   const [products, setProducts] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [updating, setUpdating] = useState(false);
@@ -171,6 +179,7 @@ const StockEntries = ({ currentUser, viewContext = 'central' }) => {
                   <th>Product</th>
                   <th>Quantity</th>
                   <th>Unit Price</th>
+                  <th>GST %</th>
                   <th>Subtotal</th>
                 </tr>
               </thead>
@@ -181,8 +190,9 @@ const StockEntries = ({ currentUser, viewContext = 'central' }) => {
                       <td>${index + 1}</td>
                       <td>${safe(item.product?.name || 'Unknown Product')}</td>
                       <td>${safe(item.quantity)}</td>
-                      <td>₹${Number(item.purchasePrice || 0).toFixed(2)}</td>
-                      <td>₹${Number(item.totalCost || 0).toFixed(2)}</td>
+                      <td>₹${Number(item.purchasePrice || 0).toFixed(2)}${Number(item.gstPercent) > 0 ? ` (+${item.gstPercent}%)` : ''}</td>
+                      <td>${Number(item.gstPercent) || 0}%</td>
+                      <td>₹${Number(item.totalCost || calcLineTotal(item.quantity, item.purchasePrice, item.gstPercent)).toFixed(2)}</td>
                     </tr>
                   `)
                   .join('')}
@@ -191,6 +201,7 @@ const StockEntries = ({ currentUser, viewContext = 'central' }) => {
                 <tr>
                   <td colspan="2">Totals</td>
                   <td>${safe(totalQuantity)}</td>
+                  <td></td>
                   <td></td>
                   <td>₹${Number(totalCostValue).toFixed(2)}</td>
                 </tr>
@@ -301,6 +312,7 @@ const StockEntries = ({ currentUser, viewContext = 'central' }) => {
       invoiceNumber: entry.invoiceNumber || '',
       invoiceDate: entry.invoiceDate ? new Date(entry.invoiceDate).toISOString().split('T')[0] : '',
       purchasePrice: entry.purchasePrice || '',
+      gstPercent: entry.gstPercent || 0,
       remarks: entry.remarks || '',
     });
   };
@@ -316,6 +328,7 @@ const StockEntries = ({ currentUser, viewContext = 'central' }) => {
         invoiceNumber: editFormData.invoiceNumber,
         invoiceDate: editFormData.invoiceDate || undefined,
         purchasePrice: Number(editFormData.purchasePrice) || 0,
+        gstPercent: Number(editFormData.gstPercent) || 0,
         remarks: editFormData.remarks,
       };
 
@@ -336,6 +349,7 @@ const StockEntries = ({ currentUser, viewContext = 'central' }) => {
           invoiceNumber: '',
           invoiceDate: '',
           purchasePrice: '',
+          gstPercent: 0,
           remarks: '',
         });
         // Refresh products to update stock
@@ -614,8 +628,11 @@ const StockEntries = ({ currentUser, viewContext = 'central' }) => {
                           +{entry.quantity} Qty
                         </span>
                       </div>
-                      <div className="text-xs text-gray-500 mt-1 flex gap-3">
+                      <div className="text-xs text-gray-500 mt-1 flex gap-3 flex-wrap">
                         <span>Unit: {formatCurrency(entry.purchasePrice)}</span>
+                        {Number(entry.gstPercent) > 0 && (
+                          <span>GST: {entry.gstPercent}%</span>
+                        )}
                         <span>Subtotal: {formatCurrency(entry.totalCost)}</span>
                       </div>
                     </div>
@@ -709,11 +726,15 @@ const StockEntries = ({ currentUser, viewContext = 'central' }) => {
                 {selectedEntry.purchasePrice > 0 && (
                   <>
                     <div>
-                      <p className="text-sm text-gray-500 mb-1">Unit Price</p>
+                      <p className="text-sm text-gray-500 mb-1">Unit Price (excl. GST)</p>
                       <p className="font-semibold text-gray-900">{formatCurrency(selectedEntry.purchasePrice)}</p>
                     </div>
                     <div>
-                      <p className="text-sm text-gray-500 mb-1">Total Cost</p>
+                      <p className="text-sm text-gray-500 mb-1">GST</p>
+                      <p className="font-semibold text-gray-900">{Number(selectedEntry.gstPercent) || 0}%</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500 mb-1">Total Cost (incl. GST)</p>
                       <p className="font-semibold text-gray-900 text-lg">{formatCurrency(selectedEntry.totalCost)}</p>
                     </div>
                   </>
@@ -761,6 +782,7 @@ const StockEntries = ({ currentUser, viewContext = 'central' }) => {
             invoiceNumber: '',
             invoiceDate: '',
             purchasePrice: '',
+            gstPercent: 0,
             remarks: '',
           });
         }}>
@@ -783,6 +805,7 @@ const StockEntries = ({ currentUser, viewContext = 'central' }) => {
                     invoiceNumber: '',
                     invoiceDate: '',
                     purchasePrice: '',
+                    gstPercent: 0,
                     remarks: '',
                   });
                 }}
@@ -835,7 +858,7 @@ const StockEntries = ({ currentUser, viewContext = 'central' }) => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Unit Purchase Price
+                    Unit Purchase Price (excl. GST)
                   </label>
                   <div className="relative">
                     <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
@@ -849,6 +872,21 @@ const StockEntries = ({ currentUser, viewContext = 'central' }) => {
                       placeholder="0.00"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    GST %
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={editFormData.gstPercent}
+                    onChange={(e) => setEditFormData({ ...editFormData, gstPercent: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    placeholder="0"
+                  />
                 </div>
 
                 <div>
@@ -895,9 +933,15 @@ const StockEntries = ({ currentUser, viewContext = 'central' }) => {
 
               {editFormData.quantity && editFormData.purchasePrice && (
                 <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                  <p className="text-sm text-gray-600 mb-1">Calculated Total Cost:</p>
+                  <p className="text-sm text-gray-600 mb-1">Calculated Total Cost (incl. GST):</p>
                   <p className="text-xl font-bold text-green-700">
-                    {formatCurrency((Number(editFormData.quantity) || 0) * (Number(editFormData.purchasePrice) || 0))}
+                    {formatCurrency(
+                      calcLineTotal(
+                        editFormData.quantity,
+                        editFormData.purchasePrice,
+                        editFormData.gstPercent
+                      )
+                    )}
                   </p>
                 </div>
               )}
@@ -912,6 +956,7 @@ const StockEntries = ({ currentUser, viewContext = 'central' }) => {
                       invoiceNumber: '',
                       invoiceDate: '',
                       purchasePrice: '',
+                      gstPercent: 0,
                       remarks: '',
                     });
                   }}

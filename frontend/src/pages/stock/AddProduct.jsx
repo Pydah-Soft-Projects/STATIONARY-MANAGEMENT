@@ -1793,7 +1793,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                       <div>
                         <label className="block text-sm font-semibold text-gray-700 mb-1">Academic year</label>
                         <p className="text-xs text-gray-500 mb-2">
-                          Academic session this kit is for (past 3 and next 3 from today). Study year below controls which programme year it applies to.
+                          Label for which academic session this kit belongs to (e.g. 2025-26). For reference only — matching uses course, study year, branch, and semester below.
                         </p>
                         {isEditing ? (
                           <div className="bg-gray-50 border border-gray-300 rounded-lg p-4 space-y-3">
@@ -2401,7 +2401,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                               <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-1">Academic year</label>
                                 <p className="text-xs text-gray-500 mb-2">
-                                  Required for sets. Choose from the past 3 or next 3 academic years.
+                                  Required for sets. Labels which academic session this kit is for (not used to hide kits when the year changes).
                                 </p>
                                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-3.5 space-y-3">
                                   <select

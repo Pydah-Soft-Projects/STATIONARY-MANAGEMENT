@@ -36,6 +36,11 @@ const stockEntrySchema = new mongoose.Schema(
       min: [0, 'Purchase price cannot be negative'],
       default: 0,
     },
+    gstPercent: {
+      type: Number,
+      min: [0, 'GST cannot be negative'],
+      default: 0,
+    },
     totalCost: {
       type: Number,
       min: [0, 'Total cost cannot be negative'],
@@ -57,10 +62,17 @@ const stockEntrySchema = new mongoose.Schema(
   }
 );
 
-// Calculate totalCost before saving
+const calcStockLineTotal = (quantity, purchasePrice, gstPercent = 0) => {
+  const qty = Number(quantity) || 0;
+  const price = Number(purchasePrice) || 0;
+  const gst = Number(gstPercent) || 0;
+  return qty * price * (1 + gst / 100);
+};
+
+// Calculate totalCost before saving (purchasePrice is pre-GST unit price)
 stockEntrySchema.pre('save', function(next) {
-  if (this.purchasePrice && this.quantity) {
-    this.totalCost = this.purchasePrice * this.quantity;
+  if (this.quantity) {
+    this.totalCost = calcStockLineTotal(this.quantity, this.purchasePrice, this.gstPercent);
   }
   next();
 });
@@ -71,5 +83,5 @@ stockEntrySchema.index({ vendor: 1, createdAt: -1 });
 
 const StockEntry = mongoose.model('StockEntry', stockEntrySchema);
 
-module.exports = { StockEntry };
+module.exports = { StockEntry, calcStockLineTotal };
 

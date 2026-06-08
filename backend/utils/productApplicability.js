@@ -1,11 +1,8 @@
 /**
  * Shared rules for matching academic products/kits to a student.
- * academicYears on a product = kit intake label (e.g. "2025-26").
- * Kit is for a specific academic session (e.g. 2025-26). It only applies while that
- * session is the current institutional year — not tied to SQL student batch.
+ * academicYears on a kit is a catalogue label (e.g. "2025-26") — not used in runtime matching.
+ * Student SQL batch (joining year) is also not used here.
  */
-
-const { getDefaultAcademicYear } = require('./academicYears');
 
 const normalizeCourse = (value) => {
   if (!value) return '';
@@ -65,15 +62,6 @@ const productAppliesToStudent = (product, student) => {
   const studentYear = Number(student.year);
   if (productYears.length > 0) {
     if (!studentYear || !productYears.includes(studentYear)) return false;
-  }
-
-  if (product.isSet) {
-    const productAcademicYears = getProductAcademicYears(product);
-    if (productAcademicYears.length > 0) {
-      const currentSession = normalizeAcademicYear(getDefaultAcademicYear());
-      const normalizedProductYears = productAcademicYears.map(normalizeAcademicYear);
-      if (!normalizedProductYears.includes(currentSession)) return false;
-    }
   }
 
   const productBranchIds = Array.isArray(product.branchIds) ? product.branchIds : [];

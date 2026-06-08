@@ -1,4 +1,4 @@
-const { StockEntry } = require('../models/stockEntryModel');
+const { StockEntry, calcStockLineTotal } = require('../models/stockEntryModel');
 const { Product } = require('../models/productModel');
 const { Vendor } = require('../models/vendorModel');
 
@@ -71,7 +71,9 @@ const createStockEntry = async (req, res) => {
            continue;
         }
 
-        const totalCost = (item.purchasePrice || 0) * item.quantity;
+        const purchasePrice = Number(item.purchasePrice) || 0;
+        const gstPercent = Number(item.gstPercent) || 0;
+        const totalCost = calcStockLineTotal(item.quantity, purchasePrice, gstPercent);
 
         const stockEntry = new StockEntry({
           product: item.product,
@@ -80,7 +82,8 @@ const createStockEntry = async (req, res) => {
           quantity: item.quantity,
           invoiceNumber: invoiceNumber?.trim() || '',
           invoiceDate: invoiceDate ? new Date(invoiceDate) : new Date(),
-          purchasePrice: item.purchasePrice || 0,
+          purchasePrice,
+          gstPercent,
           totalCost,
           remarks: remarks?.trim() || '',
           createdBy: createdBy?.trim() || 'System',
@@ -219,7 +222,7 @@ const updateStockEntry = async (req, res) => {
       return res.status(404).json({ message: 'Stock entry not found' });
     }
 
-    const { quantity, invoiceNumber, invoiceDate, purchasePrice, remarks } = req.body;
+    const { quantity, invoiceNumber, invoiceDate, purchasePrice, gstPercent, remarks } = req.body;
     // Convert to numbers to ensure proper comparison
     const oldQuantity = Number(stockEntry.quantity) || 0;
     const newQuantity = quantity !== undefined ? Number(quantity) : oldQuantity;
@@ -274,18 +277,23 @@ const updateStockEntry = async (req, res) => {
     // Update stock entry fields
     if (quantity !== undefined) {
       stockEntry.quantity = newQuantity;
-      // Recalculate total cost
-      stockEntry.totalCost = (stockEntry.purchasePrice || 0) * newQuantity;
     }
     if (invoiceNumber !== undefined) stockEntry.invoiceNumber = invoiceNumber?.trim() || '';
     if (invoiceDate !== undefined) stockEntry.invoiceDate = new Date(invoiceDate);
     if (purchasePrice !== undefined) {
-      stockEntry.purchasePrice = purchasePrice;
-      // Recalculate total cost using current quantity (newQuantity if quantity was updated, otherwise oldQuantity)
-      const currentQuantity = quantity !== undefined ? newQuantity : oldQuantity;
-      stockEntry.totalCost = purchasePrice * currentQuantity;
+      stockEntry.purchasePrice = Number(purchasePrice) || 0;
+    }
+    if (gstPercent !== undefined) {
+      stockEntry.gstPercent = Number(gstPercent) || 0;
     }
     if (remarks !== undefined) stockEntry.remarks = remarks?.trim() || '';
+
+    const finalQuantity = quantity !== undefined ? newQuantity : oldQuantity;
+    stockEntry.totalCost = calcStockLineTotal(
+      finalQuantity,
+      stockEntry.purchasePrice,
+      stockEntry.gstPercent
+    );
 
     const updated = await stockEntry.save();
     await updated.populate('product', 'name price');
