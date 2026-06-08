@@ -529,6 +529,9 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
       ...prev,
       isSet: checked,
       setItems: checked ? prev.setItems : [],
+      academicYears: checked
+        ? (prev.academicYears?.length ? prev.academicYears : [getDefaultAcademicYear()])
+        : [],
     }));
     if (!checked) {
       setSetItemToAdd('');
@@ -604,9 +607,9 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
       // Kits/Sets must be Rule Based
       applicabilityMode: type === 'set' ? 'rules' : prev.applicabilityMode,
       academicYears:
-        type === 'set' && (!prev.academicYears || prev.academicYears.length === 0)
-          ? [getDefaultAcademicYear()]
-          : prev.academicYears,
+        type === 'set'
+          ? (prev.academicYears?.length ? prev.academicYears : [getDefaultAcademicYear()])
+          : [],
     }));
     if (type !== 'set') {
       setSetItemToAdd('');
@@ -743,6 +746,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             ...formData,
+            academicYears: formData.isSet ? (formData.academicYears || []) : [],
             forCourseId: formData.forCourseId || undefined,
             branchIds: formData.branchIds || [],
             setItems: formData.isSet
@@ -784,7 +788,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
             forCourse: formData.forCourse || undefined,
             forCourseId: formData.forCourseId || undefined,
             years: formData.years || [],
-            academicYears: formData.academicYears || [],
+            academicYears: formData.isSet ? (formData.academicYears || []) : [],
             branch: formData.branch,
             branchIds: formData.branchIds || [],
             semesters: formData.semesters || [],
@@ -1247,10 +1251,12 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                     <span className="text-gray-500">Years</span>
                     <span className="font-medium text-gray-900 truncate max-w-[120px] text-right">{yearsDisplay}</span>
                   </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-500">Acad. year</span>
-                    <span className="font-medium text-gray-900 truncate max-w-[120px] text-right">{formatAcademicYearsDisplay(product)}</span>
-                  </div>
+                  {product.isSet && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-500">Acad. year</span>
+                      <span className="font-medium text-gray-900 truncate max-w-[120px] text-right">{formatAcademicYearsDisplay(product)}</span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-gray-500">Semesters</span>
                     <span className="font-medium text-gray-900 truncate max-w-[120px] text-right">
@@ -1359,7 +1365,9 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                       </td>
                       <td className="px-6 py-4 text-gray-600">{product.forCourse || 'All'}</td>
                       <td className="px-6 py-4 text-gray-600">{yearsDisplay}</td>
-                      <td className="px-6 py-4 text-gray-600">{formatAcademicYearsDisplay(product)}</td>
+                      <td className="px-6 py-4 text-gray-600">
+                        {product.isSet ? formatAcademicYearsDisplay(product) : '—'}
+                      </td>
                       <td className="px-6 py-4 text-gray-600">
                         {(product.semesters || []).length > 0
                           ? (product.semesters || []).map(s => `Sem ${s}`).join(', ')
@@ -1781,41 +1789,40 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                       )}
                     </div>
 
-                    {/* Academic year / admission batch */}
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-1">Academic year</label>
-                      <p className="text-xs text-gray-500 mb-2">
-                        Admission academic year for this kit (past 3 and next 3 from today). Study year below controls which programme year it applies to.
-                      </p>
-                      {isEditing ? (
-                        <div className="bg-gray-50 border border-gray-300 rounded-lg p-4 space-y-3">
-                          <select
-                            value={selectedAcademicYear}
-                            onChange={handleAcademicYearChange}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-                            required={formData.isSet}
-                          >
-                            <option value="">Select academic year</option>
-                            {academicYearOptions.map((year) => (
-                              <option key={year} value={year}>
-                                {year}{year === currentAcademicYear ? ' (Current)' : ''}
-                              </option>
-                            ))}
-                          </select>
-                          {(formData.academicYears || []).length === 0 && (
-                            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                              {formData.isSet
-                                ? 'Sets require an academic year before saving.'
-                                : 'No academic year selected — product applies to all intakes (legacy behaviour).'}
-                            </p>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="bg-gray-50 border border-gray-300 rounded-lg p-3">
-                          <p className="text-gray-700 font-medium">{formatAcademicYearsDisplay(selectedProduct)}</p>
-                        </div>
-                      )}
-                    </div>
+                    {formData.isSet && (
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-1">Academic year</label>
+                        <p className="text-xs text-gray-500 mb-2">
+                          Academic session this kit is for (past 3 and next 3 from today). Study year below controls which programme year it applies to.
+                        </p>
+                        {isEditing ? (
+                          <div className="bg-gray-50 border border-gray-300 rounded-lg p-4 space-y-3">
+                            <select
+                              value={selectedAcademicYear}
+                              onChange={handleAcademicYearChange}
+                              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                              required
+                            >
+                              <option value="">Select academic year</option>
+                              {academicYearOptions.map((year) => (
+                                <option key={year} value={year}>
+                                  {year}{year === currentAcademicYear ? ' (Current)' : ''}
+                                </option>
+                              ))}
+                            </select>
+                            {(formData.academicYears || []).length === 0 && (
+                              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                                Sets require an academic year before saving.
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="bg-gray-50 border border-gray-300 rounded-lg p-3">
+                            <p className="text-gray-700 font-medium">{formatAcademicYearsDisplay(selectedProduct)}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Years */}
                     <div>
@@ -2390,33 +2397,34 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                               </select>
                             </div>
 
-                            {/* Academic year / batch */}
-                            <div>
-                              <label className="block text-sm font-semibold text-gray-700 mb-1">Academic year</label>
-                              <p className="text-xs text-gray-500 mb-2">
-                                Required for sets. Choose from the past 3 or next 3 academic years.
-                              </p>
-                              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3.5 space-y-3">
-                                <select
-                                  value={selectedAcademicYear}
-                                  onChange={handleAcademicYearChange}
-                                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-white shadow-sm"
-                                  required={formData.isSet}
-                                >
-                                  <option value="">Select academic year</option>
-                                  {academicYearOptions.map((year) => (
-                                    <option key={year} value={year}>
-                                      {year}{year === currentAcademicYear ? ' (Current)' : ''}
-                                    </option>
-                                  ))}
-                                </select>
-                                {formData.isSet && (formData.academicYears || []).length === 0 && (
-                                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                                    Sets require an academic year before saving.
-                                  </p>
-                                )}
+                            {formData.isSet && (
+                              <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-1">Academic year</label>
+                                <p className="text-xs text-gray-500 mb-2">
+                                  Required for sets. Choose from the past 3 or next 3 academic years.
+                                </p>
+                                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3.5 space-y-3">
+                                  <select
+                                    value={selectedAcademicYear}
+                                    onChange={handleAcademicYearChange}
+                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-white shadow-sm"
+                                    required
+                                  >
+                                    <option value="">Select academic year</option>
+                                    {academicYearOptions.map((year) => (
+                                      <option key={year} value={year}>
+                                        {year}{year === currentAcademicYear ? ' (Current)' : ''}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  {(formData.academicYears || []).length === 0 && (
+                                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                                      Sets require an academic year before saving.
+                                    </p>
+                                  )}
+                                </div>
                               </div>
-                            </div>
+                            )}
 
                             {/* Years Selection */}
                             <div>

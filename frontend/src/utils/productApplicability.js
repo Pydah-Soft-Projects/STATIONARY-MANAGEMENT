@@ -31,9 +31,30 @@ export const getProductAcademicYears = (product) => {
 };
 
 export const formatAcademicYearsDisplay = (product) => {
+  if (!product?.isSet) return '—';
   const years = getProductAcademicYears(product);
   if (years.length === 0) return 'All academic years';
   return years.join(', ');
+};
+
+/**
+ * Add-on = optional extras (no course mapping, or student-mode but not assigned to this student).
+ */
+export const isAddOnProductForStudent = (product, student) => {
+  if (!product || !student) return false;
+
+  if (product.applicabilityMode === 'students') {
+    const studentId = student.id || student._id;
+    const applicableList = product.applicableStudents || [];
+    const isAssigned = applicableList.some((s) => {
+      const sId = s && typeof s === 'object' ? s._id : s;
+      return String(sId) === String(studentId);
+    });
+    return !isAssigned;
+  }
+
+  const courseValue = normalizeCourse(product?.forCourse || '');
+  return courseValue === '' && !product.forCourseId;
 };
 
 /**
@@ -56,11 +77,13 @@ export const productMatchesStudentRules = (product, student) => {
     if (!studentYear || !productYears.includes(studentYear)) return false;
   }
 
-  const productAcademicYears = getProductAcademicYears(product);
-  if (productAcademicYears.length > 0) {
-    const currentSession = normalizeAcademicYear(getDefaultAcademicYear());
-    const normalized = productAcademicYears.map(normalizeAcademicYear);
-    if (!normalized.includes(currentSession)) return false;
+  if (product.isSet) {
+    const productAcademicYears = getProductAcademicYears(product);
+    if (productAcademicYears.length > 0) {
+      const currentSession = normalizeAcademicYear(getDefaultAcademicYear());
+      const normalized = productAcademicYears.map(normalizeAcademicYear);
+      if (!normalized.includes(currentSession)) return false;
+    }
   }
 
   const productBranchIds = Array.isArray(product.branchIds) ? product.branchIds : [];

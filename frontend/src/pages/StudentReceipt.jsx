@@ -5,6 +5,7 @@ import { useReactToPrint } from 'react-to-print';
 import jsPDF from 'jspdf';
 import { apiUrl } from '../utils/api';
 import useOnlineStatus from '../hooks/useOnlineStatus';
+import { isAddOnProductForStudent } from '../utils/productApplicability';
 
 const normalizeValue = (value) => {
   if (!value) return '';
@@ -387,11 +388,20 @@ const StudentReceiptModal = ({
   if (!student) return null;
 
   const visibleItems = useMemo(() => {
-    if (prefilledItems && prefilledItems.length > 0) {
-      return (products || []).filter(p => prefilledItems.some(pref => pref._id === p._id));
+    if (mode === 'addon') {
+      return (products || []).filter((p) => isAddOnProductForStudent(p, student));
     }
 
-    return (products || []).filter(p => {
+    if (prefilledItems && prefilledItems.length > 0) {
+      const productById = new Map(
+        (products || []).map((p) => [String(p._id), p])
+      );
+      return prefilledItems
+        .map((pref) => productById.get(String(pref._id)) || pref)
+        .filter(Boolean);
+    }
+
+    return (products || []).filter((p) => {
       if (p.forCourse) {
         const normalizedCourse = normalizeValue(p.forCourse);
         if (normalizedCourse && normalizedCourse !== normalizeValue(student.course)) {
@@ -404,17 +414,24 @@ const StudentReceiptModal = ({
       }
       return true;
     });
-  }, [products, student.course, student.year, prefilledItems]);
+  }, [products, student, prefilledItems, mode]);
 
   const filteredItems = useMemo(() => {
     const term = itemSearch.trim().toLowerCase();
     if (!term) return visibleItems;
 
+    const normalizedTerm = normalizeValue(term);
+
     return visibleItems.filter((item) => {
       const nameMatch = item.name?.toLowerCase().includes(term);
+      const normalizedNameMatch =
+        normalizedTerm && normalizeValue(item.name).includes(normalizedTerm);
       const descriptionMatch = item.description?.toLowerCase().includes(term);
       const courseMatch = item.forCourse?.toLowerCase().includes(term);
-      return Boolean(nameMatch || descriptionMatch || courseMatch);
+      const remarksMatch = item.remarks?.toLowerCase().includes(term);
+      return Boolean(
+        nameMatch || normalizedNameMatch || descriptionMatch || courseMatch || remarksMatch
+      );
     });
   }, [itemSearch, visibleItems]);
 

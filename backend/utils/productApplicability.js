@@ -67,11 +67,13 @@ const productAppliesToStudent = (product, student) => {
     if (!studentYear || !productYears.includes(studentYear)) return false;
   }
 
-  const productAcademicYears = getProductAcademicYears(product);
-  if (productAcademicYears.length > 0) {
-    const currentSession = normalizeAcademicYear(getDefaultAcademicYear());
-    const normalizedProductYears = productAcademicYears.map(normalizeAcademicYear);
-    if (!normalizedProductYears.includes(currentSession)) return false;
+  if (product.isSet) {
+    const productAcademicYears = getProductAcademicYears(product);
+    if (productAcademicYears.length > 0) {
+      const currentSession = normalizeAcademicYear(getDefaultAcademicYear());
+      const normalizedProductYears = productAcademicYears.map(normalizeAcademicYear);
+      if (!normalizedProductYears.includes(currentSession)) return false;
+    }
   }
 
   const productBranchIds = Array.isArray(product.branchIds) ? product.branchIds : [];

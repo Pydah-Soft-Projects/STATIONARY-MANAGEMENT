@@ -9,6 +9,7 @@ import {
   productMatchesStudentRules,
   formatAcademicYearsDisplay,
   getProductYears,
+  isAddOnProductForStudent,
 } from '../utils/productApplicability';
 
 const formatKitApplicability = (product) => {
@@ -299,25 +300,9 @@ const StudentDetail = ({
     return productMatchesStudentRules(p, student);
   });
 
-  const isAddOnProduct = (product) => {
-    // If explicitly assigned to specific students: mapped (required) for those students, addon for others
-    if (product.applicabilityMode === 'students') {
-      if (!student) return true;
-      const studentId = student.id || student._id;
-      const applicableList = product.applicableStudents || [];
-      const isAssigned = applicableList.some(s => {
-        const sId = (s && typeof s === 'object') ? s._id : s;
-        return String(sId) === String(studentId);
-      });
-      return !isAssigned;
-    }
-
-    const courseValue = normalizeCourse(product?.forCourse || '');
-    return courseValue === '';
-  };
-
-  const mappedProducts = visibleItems.filter((product) => !isAddOnProduct(product));
-  const addOnProducts = visibleItems.filter(isAddOnProduct);
+  const mappedProducts = visibleItems.filter(
+    (product) => !isAddOnProductForStudent(product, student)
+  );
 
   const productMap = useMemo(() => {
     const map = new Map();
@@ -806,7 +791,7 @@ const StudentDetail = ({
             </button>
             {canManageTransactions && (
               <button
-                onClick={() => handleOpenTransaction(addOnProducts, 'addon')}
+                onClick={() => handleOpenTransaction([], 'addon')}
                 className="flex items-center gap-2 px-5 py-2.5 bg-white text-blue-800 rounded-xl hover:bg-blue-50 transition-all font-semibold shadow-lg"
               >
                 <Receipt size={18} />
