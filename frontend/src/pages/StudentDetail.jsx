@@ -5,6 +5,23 @@ import { useReactToPrint } from 'react-to-print';
 import StudentReceiptModal from './StudentReceipt.jsx';
 import { apiUrl } from '../utils/api';
 import { canRecordCounterTransactions } from '../utils/permissions';
+import {
+  productMatchesStudentRules,
+  formatAcademicYearsDisplay,
+  getProductYears,
+} from '../utils/productApplicability';
+
+const formatKitApplicability = (product) => {
+  if (!product?.isSet) return null;
+  const parts = [];
+  const acadYear = formatAcademicYearsDisplay(product);
+  if (acadYear) parts.push(`Acad. year: ${acadYear}`);
+  const studyYears = getProductYears(product);
+  if (studyYears.length > 0) {
+    parts.push(`Study year: ${studyYears.join(', ')}`);
+  }
+  return parts.length > 0 ? parts.join(' • ') : null;
+};
 
 const StudentDetail = ({
   students = [],
@@ -278,50 +295,8 @@ const StudentDetail = ({
       return true;
     }
 
-    // 2. Rule-Based Applicability (Course/Year/Branch)
-    // Course filter: prioritize forCourseId if available for exact match
-    if (p.forCourseId && student.courseId) {
-      if (p.forCourseId !== student.courseId) return false;
-    } else if (p.forCourse && normalizeCourse(p.forCourse) !== studentCourseNormalized) {
-      // Fallback to name-based matching for legacy products or students
-      return false;
-    }
-
-    // Year filter: check both years (array) and year (single value) for backward compatibility
-    const productYears = p.years || (p.year ? [p.year] : []);
-
-    // If product has specific years defined, student's year must be in that array
-    if (productYears.length > 0) {
-      if (!productYears.includes(Number(student.year))) return false;
-    }
-    // If product has no years specified (empty array), it applies to all years (for that course)
-
-    // Branch filter: prioritize branchIds if available
-    const productBranchIds = Array.isArray(p.branchIds) ? p.branchIds : [];
-    if (productBranchIds.length > 0 && student.branchId) {
-      if (!productBranchIds.includes(student.branchId)) return false;
-    } else {
-      // Fallback to name-based branch matching
-      const productBranches = Array.isArray(p.branch)
-        ? p.branch
-        : (p.branch ? [p.branch] : []);
-      if (productBranches.length > 0) {
-        const studentBranchNormalized = normalizeCourse(student?.branch || '');
-        const normalizedProductBranches = productBranches.map(b => normalizeCourse(b));
-        if (!normalizedProductBranches.includes(studentBranchNormalized)) return false;
-      }
-    }
-    // If product has no branches specified (empty array), it applies to all branches (for that course)
-
-    // Semester filter: if product has semesters, student's semester must be in the array
-    const productSemesters = Array.isArray(p.semesters) ? p.semesters : [];
-
-    // Safety check: ensure student exists
-    if (student && productSemesters.length > 0 && student.semester) {
-      if (!productSemesters.includes(Number(student.semester))) return false;
-    }
-
-    return true;
+    // 2. Rule-Based Applicability (course, study year, branch, semester)
+    return productMatchesStudentRules(p, student);
   });
 
   const isAddOnProduct = (product) => {
@@ -813,7 +788,12 @@ const StudentDetail = ({
             <div>
               <p className="text-xs uppercase tracking-wider text-white">Student Profile</p>
               <h1 className="text-2xl font-semibold text-white">{student.name}</h1>
-              <p className="text-sm text-white/80 mt-1">{student.course?.toUpperCase()} • Year {student.year}{student.semester ? ` • Sem ${student.semester}` : ''}{student.branch ? ` • ${student.branch}` : ''}</p>
+              <p className="text-sm text-white/80 mt-1">
+                {student.course?.toUpperCase()}
+                {' • Year '}{student.year}
+                {student.semester ? ` • Sem ${student.semester}` : ''}
+                {student.branch ? ` • ${student.branch}` : ''}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-3 self-end lg:self-center">
@@ -958,12 +938,17 @@ const StudentDetail = ({
                             <div className="flex items-start justify-between gap-3">
                               <div>
                                 <h5 className="text-sm font-semibold text-blue-900 line-clamp-1">{product.name}</h5>
+                                {formatKitApplicability(product) && (
+                                  <p className="text-[11px] font-medium text-blue-700/90 mt-1">
+                                    {formatKitApplicability(product)}
+                                  </p>
+                                )}
                                 {product.description && (
                                   <p className="text-xs text-blue-700/70 mt-1 line-clamp-2">{product.description}</p>
                                 )}
                               </div>
                               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-white px-2 py-1 rounded-full border border-blue-200">
-                                Pending
+                                {product.isSet ? 'Pending · Kit' : 'Pending'}
                               </span>
                             </div>
                           </div>
@@ -986,12 +971,17 @@ const StudentDetail = ({
                               <div className="flex items-start justify-between gap-3">
                                 <div>
                                   <h5 className="text-sm font-semibold text-blue-800 line-clamp-1">{product.name}</h5>
+                                  {formatKitApplicability(product) && (
+                                    <p className="text-[11px] font-medium text-blue-700/90 mt-1">
+                                      {formatKitApplicability(product)}
+                                    </p>
+                                  )}
                                   {product.description && (
                                     <p className="text-xs text-blue-700/70 mt-1 line-clamp-2">{product.description}</p>
                                   )}
                                 </div>
                                 <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 bg-white px-2 py-1 rounded-full border border-blue-200">
-                                  <Lock size={10} /> Locked
+                                  <Lock size={10} /> {product.isSet ? 'Kit' : 'Locked'}
                                 </span>
                               </div>
                             </div>

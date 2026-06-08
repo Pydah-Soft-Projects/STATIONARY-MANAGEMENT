@@ -115,7 +115,7 @@ const createProduct = async (req, res) => {
     } catch (diagErr) {
       console.warn('Could not read Product schema year options:', diagErr);
     }
-    const { name, description, price, stock, imageUrl, forCourse, forCourseId, branch, branchIds, years, year, remarks, isSet, setItems, lowStockThreshold, semesters, collegeId, applicabilityMode, applicableStudents } = req.body;
+    const { name, description, price, stock, imageUrl, forCourse, forCourseId, branch, branchIds, years, year, academicYears, remarks, isSet, setItems, lowStockThreshold, semesters, collegeId, applicabilityMode, applicableStudents } = req.body;
     // Handle years array - if years is provided, use it; otherwise fallback to year for backward compatibility
     let parsedYears = [];
     if (years && Array.isArray(years)) {
@@ -166,6 +166,9 @@ const createProduct = async (req, res) => {
       branchIds: Array.isArray(branchIds) ? branchIds.map(Number).filter(id => !isNaN(id)) : [],
       years: parsedYears,
       year: parsedYears.length === 1 ? parsedYears[0] : (parsedYears.length === 0 ? 0 : parsedYears[0]), // Backward compatibility
+      academicYears: Array.isArray(academicYears)
+        ? academicYears.map((y) => String(y).trim()).filter(Boolean)
+        : [],
       remarks: remarks || '',
       lastPriceUpdated: new Date(), // Set initial price update date
       isSet: Boolean(isSet),
@@ -260,7 +263,7 @@ const updateProduct = async (req, res) => {
     // Track old name for updating transactions if name changes
     const oldName = product.name;
 
-    const { name, description, price, stock, imageUrl, forCourse, forCourseId, branch, branchIds, years, year, remarks, isSet, setItems, lowStockThreshold, semesters, applicabilityMode, applicableStudents } = req.body;
+    const { name, description, price, stock, imageUrl, forCourse, forCourseId, branch, branchIds, years, year, academicYears, remarks, isSet, setItems, lowStockThreshold, semesters, applicabilityMode, applicableStudents } = req.body;
     // Handle years array - if years is provided, use it; otherwise fallback to year for backward compatibility
     let parsedYears = undefined;
     if (years !== undefined && Array.isArray(years)) {
@@ -359,6 +362,11 @@ const updateProduct = async (req, res) => {
     }
     if (semesters !== undefined) {
       product.semesters = Array.isArray(semesters) ? semesters.map(Number).filter(s => s === 1 || s === 2) : [];
+    }
+    if (academicYears !== undefined) {
+      product.academicYears = Array.isArray(academicYears)
+        ? academicYears.map((y) => String(y).trim()).filter(Boolean)
+        : [];
     }
     product.remarks = remarks !== undefined ? remarks : product.remarks;
 

@@ -89,7 +89,55 @@ const getBranches = asyncHandler(async (req, res) => {
   }
 });
 
+const DEFAULT_STUDENT_TABLE = 'students';
+
+/**
+ * Distinct admission batches (academic years) from the students table for kit mapping.
+ */
+const getAcademicBatches = asyncHandler(async (req, res) => {
+  const pool = getMySqlPool();
+  if (!pool) {
+    res.status(500);
+    throw new Error('MySQL pool is not configured.');
+  }
+
+  const { course, courseId } = req.query;
+  const tableName = process.env.DB_STUDENTS_TABLE || DEFAULT_STUDENT_TABLE;
+
+  try {
+    const conditions = [`batch IS NOT NULL`, `TRIM(batch) != ''`];
+    const params = [];
+
+    if (courseId) {
+      conditions.push('course_id = ?');
+      params.push(Number(courseId));
+    } else if (course) {
+      conditions.push('LOWER(course) = LOWER(?)');
+      params.push(course);
+    }
+
+    const sql = `
+      SELECT DISTINCT TRIM(batch) AS batch
+      FROM \`${tableName}\`
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY batch DESC
+    `;
+
+    const [rows] = await pool.query(sql, params);
+    const batches = (rows || [])
+      .map((row) => String(row.batch || '').trim())
+      .filter(Boolean);
+
+    res.json(batches);
+  } catch (error) {
+    console.error('[MySQL] Failed to fetch academic batches:', error);
+    res.status(500);
+    throw new Error('Failed to fetch academic batches from MySQL.');
+  }
+});
+
 module.exports = {
   getCourses,
   getBranches,
+  getAcademicBatches,
 };

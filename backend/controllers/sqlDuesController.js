@@ -3,6 +3,7 @@ const { getMySqlPool } = require('../config/mysql'); // Use your MySQL config pa
 const { Product } = require('../models/productModel'); // MongoDB Product
 const { Transaction } = require('../models/transactionModel'); // MongoDB Transaction
 const { normalizeStudentRow } = require('./sqlStudentController');
+const { productAppliesToStudent } = require('../utils/productApplicability');
 
 const DEFAULT_STUDENT_TABLE = 'students';
 
@@ -100,7 +101,7 @@ const getStudentDues = asyncHandler(async (req, res) => {
 
     // 1. Fetch ALL matching students (No Limit/Offset in SQL)
     // Optimization: Select only necessary columns
-    const sql = `SELECT id, admission_number, pin_no, student_name, course, branch, current_year, current_semester, student_mobile, student_status FROM \`${tableName}\` ${whereClause} ORDER BY admission_number DESC`;
+    const sql = `SELECT id, admission_number, pin_no, student_name, course, course_id, branch, branch_id, batch, current_year, current_semester, student_mobile, student_status FROM \`${tableName}\` ${whereClause} ORDER BY admission_number DESC`;
     const sqlParams = [...params];
 
     // 2. Prepare Product Query (Mongo)
@@ -117,7 +118,7 @@ const getStudentDues = asyncHandler(async (req, res) => {
                 products.forEach(p => {
                     console.log(` - ${p.name} (${p._id})`);
                     console.log(`   forCourse: '${p.forCourse}'`);
-                    console.log(`   Applicability: Years [${p.years?.join(',') || ''}], Sems [${p.semesters?.join(',') || ''}]`);
+                    console.log(`   Applicability: Years [${p.years?.join(',') || ''}], Batches [${p.academicYears?.join(',') || ''}], Sems [${p.semesters?.join(',') || ''}]`);
                     console.log(`   Mode: ${p.applicabilityMode}`);
                 });
                 return products;
@@ -252,34 +253,9 @@ const getStudentDues = asyncHandler(async (req, res) => {
             ]);
 
             // Filter Applicable Products for *this* student
-            const applicableProducts = allProducts.filter(product => {
-                const norm = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-
-                if (product.applicabilityMode !== 'students' && !product.forCourse) return false;
-                if (product.forCourse && norm(product.forCourse) !== norm(student.course)) return false;
-
-                if (product.applicabilityMode === 'students') {
-                    const allowedIds = (product.applicableStudents || []).map(String);
-                    return allowedIds.includes(sid1) || allowedIds.includes(sid2);
-                }
-
-                const productYears = Array.isArray(product.years) ? product.years : (product.year ? [product.year] : []);
-                const studentYear = Number(student.year);
-                if (productYears.length > 0 && !productYears.includes(studentYear)) return false;
-
-                const productSemesters = product.semesters || [];
-                const studentSemester = Number(student.semester);
-                if (productSemesters.length > 0) {
-                    if (!studentSemester || !productSemesters.includes(studentSemester)) return false;
-                }
-
-                const productBranches = Array.isArray(product.branch) ? product.branch : (product.branch ? [product.branch] : []);
-                const normProductBranches = productBranches.map(norm);
-                const studentBranch = norm(student.branch);
-                if (normProductBranches.length > 0 && !normProductBranches.includes(studentBranch)) return false;
-
-                return true;
-            });
+            const applicableProducts = allProducts.filter((product) =>
+                productAppliesToStudent(product, student)
+            );
 
             // Identify Missing items
             const pendingItems = [];

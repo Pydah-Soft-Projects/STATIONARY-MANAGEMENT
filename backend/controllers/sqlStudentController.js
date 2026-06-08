@@ -56,6 +56,7 @@ const normalizeStudentRow = (row) => {
   const semesterValue = deriveValue(row, ['semester', 'current_semester', 'semester_no', 'sem', 'sem_no'], null);
   const branch = deriveValue(row, ['branch', 'department', 'dept', 'department_name'], 'N/A');
   const branchId = deriveValue(row, ['branch_id', 'branchId', 'dept_id', 'department_id', 'departmentId'], null);
+  const batch = deriveValue(row, ['batch', 'academic_year', 'academicYear', 'admission_batch', 'admissionBatch'], null);
   const status = deriveValue(row, ['status', 'admission_status', 'admissionStatus', 'student_status', 'studentStatus', 'admission_state'], null);
   const phoneNumber = deriveValue(row, ['student_mobile', 'parent_mobile1', 'parent_mobile2', 'mobile', 'phone', 'contact'], '');
 
@@ -86,6 +87,8 @@ const normalizeStudentRow = (row) => {
     semester,
     branch,
     branchId,
+    batch: batch ? String(batch).trim() : null,
+    academicYear: batch ? String(batch).trim() : null,
     status: status || null,
     phoneNumber: phoneNumber || '',
     _sourceRow: row,

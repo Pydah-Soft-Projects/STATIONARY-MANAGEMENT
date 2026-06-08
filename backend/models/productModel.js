@@ -70,6 +70,17 @@ const productSchema = new mongoose.Schema(
       type: [Number],
       default: [],
     },
+    // Kit intake academic year label (e.g. "2025-26"). Admin metadata; not tied to SQL student batch.
+    academicYears: {
+      type: [String],
+      default: [],
+      validate: {
+        validator: function (v) {
+          return Array.isArray(v) && v.every((y) => typeof y === 'string' && y.trim().length > 0);
+        },
+        message: 'Each academic year must be a non-empty string',
+      },
+    },
     // Optional semester applicability (e.g., 1, 2) - array for multiple semesters
     // If empty, applies to all semesters in the selected year(s)
     semesters: {

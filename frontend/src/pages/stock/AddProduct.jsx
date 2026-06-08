@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { Plus, Search, Filter, Package, Eye, Edit, Trash2, X, Save, Calendar, DollarSign, FileText, Layers, MinusCircle, LayoutGrid, Table, Archive, Users } from 'lucide-react';
 import { apiUrl } from '../../utils/api';
 import { hasFullAccess } from '../../utils/permissions';
+import { formatAcademicYearsDisplay } from '../../utils/productApplicability';
+import { getAcademicYearOptions, getDefaultAcademicYear } from '../../utils/academicYears';
 
 const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, currentCourse, products = [], setProducts, currentUser, viewContext = 'central' }) => {
   // Check access level
@@ -35,6 +37,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
     forCourse: selectedCourse || '',
     forCourseId: null,
     years: [],
+    academicYears: [],
     branch: [],
     branchIds: [],
     semesters: [],
@@ -63,6 +66,29 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
       String(student.studentId || '').toLowerCase().includes(query)
     );
   }, [fetchedStudents, studentSearchQuery]);
+
+  const currentAcademicYear = useMemo(() => getDefaultAcademicYear(), []);
+
+  const academicYearOptions = useMemo(() => {
+    const base = getAcademicYearOptions();
+    const extras = (formData.academicYears || []).filter(
+      (year) => year && !base.includes(year)
+    );
+    return [...base, ...extras];
+  }, [formData.academicYears]);
+
+  const selectedAcademicYear =
+    (formData.academicYears || [])[0] ||
+    (formData.isSet ? currentAcademicYear : '');
+
+  useEffect(() => {
+    if (!formData.isSet) return;
+    if ((formData.academicYears || []).length > 0) return;
+    setFormData((prev) => ({
+      ...prev,
+      academicYears: [getDefaultAcademicYear()],
+    }));
+  }, [formData.isSet, showAddProduct, showProductDetail, selectedProduct?._id]);
 
   const handleOpenAssignModal = (product) => {
     setSelectedProduct(product);
@@ -305,6 +331,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
         forCourse: normalizedCourse,
         forCourseId: deducedCourseId,
         years: productYears,
+        academicYears: Array.isArray(selectedProduct.academicYears) ? selectedProduct.academicYears : [],
         branch: Array.isArray(selectedProduct.branch) ? selectedProduct.branch : (selectedProduct.branch ? [selectedProduct.branch] : []),
         branchIds: deducedBranchIds,
         semesters: selectedProduct.semesters || [],
@@ -345,7 +372,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
         remarks: '',
         forCourse: selectedCourse || '',
         years: selectedYear ? [Number(selectedYear)] : [],
-
+        academicYears: [],
         branch: [],
         semesters: [],
         isSet: false,
@@ -383,6 +410,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
         const id = value === '' ? null : Number(value);
         newData.forCourseId = id;
         newData.years = [];
+        newData.academicYears = [];
         newData.branch = [];
         newData.branchIds = [];
 
@@ -396,6 +424,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
         }
       } else if (name === 'forCourse') {
         newData.years = [];
+        newData.academicYears = [];
         newData.branch = [];
         newData.branchIds = [];
 
@@ -410,6 +439,14 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
       }
       return newData;
     });
+  };
+
+  const handleAcademicYearChange = (e) => {
+    const value = String(e.target.value || '').trim();
+    setFormData((prev) => ({
+      ...prev,
+      academicYears: value ? [value] : [],
+    }));
   };
 
   const handleYearToggle = (year) => {
@@ -566,6 +603,10 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
       lowStockThreshold: type === 'set' ? 0 : (prev.lowStockThreshold || 10),
       // Kits/Sets must be Rule Based
       applicabilityMode: type === 'set' ? 'rules' : prev.applicabilityMode,
+      academicYears:
+        type === 'set' && (!prev.academicYears || prev.academicYears.length === 0)
+          ? [getDefaultAcademicYear()]
+          : prev.academicYears,
     }));
     if (type !== 'set') {
       setSetItemToAdd('');
@@ -688,6 +729,12 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
       const isUpdateOperation = selectedProduct && selectedProduct._id && showProductDetail;
       const isCreateOperation = showAddProduct && !selectedProduct;
 
+      if (formData.isSet && (!formData.academicYears || formData.academicYears.length === 0)) {
+        setError('Sets/kits should include at least one academic year.');
+        setSaving(false);
+        return;
+      }
+
       if (isUpdateOperation) {
         // Update existing product
         console.log('Updating product:', selectedProduct._id, selectedProduct.name);
@@ -737,6 +784,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
             forCourse: formData.forCourse || undefined,
             forCourseId: formData.forCourseId || undefined,
             years: formData.years || [],
+            academicYears: formData.academicYears || [],
             branch: formData.branch,
             branchIds: formData.branchIds || [],
             semesters: formData.semesters || [],
@@ -1200,6 +1248,10 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                     <span className="font-medium text-gray-900 truncate max-w-[120px] text-right">{yearsDisplay}</span>
                   </div>
                   <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-500">Acad. year</span>
+                    <span className="font-medium text-gray-900 truncate max-w-[120px] text-right">{formatAcademicYearsDisplay(product)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
                     <span className="text-gray-500">Semesters</span>
                     <span className="font-medium text-gray-900 truncate max-w-[120px] text-right">
                       {(product.semesters || []).length > 0 ? (product.semesters || []).join(', ') : 'All'}
@@ -1280,6 +1332,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                   <th className="px-6 py-4">Product</th>
                   <th className="px-6 py-4">Course</th>
                   <th className="px-6 py-4">Years</th>
+                  <th className="px-6 py-4">Acad. year</th>
                   <th className="px-6 py-4">Semesters</th>
                   <th className="px-6 py-4">Price</th>
                   <th className="px-6 py-4">Stock</th>
@@ -1306,6 +1359,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                       </td>
                       <td className="px-6 py-4 text-gray-600">{product.forCourse || 'All'}</td>
                       <td className="px-6 py-4 text-gray-600">{yearsDisplay}</td>
+                      <td className="px-6 py-4 text-gray-600">{formatAcademicYearsDisplay(product)}</td>
                       <td className="px-6 py-4 text-gray-600">
                         {(product.semesters || []).length > 0
                           ? (product.semesters || []).map(s => `Sem ${s}`).join(', ')
@@ -1727,9 +1781,45 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                       )}
                     </div>
 
+                    {/* Academic year / admission batch */}
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">Academic year</label>
+                      <p className="text-xs text-gray-500 mb-2">
+                        Admission academic year for this kit (past 3 and next 3 from today). Study year below controls which programme year it applies to.
+                      </p>
+                      {isEditing ? (
+                        <div className="bg-gray-50 border border-gray-300 rounded-lg p-4 space-y-3">
+                          <select
+                            value={selectedAcademicYear}
+                            onChange={handleAcademicYearChange}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                            required={formData.isSet}
+                          >
+                            <option value="">Select academic year</option>
+                            {academicYearOptions.map((year) => (
+                              <option key={year} value={year}>
+                                {year}{year === currentAcademicYear ? ' (Current)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                          {(formData.academicYears || []).length === 0 && (
+                            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                              {formData.isSet
+                                ? 'Sets require an academic year before saving.'
+                                : 'No academic year selected — product applies to all intakes (legacy behaviour).'}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="bg-gray-50 border border-gray-300 rounded-lg p-3">
+                          <p className="text-gray-700 font-medium">{formatAcademicYearsDisplay(selectedProduct)}</p>
+                        </div>
+                      )}
+                    </div>
+
                     {/* Years */}
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Years</label>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Study year</label>
                       {isEditing ? (
                         <div className="bg-gray-50 border border-gray-300 rounded-lg p-4">
                           <div className="flex flex-wrap gap-3">
@@ -1931,21 +2021,50 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
       {showAddProduct && (
         <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm bg-black/30">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl m-4 overflow-hidden flex flex-col max-h-[95vh]">
-            {/* Header */}
-            <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6 flex items-center justify-between rounded-t-xl flex-shrink-0">
-              <div>
-                <h2 className="text-2xl font-bold">Add New Product</h2>
-                <p className="text-blue-100 text-sm mt-1">Fill in all product information</p>
+            {/* Header with product type tabs in one row */}
+            <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 py-4 rounded-t-xl flex-shrink-0 flex items-center justify-between gap-4">
+              <h2 className="text-xl font-bold shrink-0">Add New Product</h2>
+              <div
+                className="flex rounded-lg bg-white/15 p-1 gap-1 min-w-0"
+                role="tablist"
+                aria-label="Product type"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={productType === 'single'}
+                  onClick={() => handleProductTypeSelect('single')}
+                  className={`flex items-center gap-2 px-3 sm:px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap ${productType === 'single'
+                    ? 'bg-white text-blue-700 shadow-sm'
+                    : 'text-white/90 hover:bg-white/10'
+                    }`}
+                >
+                  <Package size={16} />
+                  Single Product
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={productType === 'set'}
+                  onClick={() => handleProductTypeSelect('set')}
+                  className={`flex items-center gap-2 px-3 sm:px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap ${productType === 'set'
+                    ? 'bg-white text-purple-700 shadow-sm'
+                    : 'text-white/90 hover:bg-white/10'
+                    }`}
+                >
+                  <Layers size={16} />
+                  Set / Kit
+                </button>
               </div>
               <button
                 onClick={() => {
                   setShowAddProduct(false);
                   setError('');
                 }}
-                className="w-10 h-10 rounded-lg bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors text-white hover:text-white"
+                className="w-9 h-9 shrink-0 rounded-lg bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors"
                 title="Close"
               >
-                <X size={20} />
+                <X size={18} />
               </button>
             </div>
 
@@ -1958,37 +2077,6 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
               )}
 
               <div className="max-w-4xl mx-auto space-y-4">
-                <section className="bg-white/90 backdrop-blur border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                  <div className="px-5 py-4 border-b border-gray-100">
-                    <h3 className="text-lg font-semibold text-gray-900">Select Product Type</h3>
-                    <p className="text-sm text-gray-500">Choose whether you’re adding a single item or bundling existing products into a set.</p>
-                  </div>
-                  <div className="px-5 py-4 grid gap-3 sm:grid-cols-2">
-                    <button
-                      type="button"
-                      onClick={() => handleProductTypeSelect('single')}
-                      className={`text-left p-4 rounded-xl border transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 ${productType === 'single' ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-gray-200 bg-white hover:border-blue-300'}`}
-                    >
-                      <span className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-blue-100 text-blue-600 mb-4">
-                        <Package size={20} />
-                      </span>
-                      <h4 className="text-base font-semibold text-gray-900">Single Product</h4>
-                      <p className="mt-1 text-sm text-gray-600">Add a standalone item with pricing that applies per unit.</p>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleProductTypeSelect('set')}
-                      className={`text-left p-5 rounded-2xl border transition-all focus:outline-none focus:ring-2 focus:ring-purple-500 ${productType === 'set' ? 'border-purple-500 bg-purple-50 shadow-sm' : 'border-gray-200 bg-white hover:border-purple-300'}`}
-                    >
-                      <span className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-purple-100 text-purple-600 mb-4">
-                        <Layers size={20} />
-                      </span>
-                      <h4 className="text-base font-semibold text-gray-900">Set / Kit</h4>
-                      <p className="mt-1 text-sm text-gray-600">Bundle multiple existing products together with a combined price.</p>
-                    </button>
-                  </div>
-                </section>
-
                 <div className="grid gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
                   <div className="space-y-4">
                     <section className="bg-white/90 backdrop-blur border border-gray-200 rounded-xl shadow-sm overflow-hidden">
@@ -2268,16 +2356,22 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                                     setFormData(prev => ({
                                       ...prev,
                                       forCourse: courseConfig.name,
+                                      forCourseId: courseConfig.id,
                                       years: [],
+                                      academicYears: [],
                                       branch: [],
+                                      branchIds: [],
                                       semesters: []
                                     }));
                                   } else {
                                     setFormData(prev => ({
                                       ...prev,
                                       forCourse: '',
+                                      forCourseId: null,
                                       years: [],
+                                      academicYears: [],
                                       branch: [],
+                                      branchIds: [],
                                       semesters: []
                                     }));
                                   }
@@ -2296,9 +2390,37 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                               </select>
                             </div>
 
+                            {/* Academic year / batch */}
+                            <div>
+                              <label className="block text-sm font-semibold text-gray-700 mb-1">Academic year</label>
+                              <p className="text-xs text-gray-500 mb-2">
+                                Required for sets. Choose from the past 3 or next 3 academic years.
+                              </p>
+                              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3.5 space-y-3">
+                                <select
+                                  value={selectedAcademicYear}
+                                  onChange={handleAcademicYearChange}
+                                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-white shadow-sm"
+                                  required={formData.isSet}
+                                >
+                                  <option value="">Select academic year</option>
+                                  {academicYearOptions.map((year) => (
+                                    <option key={year} value={year}>
+                                      {year}{year === currentAcademicYear ? ' (Current)' : ''}
+                                    </option>
+                                  ))}
+                                </select>
+                                {formData.isSet && (formData.academicYears || []).length === 0 && (
+                                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                                    Sets require an academic year before saving.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
                             {/* Years Selection */}
                             <div>
-                              <label className="block text-sm font-semibold text-gray-700 mb-2">Applicable Years</label>
+                              <label className="block text-sm font-semibold text-gray-700 mb-2">Study year</label>
                               <div className="bg-gray-50 border border-gray-200 rounded-lg p-3.5">
                                 <div className="flex flex-wrap gap-2.5">
                                   {selectedConfigCourseId ? (
@@ -2606,7 +2728,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                           )}
                         </ul>
                       ) : (
-                        <p className="text-xs text-gray-500">Toggle "Create as Set" to bundle existing products.</p>
+                        <p className="text-xs text-gray-500">Switch to the Set / Kit tab to bundle existing products.</p>
                       )}
                     </div>
 
