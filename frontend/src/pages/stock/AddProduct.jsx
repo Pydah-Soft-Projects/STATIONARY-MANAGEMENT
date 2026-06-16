@@ -27,11 +27,32 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isEditing, setIsEditing] = useState(false);
+  const [priceAdjustVal, setPriceAdjustVal] = useState('');
+
+  const handleQuickIncrease = () => {
+    const adjustAmt = Math.round(Number(priceAdjustVal));
+    if (isNaN(adjustAmt) || adjustAmt <= 0) return;
+    setFormData(prev => ({
+      ...prev,
+      price: Math.round(Number(prev.price || 0) + adjustAmt)
+    }));
+    setPriceAdjustVal('');
+  };
+
+  const handleQuickDecrease = () => {
+    const adjustAmt = Math.round(Number(priceAdjustVal));
+    if (isNaN(adjustAmt) || adjustAmt <= 0) return;
+    setFormData(prev => ({
+      ...prev,
+      price: Math.max(0, Math.round(Number(prev.price || 0) - adjustAmt))
+    }));
+    setPriceAdjustVal('');
+  };
   const [viewMode, setViewMode] = useState('table');
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    price: 0,
+    price: '',
     stock: 0,
     remarks: '',
     forCourse: selectedCourse || '',
@@ -77,9 +98,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
     return [...base, ...extras];
   }, [formData.academicYears]);
 
-  const selectedAcademicYear =
-    (formData.academicYears || [])[0] ||
-    (formData.isSet ? currentAcademicYear : '');
+  const selectedAcademicYear = (formData.academicYears || [])[0] || '';
 
   useEffect(() => {
     if (!formData.isSet) return;
@@ -88,7 +107,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
       ...prev,
       academicYears: [getDefaultAcademicYear()],
     }));
-  }, [formData.isSet, showAddProduct, showProductDetail, selectedProduct?._id]);
+  }, [formData.isSet, showAddProduct, showProductDetail, selectedProduct?._id, formData.academicYears]);
 
   const handleOpenAssignModal = (product) => {
     setSelectedProduct(product);
@@ -367,7 +386,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
       setFormData({
         name: '',
         description: '',
-        price: 0,
+        price: '',
         stock: 0,
         remarks: '',
         forCourse: selectedCourse || '',
@@ -403,14 +422,14 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
         [name]: name === 'description'
           ? value.slice(0, 250)
           : (name === 'price' || name === 'stock' || name === 'lowStockThreshold')
-            ? (value === '' ? 0 : Number(value))
+            ? (value === '' ? '' : Number(value))
             : value,
       };
       if (name === 'forCourseId') {
         const id = value === '' ? null : Number(value);
         newData.forCourseId = id;
         newData.years = [];
-        newData.academicYears = [];
+        newData.academicYears = prev.academicYears;
         newData.branch = [];
         newData.branchIds = [];
 
@@ -424,7 +443,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
         }
       } else if (name === 'forCourse') {
         newData.years = [];
-        newData.academicYears = [];
+        newData.academicYears = prev.academicYears;
         newData.branch = [];
         newData.branchIds = [];
 
@@ -1528,10 +1547,46 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                           value={formData.price}
                           onChange={handleFormChange}
                           min="0"
-                          step="0.01"
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-2"
-                          placeholder="0.00"
+                          step="1"
+                          readOnly={!formData.isSet}
+                          className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-2 ${!formData.isSet ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                          placeholder="0"
+                          onWheel={(e) => e.target.blur()}
                         />
+                        {!formData.isSet && (
+                          <div className="mt-2 p-3 bg-white border border-blue-100 rounded-lg shadow-sm space-y-2">
+                            <span className="text-[11px] font-semibold text-blue-800 uppercase tracking-wider block">Quick Adjust Price</span>
+                            <div className="flex items-center gap-2">
+                              <div className="relative flex-1">
+                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">₹</span>
+                                <input
+                                  type="number"
+                                  placeholder="Adjust by"
+                                  value={priceAdjustVal}
+                                  onChange={(e) => setPriceAdjustVal(e.target.value)}
+                                  className="w-full pl-6 pr-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none text-slate-800 bg-white"
+                                  min="0"
+                                  step="1"
+                                  onWheel={(e) => e.target.blur()}
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={handleQuickIncrease}
+                                className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+                              >
+                                Increase
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleQuickDecrease}
+                                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+                              >
+                                Decrease
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div>
@@ -1567,6 +1622,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                           min="0"
                           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                           placeholder="0"
+                          onWheel={(e) => e.target.blur()}
                         />
                       )
                     ) : (
@@ -1593,6 +1649,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                           min="0"
                           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                           placeholder="e.g. 10"
+                          onWheel={(e) => e.target.blur()}
                         />
                       ) : (
                         <p className="text-gray-700 bg-gray-50 p-2 rounded-lg">{selectedProduct.lowStockThreshold ?? 0}</p>
@@ -2146,10 +2203,11 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                             value={formData.price}
                             onChange={handleFormChange}
                             min="0"
-                            step="0.01"
+                            step="1"
                             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm"
-                            placeholder="0.00"
+                            placeholder="0"
                             required
+                            onWheel={(e) => e.target.blur()}
                           />
                         </div>
                         {!formData.isSet && (
@@ -2171,6 +2229,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                               min="0"
                               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent shadow-sm"
                               placeholder="0"
+                              onWheel={(e) => e.target.blur()}
                             />
                           </div>
                         )}
@@ -2193,6 +2252,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                               min="0"
                               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent shadow-sm"
                               placeholder="e.g. 10"
+                              onWheel={(e) => e.target.blur()}
                             />
                           </div>
                         )}
@@ -2365,7 +2425,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                                       forCourse: courseConfig.name,
                                       forCourseId: courseConfig.id,
                                       years: [],
-                                      academicYears: [],
+                                      academicYears: prev.academicYears,
                                       branch: [],
                                       branchIds: [],
                                       semesters: []
@@ -2376,7 +2436,7 @@ const AddProduct = ({ itemCategories, addItemCategory, setItemCategories, curren
                                       forCourse: '',
                                       forCourseId: null,
                                       years: [],
-                                      academicYears: [],
+                                      academicYears: prev.academicYears,
                                       branch: [],
                                       branchIds: [],
                                       semesters: []
