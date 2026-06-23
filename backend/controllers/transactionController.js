@@ -483,8 +483,7 @@ const getAllTransactions = asyncHandler(async (req, res) => {
   if (collegeId) {
     filter.$or = [
       { collegeId: collegeId },
-      { branchId: collegeId }, // Keep support for legacy branchId field
-      { 'collegeTransfer.collegeId': collegeId }
+      { branchId: collegeId } // Keep support for legacy branchId field
     ];
   }
   
