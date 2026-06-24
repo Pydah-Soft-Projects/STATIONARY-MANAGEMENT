@@ -64,6 +64,29 @@ const styleQtyCell = (cell, fill, qty, bold = false) => {
   applyBorder(cell);
 };
 
+const styleQtyCellWithBreakdown = (cell, fill, qty, cashQty = 0, onlineQty = 0, bold = false) => {
+  cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
+  cell.font = {
+    bold,
+    size: qty > 0 && (cashQty > 0 || onlineQty > 0) ? 9 : 11,
+    color: { argb: qty > 0 ? COLORS.bodyFont : COLORS.mutedFont },
+  };
+  applyBorder(cell);
+
+  if (qty > 0 && (cashQty > 0 || onlineQty > 0)) {
+    let text = `${qty}`;
+    const parts = [];
+    if (cashQty > 0) parts.push(`C:${cashQty}`);
+    if (onlineQty > 0) parts.push(`O:${onlineQty}`);
+    text += `\n(${parts.join(', ')})`;
+    cell.value = text;
+    cell.alignment = { vertical: 'middle', horizontal: 'right', wrapText: true };
+  } else {
+    cell.value = qty > 0 ? qty : '-';
+    cell.alignment = { vertical: 'middle', horizontal: 'right' };
+  }
+};
+
 const downloadWorkbook = async (workbook, filename) => {
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], {
@@ -218,9 +241,19 @@ export const exportDailyBreakdownReportExcel = async ({
   getProductPrice,
   warehouseName = '',
 }) => {
-  if (!report || report.items.length === 0) return;
-
-  const { days, items, itemDailySales, dailyTotals, dailyRevenue, dailyTransferRevenue, monthName } = report;
+  const {
+    days,
+    items,
+    itemDailySales,
+    itemDailySalesCash,
+    itemDailySalesOnline,
+    dailyTotals,
+    dailyTotalsCash,
+    dailyTotalsOnline,
+    dailyRevenue,
+    dailyTransferRevenue,
+    monthName
+  } = report;
   const totalCols = 2 + days.length + 1;
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('Daily Breakdown');
@@ -289,8 +322,12 @@ export const exportDailyBreakdownReportExcel = async ({
 
   items.forEach((itemName, itemIndex) => {
     const itemSales = itemDailySales.get(itemName) || new Map();
+    const itemSalesCash = itemDailySalesCash?.get(itemName) || new Map();
+    const itemSalesOnline = itemDailySalesOnline?.get(itemName) || new Map();
     const currentPrice = getProductPrice(itemName);
     const rowTotal = Array.from(itemSales.values()).reduce((sum, qty) => sum + qty, 0);
+    const rowCashTotal = Array.from(itemSalesCash.values()).reduce((sum, qty) => sum + qty, 0);
+    const rowOnlineTotal = Array.from(itemSalesOnline.values()).reduce((sum, qty) => sum + qty, 0);
     const itemRow = sheet.getRow(rowNum);
     const itemLabel =
       currentPrice > 0 ? `${itemName} (${formatCurrency(currentPrice)})` : itemName;
@@ -298,7 +335,7 @@ export const exportDailyBreakdownReportExcel = async ({
 
     itemRow.getCell(1).value = itemIndex + 1;
     itemRow.getCell(2).value = itemLabel;
-    itemRow.height = 20;
+    itemRow.height = 28;
     itemRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowFill } };
     itemRow.getCell(1).font = { size: 11, color: { argb: COLORS.bodyFont } };
     itemRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
@@ -310,30 +347,33 @@ export const exportDailyBreakdownReportExcel = async ({
 
     days.forEach((day, index) => {
       const qty = itemSales.get(day.key) || 0;
+      const cashQty = itemSalesCash.get(day.key) || 0;
+      const onlineQty = itemSalesOnline.get(day.key) || 0;
       const cell = itemRow.getCell(3 + index);
-      cell.value = qty > 0 ? qty : '-';
-      styleQtyCell(cell, rowFill, qty);
+      styleQtyCellWithBreakdown(cell, rowFill, qty, cashQty, onlineQty);
     });
     const totalCell = itemRow.getCell(totalCols);
-    totalCell.value = rowTotal > 0 ? rowTotal : '-';
-    styleQtyCell(totalCell, COLORS.totalColFill, rowTotal, true);
+    styleQtyCellWithBreakdown(totalCell, COLORS.totalColFill, rowTotal, rowCashTotal, rowOnlineTotal, true);
     rowNum += 1;
   });
 
   const grandTotalRow = sheet.getRow(rowNum);
   sheet.mergeCells(rowNum, 1, rowNum, 2);
   grandTotalRow.getCell(1).value = 'GRAND TOTAL';
+  grandTotalRow.height = 28;
   styleSummaryLabelCell(grandTotalRow.getCell(1), COLORS.totalRowFill, COLORS.bodyFont);
   days.forEach((day, index) => {
     const dayTotal = dailyTotals.get(day.key) || 0;
+    const dayCashTotal = dailyTotalsCash?.get(day.key) || 0;
+    const dayOnlineTotal = dailyTotalsOnline?.get(day.key) || 0;
     const cell = grandTotalRow.getCell(3 + index);
-    cell.value = dayTotal > 0 ? dayTotal : '-';
-    styleQtyCell(cell, COLORS.totalRowFill, dayTotal, true);
+    styleQtyCellWithBreakdown(cell, COLORS.totalRowFill, dayTotal, dayCashTotal, dayOnlineTotal, true);
   });
   const grandTotal = Array.from(dailyTotals.values()).reduce((sum, total) => sum + total, 0);
+  const grandCashTotal = Array.from(dailyTotalsCash?.values() || []).reduce((sum, total) => sum + total, 0);
+  const grandOnlineTotal = Array.from(dailyTotalsOnline?.values() || []).reduce((sum, total) => sum + total, 0);
   const grandTotalCell = grandTotalRow.getCell(totalCols);
-  grandTotalCell.value = grandTotal;
-  styleQtyCell(grandTotalCell, COLORS.grandTotalColFill, grandTotal, true);
+  styleQtyCellWithBreakdown(grandTotalCell, COLORS.grandTotalColFill, grandTotal, grandCashTotal, grandOnlineTotal, true);
 
   sheet.views = [{ state: 'frozen', ySplit: headerRowNum, activeCell: 'A1' }];
 

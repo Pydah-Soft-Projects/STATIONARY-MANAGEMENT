@@ -451,6 +451,30 @@ const Reports = ({ currentUser }) => {
     return `Rs ${Number(amount || 0).toFixed(2)}`;
   };
 
+  const getItemPaymentSplit = useCallback((transaction, quantity) => {
+    if (!transaction.isPaid) {
+      return { cashQty: 0, onlineQty: 0 };
+    }
+    const method = (transaction.paymentMethod || '').toLowerCase();
+    if (method === 'cash') {
+      return { cashQty: quantity, onlineQty: 0 };
+    }
+    const isOnline = (m) => ['online', 'gpay', 'phonepe', 'net banking'].includes((m || '').toLowerCase());
+    if (isOnline(method)) {
+      return { cashQty: 0, onlineQty: quantity };
+    }
+    if (method === 'split') {
+      const totalAmount = transaction.totalAmount || 0;
+      if (totalAmount > 0) {
+        const cashAmount = transaction.cashAmount || 0;
+        const cashQty = Math.min(quantity, Math.round((quantity * cashAmount) / totalAmount));
+        const onlineQty = Math.max(0, quantity - cashQty);
+        return { cashQty, onlineQty };
+      }
+    }
+    return { cashQty: 0, onlineQty: 0 };
+  }, []);
+
   // Calculate day-end sales summary (revenue amounts include paid college/branch transfers; items sold = student only)
   const calculateDayEndSales = useCallback((transactions) => {
     // Use passed-in transactions for revenue amounts (already revenue-eligible: student + paid transfers)
@@ -666,11 +690,15 @@ const Reports = ({ currentUser }) => {
               const componentQty = Number(component.quantity) || 1;
               const totalQuantity = componentQty * setQuantity;
 
+              const { cashQty, onlineQty } = getItemPaymentSplit(transaction, totalQuantity);
+
               const existingItem = dayData.itemsSold.find(i => i.name === componentName);
               if (existingItem) {
                 existingItem.quantity += totalQuantity;
+                existingItem.cashQty = (existingItem.cashQty || 0) + cashQty;
+                existingItem.onlineQty = (existingItem.onlineQty || 0) + onlineQty;
               } else {
-                dayData.itemsSold.push({ name: componentName, quantity: totalQuantity });
+                dayData.itemsSold.push({ name: componentName, quantity: totalQuantity, cashQty, onlineQty });
               }
             });
           } else {
@@ -678,11 +706,15 @@ const Reports = ({ currentUser }) => {
             const itemName = item.name || 'N/A';
             const quantity = setQuantity;
 
+            const { cashQty, onlineQty } = getItemPaymentSplit(transaction, quantity);
+
             const existingItem = dayData.itemsSold.find(i => i.name === itemName);
             if (existingItem) {
               existingItem.quantity += quantity;
+              existingItem.cashQty = (existingItem.cashQty || 0) + cashQty;
+              existingItem.onlineQty = (existingItem.onlineQty || 0) + onlineQty;
             } else {
-              dayData.itemsSold.push({ name: itemName, quantity });
+              dayData.itemsSold.push({ name: itemName, quantity, cashQty, onlineQty });
             }
           }
         });
@@ -872,6 +904,8 @@ const Reports = ({ currentUser }) => {
 
     const allDays = new Set();
     const itemDailySales = new Map(); // itemName -> { dayKey -> quantity }
+    const itemDailySalesCash = new Map(); // itemName -> { dayKey -> cashQty }
+    const itemDailySalesOnline = new Map(); // itemName -> { dayKey -> onlineQty }
     const allItems = new Set();
     const dailyRevenue = new Map(); // dayKey -> revenue (includes student + paid college/branch transfers)
     const dailyTransferRevenue = new Map(); // dayKey -> revenue from college/branch transfers only (for table row)
@@ -896,13 +930,25 @@ const Reports = ({ currentUser }) => {
         day.itemsSold.forEach(item => {
           const itemName = item.name || 'N/A';
           const quantity = Number(item.quantity) || 0;
+          const cashQty = Number(item.cashQty) || 0;
+          const onlineQty = Number(item.onlineQty) || 0;
 
           allItems.add(itemName);
+          
           if (!itemDailySales.has(itemName)) {
             itemDailySales.set(itemName, new Map());
           }
-          const itemMap = itemDailySales.get(itemName);
-          itemMap.set(dayKey, quantity);
+          itemDailySales.get(itemName).set(dayKey, quantity);
+
+          if (!itemDailySalesCash.has(itemName)) {
+            itemDailySalesCash.set(itemName, new Map());
+          }
+          itemDailySalesCash.get(itemName).set(dayKey, cashQty);
+
+          if (!itemDailySalesOnline.has(itemName)) {
+            itemDailySalesOnline.set(itemName, new Map());
+          }
+          itemDailySalesOnline.get(itemName).set(dayKey, onlineQty);
         });
       }
     });
@@ -925,19 +971,38 @@ const Reports = ({ currentUser }) => {
 
     // Calculate daily totals (total items sold per day)
     const dailyTotals = new Map();
+    const dailyTotalsCash = new Map();
+    const dailyTotalsOnline = new Map();
+
     sortedDays.forEach(dayKey => {
       let total = 0;
+      let cashTotal = 0;
+      let onlineTotal = 0;
+
       itemDailySales.forEach((salesMap) => {
         total += salesMap.get(dayKey) || 0;
       });
+      itemDailySalesCash.forEach((salesMap) => {
+        cashTotal += salesMap.get(dayKey) || 0;
+      });
+      itemDailySalesOnline.forEach((salesMap) => {
+        onlineTotal += salesMap.get(dayKey) || 0;
+      });
+
       dailyTotals.set(dayKey, total);
+      dailyTotalsCash.set(dayKey, cashTotal);
+      dailyTotalsOnline.set(dayKey, onlineTotal);
     });
 
     return {
       items: sortedItems,
       days: dayNames,
       itemDailySales: itemDailySales,
+      itemDailySalesCash: itemDailySalesCash,
+      itemDailySalesOnline: itemDailySalesOnline,
       dailyTotals: dailyTotals,
+      dailyTotalsCash: dailyTotalsCash,
+      dailyTotalsOnline: dailyTotalsOnline,
       dailyRevenue: dailyRevenue,
       dailyTransferRevenue: dailyTransferRevenue,
       monthName: selectedMonth.month
@@ -3211,8 +3276,12 @@ const Reports = ({ currentUser }) => {
                                     {/* Item Rows */}
                                     {dailyBreakdownReport.items.map((itemName, itemIndex) => {
                                       const itemSales = dailyBreakdownReport.itemDailySales.get(itemName) || new Map();
+                                      const itemSalesCash = dailyBreakdownReport.itemDailySalesCash?.get(itemName) || new Map();
+                                      const itemSalesOnline = dailyBreakdownReport.itemDailySalesOnline?.get(itemName) || new Map();
                                       const currentPrice = getProductPrice(itemName);
                                       const rowTotal = Array.from(itemSales.values()).reduce((sum, qty) => sum + qty, 0);
+                                      const rowCashTotal = Array.from(itemSalesCash.values()).reduce((sum, qty) => sum + qty, 0);
+                                      const rowOnlineTotal = Array.from(itemSalesOnline.values()).reduce((sum, qty) => sum + qty, 0);
                                       const isEven = itemIndex % 2 === 0;
 
                                       return (
@@ -3233,18 +3302,40 @@ const Reports = ({ currentUser }) => {
                                           </td>
                                           {dailyBreakdownReport.days.map((day, dayIdx) => {
                                             const qty = itemSales.get(day.key) || 0;
+                                            const cashQty = itemSalesCash.get(day.key) || 0;
+                                            const onlineQty = itemSalesOnline.get(day.key) || 0;
                                             return (
                                               <td
                                                 key={day.key}
                                                 className={`px-3 py-3 whitespace-nowrap text-right font-medium ${qty > 0 ? 'text-gray-900' : 'text-gray-400'
                                                   } ${dayIdx < dailyBreakdownReport.days.length - 1 ? 'border-r border-gray-200' : ''}`}
                                               >
-                                                {qty > 0 ? qty : '-'}
+                                                {qty > 0 ? (
+                                                  <div>
+                                                    <div>{qty}</div>
+                                                    {(cashQty > 0 || onlineQty > 0) && (
+                                                      <div className="text-[10px] text-gray-500 font-normal mt-0.5">
+                                                        {cashQty > 0 && <span>C:{cashQty}</span>}
+                                                        {cashQty > 0 && onlineQty > 0 && <span> | </span>}
+                                                        {onlineQty > 0 && <span>O:{onlineQty}</span>}
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                ) : (
+                                                  '-'
+                                                )}
                                               </td>
                                             );
                                           })}
                                           <td className="px-4 py-3 whitespace-nowrap text-right font-bold text-gray-900 bg-gray-100">
-                                            {rowTotal > 0 ? rowTotal : '-'}
+                                            <div>{rowTotal > 0 ? rowTotal : '-'}</div>
+                                            {rowTotal > 0 && (rowCashTotal > 0 || rowOnlineTotal > 0) && (
+                                              <div className="text-[10px] text-gray-500 font-normal mt-0.5">
+                                                {rowCashTotal > 0 && <span>C:{rowCashTotal}</span>}
+                                                {rowCashTotal > 0 && rowOnlineTotal > 0 && <span> | </span>}
+                                                {rowOnlineTotal > 0 && <span>O:{rowOnlineTotal}</span>}
+                                              </div>
+                                            )}
                                           </td>
                                         </tr>
                                       );
@@ -3256,21 +3347,50 @@ const Reports = ({ currentUser }) => {
                                       </td>
                                       {dailyBreakdownReport.days.map((day, dayIdx) => {
                                         const dayTotal = dailyBreakdownReport.dailyTotals.get(day.key) || 0;
+                                        const dayCashTotal = dailyBreakdownReport.dailyTotalsCash?.get(day.key) || 0;
+                                        const dayOnlineTotal = dailyBreakdownReport.dailyTotalsOnline?.get(day.key) || 0;
                                         return (
                                           <td
                                             key={day.key}
                                             className={`px-3 py-3 whitespace-nowrap text-right text-gray-900 ${dayIdx < dailyBreakdownReport.days.length - 1 ? 'border-r border-gray-300' : ''
                                               }`}
                                           >
-                                            {dayTotal > 0 ? dayTotal : '-'}
+                                            {dayTotal > 0 ? (
+                                              <div>
+                                                <div>{dayTotal}</div>
+                                                {(dayCashTotal > 0 || dayOnlineTotal > 0) && (
+                                                  <div className="text-[10px] text-gray-500 font-normal mt-0.5">
+                                                    {dayCashTotal > 0 && <span>C:{dayCashTotal}</span>}
+                                                    {dayCashTotal > 0 && dayOnlineTotal > 0 && <span> | </span>}
+                                                    {dayOnlineTotal > 0 && <span>O:{dayOnlineTotal}</span>}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            ) : (
+                                              '-'
+                                            )}
                                           </td>
                                         );
                                       })}
                                       <td className="px-4 py-3 whitespace-nowrap text-right text-gray-900 bg-blue-100">
-                                        {Array.from(dailyBreakdownReport.dailyTotals.values()).reduce(
-                                          (sum, total) => sum + total,
-                                          0
-                                        )}
+                                        {(() => {
+                                          const totalsArray = Array.from(dailyBreakdownReport.dailyTotals.values());
+                                          const grandTotal = totalsArray.reduce((sum, total) => sum + total, 0);
+                                          const grandCashTotal = Array.from(dailyBreakdownReport.dailyTotalsCash?.values() || []).reduce((sum, total) => sum + total, 0);
+                                          const grandOnlineTotal = Array.from(dailyBreakdownReport.dailyTotalsOnline?.values() || []).reduce((sum, total) => sum + total, 0);
+                                          return (
+                                            <div>
+                                              <div>{grandTotal > 0 ? grandTotal : '-'}</div>
+                                              {grandTotal > 0 && (grandCashTotal > 0 || grandOnlineTotal > 0) && (
+                                                <div className="text-[10px] text-gray-500 font-normal mt-0.5">
+                                                  {grandCashTotal > 0 && <span>C:{grandCashTotal}</span>}
+                                                  {grandCashTotal > 0 && grandOnlineTotal > 0 && <span> | </span>}
+                                                  {grandOnlineTotal > 0 && <span>O:{grandOnlineTotal}</span>}
+                                                </div>
+                                              )}
+                                            </div>
+                                          );
+                                        })()}
                                       </td>
                                     </tr>
                                   </tbody>
