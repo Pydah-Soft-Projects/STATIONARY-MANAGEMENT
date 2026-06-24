@@ -240,6 +240,7 @@ export const exportDailyBreakdownReportExcel = async ({
   formatCurrency,
   getProductPrice,
   warehouseName = '',
+  paymentFilter = 'all',
 }) => {
   const {
     days,
@@ -269,15 +270,17 @@ export const exportDailyBreakdownReportExcel = async ({
 
   sheet.mergeCells(rowNum, 1, rowNum, totalCols);
   const titleCell = sheet.getCell(rowNum, 1);
+  const filterTitle = paymentFilter === 'cash' ? ' (Cash Sales)' : (paymentFilter === 'online' ? ' (Online Sales)' : ' (All Sales)');
   titleCell.value = warehouseName
-    ? `Daily Breakdown - ${monthName} (${warehouseName})`
-    : `Daily Breakdown - ${monthName}`;
+    ? `Daily Breakdown${filterTitle} - ${monthName} (${warehouseName})`
+    : `Daily Breakdown${filterTitle} - ${monthName}`;
   titleCell.font = { bold: true, size: 14, color: { argb: COLORS.bodyFont } };
   rowNum += 1;
 
   sheet.mergeCells(rowNum, 1, rowNum, totalCols);
   const subtitleCell = sheet.getCell(rowNum, 1);
-  subtitleCell.value = 'Daily breakdown of sales for selected month';
+  const filterDesc = paymentFilter === 'cash' ? ' (Cash Sales)' : (paymentFilter === 'online' ? ' (Online Sales)' : ' (All Sales)');
+  subtitleCell.value = `Daily breakdown of sales for selected month${filterDesc}`;
   subtitleCell.font = { size: 10, color: { argb: 'FF6B7280' } };
   rowNum += 2;
 
@@ -349,11 +352,13 @@ export const exportDailyBreakdownReportExcel = async ({
       const qty = itemSales.get(day.key) || 0;
       const cashQty = itemSalesCash.get(day.key) || 0;
       const onlineQty = itemSalesOnline.get(day.key) || 0;
+      const displayQty = paymentFilter === 'cash' ? cashQty : (paymentFilter === 'online' ? onlineQty : qty);
       const cell = itemRow.getCell(3 + index);
-      styleQtyCellWithBreakdown(cell, rowFill, qty, cashQty, onlineQty);
+      styleQtyCellWithBreakdown(cell, rowFill, displayQty, paymentFilter === 'all' ? cashQty : 0, paymentFilter === 'all' ? onlineQty : 0);
     });
+    const displayRowTotal = paymentFilter === 'cash' ? rowCashTotal : (paymentFilter === 'online' ? rowOnlineTotal : rowTotal);
     const totalCell = itemRow.getCell(totalCols);
-    styleQtyCellWithBreakdown(totalCell, COLORS.totalColFill, rowTotal, rowCashTotal, rowOnlineTotal, true);
+    styleQtyCellWithBreakdown(totalCell, COLORS.totalColFill, displayRowTotal, paymentFilter === 'all' ? rowCashTotal : 0, paymentFilter === 'all' ? rowOnlineTotal : 0, true);
     rowNum += 1;
   });
 
@@ -366,19 +371,22 @@ export const exportDailyBreakdownReportExcel = async ({
     const dayTotal = dailyTotals.get(day.key) || 0;
     const dayCashTotal = dailyTotalsCash?.get(day.key) || 0;
     const dayOnlineTotal = dailyTotalsOnline?.get(day.key) || 0;
+    const displayDayTotal = paymentFilter === 'cash' ? dayCashTotal : (paymentFilter === 'online' ? dayOnlineTotal : dayTotal);
     const cell = grandTotalRow.getCell(3 + index);
-    styleQtyCellWithBreakdown(cell, COLORS.totalRowFill, dayTotal, dayCashTotal, dayOnlineTotal, true);
+    styleQtyCellWithBreakdown(cell, COLORS.totalRowFill, displayDayTotal, paymentFilter === 'all' ? dayCashTotal : 0, paymentFilter === 'all' ? dayOnlineTotal : 0, true);
   });
   const grandTotal = Array.from(dailyTotals.values()).reduce((sum, total) => sum + total, 0);
   const grandCashTotal = Array.from(dailyTotalsCash?.values() || []).reduce((sum, total) => sum + total, 0);
   const grandOnlineTotal = Array.from(dailyTotalsOnline?.values() || []).reduce((sum, total) => sum + total, 0);
+  const displayGrandTotal = paymentFilter === 'cash' ? grandCashTotal : (paymentFilter === 'online' ? grandOnlineTotal : grandTotal);
   const grandTotalCell = grandTotalRow.getCell(totalCols);
-  styleQtyCellWithBreakdown(grandTotalCell, COLORS.grandTotalColFill, grandTotal, grandCashTotal, grandOnlineTotal, true);
+  styleQtyCellWithBreakdown(grandTotalCell, COLORS.grandTotalColFill, displayGrandTotal, paymentFilter === 'all' ? grandCashTotal : 0, paymentFilter === 'all' ? grandOnlineTotal : 0, true);
 
   sheet.views = [{ state: 'frozen', ySplit: headerRowNum, activeCell: 'A1' }];
 
   const dateStamp = new Date().toISOString().split('T')[0];
   const monthPart = sanitizeFilename(monthName);
   const warehousePart = warehouseName ? `_${sanitizeFilename(warehouseName)}` : '';
-  await downloadWorkbook(workbook, `Daily_Breakdown_${monthPart}${warehousePart}_${dateStamp}.xlsx`);
+  const filterPart = paymentFilter !== 'all' ? `_${paymentFilter}` : '';
+  await downloadWorkbook(workbook, `Daily_Breakdown_${monthPart}${warehousePart}${filterPart}_${dateStamp}.xlsx`);
 };

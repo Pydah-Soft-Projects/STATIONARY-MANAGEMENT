@@ -70,6 +70,7 @@ const Reports = ({ currentUser }) => {
   const [products, setProducts] = useState([]);
   const [productsLoading, setProductsLoading] = useState(false);
   const [selectedMonthForDaily, setSelectedMonthForDaily] = useState(null); // For daily breakdown view
+  const [dailyPaymentFilter, setDailyPaymentFilter] = useState('all'); // 'all', 'cash', 'online'
   const [currentPage, setCurrentPage] = useState(1);
   const [branchTransferPage, setBranchTransferPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -917,12 +918,34 @@ const Reports = ({ currentUser }) => {
       const txs = day.transactions || [];
       // Filter out transfers for dailyRevenue (DAILY INCOME row)
       const nonTransferTxs = txs.filter(t => t.transactionType !== 'college_transfer' && t.transactionType !== 'branch_transfer');
-      const dayRev = nonTransferTxs.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
+      
+      let dayRev = 0;
+      if (dailyPaymentFilter === 'cash') {
+        dayRev = nonTransferTxs.filter(t => t.isPaid).reduce((sum, t) => {
+          const method = (t.paymentMethod || '').toLowerCase();
+          if (method === 'cash') return sum + (t.totalAmount || 0);
+          if (method === 'split') return sum + (t.cashAmount || 0);
+          return sum;
+        }, 0);
+      } else if (dailyPaymentFilter === 'online') {
+        dayRev = nonTransferTxs.filter(t => t.isPaid).reduce((sum, t) => {
+          const method = (t.paymentMethod || '').toLowerCase();
+          const isOnline = (m) => ['online', 'gpay', 'phonepe', 'net banking'].includes((m || '').toLowerCase());
+          if (isOnline(method)) return sum + (t.totalAmount || 0);
+          if (method === 'split') return sum + (t.onlineAmount || 0);
+          return sum;
+        }, 0);
+      } else {
+        dayRev = nonTransferTxs.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
+      }
       dailyRevenue.set(dayKey, dayRev);
 
-      const transferRev = txs
-        .filter(t => t.transactionType === 'college_transfer' || t.transactionType === 'branch_transfer')
-        .reduce((sum, t) => sum + (t.totalAmount || 0), 0);
+      let transferRev = 0;
+      if (dailyPaymentFilter === 'all') {
+        transferRev = txs
+          .filter(t => t.transactionType === 'college_transfer' || t.transactionType === 'branch_transfer')
+          .reduce((sum, t) => sum + (t.totalAmount || 0), 0);
+      }
       dailyTransferRevenue.set(dayKey, transferRev);
 
       // Process items sold on this day
@@ -1007,7 +1030,7 @@ const Reports = ({ currentUser }) => {
       dailyTransferRevenue: dailyTransferRevenue,
       monthName: selectedMonth.month
     };
-  }, [selectedMonthForDaily, monthlyStats]);
+  }, [selectedMonthForDaily, monthlyStats, dailyPaymentFilter]);
 
   const warehouseName = selectedCollegeData?.name || '';
 
@@ -1041,6 +1064,7 @@ const Reports = ({ currentUser }) => {
         formatCurrency,
         getProductPrice,
         warehouseName,
+        paymentFilter: dailyPaymentFilter,
       });
     } catch (error) {
       console.error('Failed to export daily breakdown report:', error);
@@ -2915,7 +2939,12 @@ const Reports = ({ currentUser }) => {
                             <Calendar className="text-green-600" size={20} />
                           </div>
                           <div>
-                            <h2 className="text-2xl font-bold text-gray-900">Daily Breakdown per Month</h2>
+                            <h2 className="text-2xl font-bold text-gray-900">
+                              Daily Breakdown
+                              {dailyPaymentFilter === 'cash' && <span className="text-orange-600 ml-2 font-medium text-lg">(Cash Sales)</span>}
+                              {dailyPaymentFilter === 'online' && <span className="text-blue-600 ml-2 font-medium text-lg">(Online Sales)</span>}
+                              {dailyPaymentFilter === 'all' && <span className="text-green-600 ml-2 font-medium text-lg">(All Sales)</span>}
+                            </h2>
                             <p className="text-sm text-gray-600 mt-1">
                               Daily breakdown of sales for selected month
                             </p>
@@ -2926,18 +2955,29 @@ const Reports = ({ currentUser }) => {
                     <div className="flex items-center gap-3">
                       {/* Month Selector - Show only when Daily Breakdown is selected */}
                       {monthlyReportSubTab === 'daily-breakdown' && (
-                        <select
-                          value={selectedMonthForDaily || ''}
-                          onChange={(e) => setSelectedMonthForDaily(e.target.value || null)}
-                          className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-sm font-medium"
-                        >
-                          <option value="">Select a month</option>
-                          {monthlyStats.map((month) => (
-                            <option key={month.monthKey} value={month.monthKey}>
-                              {month.month}
-                            </option>
-                          ))}
-                        </select>
+                        <>
+                          <select
+                            value={dailyPaymentFilter}
+                            onChange={(e) => setDailyPaymentFilter(e.target.value)}
+                            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-sm font-medium"
+                          >
+                            <option value="all">All Sales</option>
+                            <option value="cash">Cash Sales</option>
+                            <option value="online">Online Sales</option>
+                          </select>
+                          <select
+                            value={selectedMonthForDaily || ''}
+                            onChange={(e) => setSelectedMonthForDaily(e.target.value || null)}
+                            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-sm font-medium"
+                          >
+                            <option value="">Select a month</option>
+                            {monthlyStats.map((month) => (
+                              <option key={month.monthKey} value={month.monthKey}>
+                                {month.month}
+                              </option>
+                            ))}
+                          </select>
+                        </>
                       )}
                       <button
                         type="button"
@@ -3172,25 +3212,87 @@ const Reports = ({ currentUser }) => {
                           );
                         }
 
+                        // Calculate filtered totals for summary cards
+                        const nonTransferTxs = selectedMonth.transactions.filter(
+                          t => t.transactionType !== 'college_transfer' && t.transactionType !== 'branch_transfer'
+                        );
+
+                        let cardTotalAmount = 0;
+                        let cardPaidAmount = 0;
+                        let cardUnpaidAmount = 0;
+                        let cardTxCount = 0;
+
+                        if (dailyPaymentFilter === 'cash') {
+                          cardPaidAmount = nonTransferTxs.filter(t => t.isPaid).reduce((sum, t) => {
+                            const method = (t.paymentMethod || '').toLowerCase();
+                            if (method === 'cash') return sum + (t.totalAmount || 0);
+                            if (method === 'split') return sum + (t.cashAmount || 0);
+                            return sum;
+                          }, 0);
+                          cardUnpaidAmount = nonTransferTxs.filter(t => !t.isPaid).reduce((sum, t) => {
+                            const method = (t.paymentMethod || '').toLowerCase();
+                            if (method === 'cash') return sum + (t.totalAmount || 0);
+                            if (method === 'split') return sum + (t.cashAmount || 0);
+                            return sum;
+                          }, 0);
+                          cardTotalAmount = cardPaidAmount + cardUnpaidAmount;
+                          cardTxCount = nonTransferTxs.filter(t => {
+                            const method = (t.paymentMethod || '').toLowerCase();
+                            return method === 'cash' || method === 'split';
+                          }).length;
+                        } else if (dailyPaymentFilter === 'online') {
+                          const isOnline = (m) => ['online', 'gpay', 'phonepe', 'net banking'].includes((m || '').toLowerCase());
+                          cardPaidAmount = nonTransferTxs.filter(t => t.isPaid).reduce((sum, t) => {
+                            const method = (t.paymentMethod || '').toLowerCase();
+                            if (isOnline(method)) return sum + (t.totalAmount || 0);
+                            if (method === 'split') return sum + (t.onlineAmount || 0);
+                            return sum;
+                          }, 0);
+                          cardUnpaidAmount = nonTransferTxs.filter(t => !t.isPaid).reduce((sum, t) => {
+                            const method = (t.paymentMethod || '').toLowerCase();
+                            if (isOnline(method)) return sum + (t.totalAmount || 0);
+                            if (method === 'split') return sum + (t.onlineAmount || 0);
+                            return sum;
+                          }, 0);
+                          cardTotalAmount = cardPaidAmount + cardUnpaidAmount;
+                          cardTxCount = nonTransferTxs.filter(t => {
+                            const method = (t.paymentMethod || '').toLowerCase();
+                            return isOnline(method) || method === 'split';
+                          }).length;
+                        } else {
+                          cardTotalAmount = selectedMonth.totalAmount;
+                          cardPaidAmount = selectedMonth.paidAmount;
+                          cardUnpaidAmount = selectedMonth.unpaidAmount;
+                          cardTxCount = selectedMonth.transactions.length;
+                        }
+
                         return (
                           <div className="space-y-4">
                             {/* Month Summary Cards */}
                             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                               <div className="bg-blue-50 rounded-lg p-4">
-                                <p className="text-xs text-gray-600 mb-1">Total Amount</p>
-                                <p className="text-lg font-bold text-blue-700">{formatCurrency(selectedMonth.totalAmount)}</p>
+                                <p className="text-xs text-gray-600 mb-1">
+                                  Total Amount {dailyPaymentFilter === 'cash' ? '(Cash)' : (dailyPaymentFilter === 'online' ? '(Online)' : '')}
+                                </p>
+                                <p className="text-lg font-bold text-blue-700">{formatCurrency(cardTotalAmount)}</p>
                               </div>
                               <div className="bg-green-50 rounded-lg p-4">
-                                <p className="text-xs text-gray-600 mb-1">Paid Amount</p>
-                                <p className="text-lg font-bold text-green-700">{formatCurrency(selectedMonth.paidAmount)}</p>
+                                <p className="text-xs text-gray-600 mb-1">
+                                  Paid Amount {dailyPaymentFilter === 'cash' ? '(Cash)' : (dailyPaymentFilter === 'online' ? '(Online)' : '')}
+                                </p>
+                                <p className="text-lg font-bold text-green-700">{formatCurrency(cardPaidAmount)}</p>
                               </div>
                               <div className="bg-red-50 rounded-lg p-4">
-                                <p className="text-xs text-gray-600 mb-1">Unpaid Amount</p>
-                                <p className="text-lg font-bold text-red-700">{formatCurrency(selectedMonth.unpaidAmount)}</p>
+                                <p className="text-xs text-gray-600 mb-1">
+                                  Unpaid Amount {dailyPaymentFilter === 'cash' ? '(Cash)' : (dailyPaymentFilter === 'online' ? '(Online)' : '')}
+                                </p>
+                                <p className="text-lg font-bold text-red-700">{formatCurrency(cardUnpaidAmount)}</p>
                               </div>
                               <div className="bg-purple-50 rounded-lg p-4">
-                                <p className="text-xs text-gray-600 mb-1">Transactions</p>
-                                <p className="text-lg font-bold text-purple-700">{selectedMonth.transactions.length}</p>
+                                <p className="text-xs text-gray-600 mb-1">
+                                  Transactions {dailyPaymentFilter === 'cash' ? '(Cash)' : (dailyPaymentFilter === 'online' ? '(Online)' : '')}
+                                </p>
+                                <p className="text-lg font-bold text-purple-700">{cardTxCount}</p>
                               </div>
                             </div>
                             <p className="text-xs text-gray-500 mb-4">Revenue includes student sales and paid college/branch transfers.</p>
@@ -3304,16 +3406,19 @@ const Reports = ({ currentUser }) => {
                                             const qty = itemSales.get(day.key) || 0;
                                             const cashQty = itemSalesCash.get(day.key) || 0;
                                             const onlineQty = itemSalesOnline.get(day.key) || 0;
+                                            
+                                            const displayQty = dailyPaymentFilter === 'cash' ? cashQty : (dailyPaymentFilter === 'online' ? onlineQty : qty);
+                                            
                                             return (
                                               <td
                                                 key={day.key}
-                                                className={`px-3 py-3 whitespace-nowrap text-right font-medium ${qty > 0 ? 'text-gray-900' : 'text-gray-400'
+                                                className={`px-3 py-3 whitespace-nowrap text-right font-medium ${displayQty > 0 ? 'text-gray-900' : 'text-gray-400'
                                                   } ${dayIdx < dailyBreakdownReport.days.length - 1 ? 'border-r border-gray-200' : ''}`}
                                               >
-                                                {qty > 0 ? (
+                                                {displayQty > 0 ? (
                                                   <div>
-                                                    <div>{qty}</div>
-                                                    {(cashQty > 0 || onlineQty > 0) && (
+                                                    <div>{displayQty}</div>
+                                                    {dailyPaymentFilter === 'all' && (cashQty > 0 || onlineQty > 0) && (
                                                       <div className="text-[10px] text-gray-500 font-normal mt-0.5">
                                                         {cashQty > 0 && <span>C:{cashQty}</span>}
                                                         {cashQty > 0 && onlineQty > 0 && <span> | </span>}
@@ -3328,14 +3433,21 @@ const Reports = ({ currentUser }) => {
                                             );
                                           })}
                                           <td className="px-4 py-3 whitespace-nowrap text-right font-bold text-gray-900 bg-gray-100">
-                                            <div>{rowTotal > 0 ? rowTotal : '-'}</div>
-                                            {rowTotal > 0 && (rowCashTotal > 0 || rowOnlineTotal > 0) && (
-                                              <div className="text-[10px] text-gray-500 font-normal mt-0.5">
-                                                {rowCashTotal > 0 && <span>C:{rowCashTotal}</span>}
-                                                {rowCashTotal > 0 && rowOnlineTotal > 0 && <span> | </span>}
-                                                {rowOnlineTotal > 0 && <span>O:{rowOnlineTotal}</span>}
-                                              </div>
-                                            )}
+                                            {(() => {
+                                              const displayRowTotal = dailyPaymentFilter === 'cash' ? rowCashTotal : (dailyPaymentFilter === 'online' ? rowOnlineTotal : rowTotal);
+                                              return (
+                                                <div>
+                                                  <div>{displayRowTotal > 0 ? displayRowTotal : '-'}</div>
+                                                  {dailyPaymentFilter === 'all' && rowTotal > 0 && (rowCashTotal > 0 || rowOnlineTotal > 0) && (
+                                                    <div className="text-[10px] text-gray-500 font-normal mt-0.5">
+                                                      {rowCashTotal > 0 && <span>C:{rowCashTotal}</span>}
+                                                      {rowCashTotal > 0 && rowOnlineTotal > 0 && <span> | </span>}
+                                                      {rowOnlineTotal > 0 && <span>O:{rowOnlineTotal}</span>}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              );
+                                            })()}
                                           </td>
                                         </tr>
                                       );
@@ -3349,16 +3461,17 @@ const Reports = ({ currentUser }) => {
                                         const dayTotal = dailyBreakdownReport.dailyTotals.get(day.key) || 0;
                                         const dayCashTotal = dailyBreakdownReport.dailyTotalsCash?.get(day.key) || 0;
                                         const dayOnlineTotal = dailyBreakdownReport.dailyTotalsOnline?.get(day.key) || 0;
+                                        const displayDayTotal = dailyPaymentFilter === 'cash' ? dayCashTotal : (dailyPaymentFilter === 'online' ? dayOnlineTotal : dayTotal);
                                         return (
                                           <td
                                             key={day.key}
                                             className={`px-3 py-3 whitespace-nowrap text-right text-gray-900 ${dayIdx < dailyBreakdownReport.days.length - 1 ? 'border-r border-gray-300' : ''
                                               }`}
                                           >
-                                            {dayTotal > 0 ? (
+                                            {displayDayTotal > 0 ? (
                                               <div>
-                                                <div>{dayTotal}</div>
-                                                {(dayCashTotal > 0 || dayOnlineTotal > 0) && (
+                                                <div>{displayDayTotal}</div>
+                                                {dailyPaymentFilter === 'all' && (dayCashTotal > 0 || dayOnlineTotal > 0) && (
                                                   <div className="text-[10px] text-gray-500 font-normal mt-0.5">
                                                     {dayCashTotal > 0 && <span>C:{dayCashTotal}</span>}
                                                     {dayCashTotal > 0 && dayOnlineTotal > 0 && <span> | </span>}
@@ -3378,10 +3491,12 @@ const Reports = ({ currentUser }) => {
                                           const grandTotal = totalsArray.reduce((sum, total) => sum + total, 0);
                                           const grandCashTotal = Array.from(dailyBreakdownReport.dailyTotalsCash?.values() || []).reduce((sum, total) => sum + total, 0);
                                           const grandOnlineTotal = Array.from(dailyBreakdownReport.dailyTotalsOnline?.values() || []).reduce((sum, total) => sum + total, 0);
+                                          
+                                          const displayGrandTotal = dailyPaymentFilter === 'cash' ? grandCashTotal : (dailyPaymentFilter === 'online' ? grandOnlineTotal : grandTotal);
                                           return (
                                             <div>
-                                              <div>{grandTotal > 0 ? grandTotal : '-'}</div>
-                                              {grandTotal > 0 && (grandCashTotal > 0 || grandOnlineTotal > 0) && (
+                                              <div>{displayGrandTotal > 0 ? displayGrandTotal : '-'}</div>
+                                              {dailyPaymentFilter === 'all' && grandTotal > 0 && (grandCashTotal > 0 || grandOnlineTotal > 0) && (
                                                 <div className="text-[10px] text-gray-500 font-normal mt-0.5">
                                                   {grandCashTotal > 0 && <span>C:{grandCashTotal}</span>}
                                                   {grandCashTotal > 0 && grandOnlineTotal > 0 && <span> | </span>}
