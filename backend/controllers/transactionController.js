@@ -125,6 +125,102 @@ const loadProductsWithComponents = async (productIds) => {
   return { productMap, stockMap };
 };
 
+const toComponentId = (comp) => {
+  if (!comp) return null;
+  const id =
+    comp.productId?._id?.toString?.() ||
+    comp.productId?.toString?.() ||
+    (comp.productId ? String(comp.productId) : null) ||
+    comp.product?._id?.toString?.() ||
+    (comp.product?._id ? String(comp.product._id) : null);
+  return id || null;
+};
+
+/** Reserve all set components on initial paid sale (matches createTransaction). */
+const reserveSetComponents = (stockChanges, product, quantity) => {
+  if (!product?.isSet || !product.setItems?.length) return;
+  const qty = Number(quantity) || 0;
+  if (qty <= 0) return;
+
+  for (const setItem of product.setItems) {
+    const component = setItem?.product;
+    if (!component) continue;
+    const componentId = component._id.toString();
+    const required = qty * (Number(setItem.quantity) || 1);
+    accumulateStockChange(stockChanges, componentId, -required);
+  }
+};
+
+/** Restore full set reservation (all components). */
+const restoreSetComponentsFully = (stockChanges, product, item) => {
+  if (!product?.isSet || !product.setItems?.length) return;
+  const qty = Number(item?.quantity) || 0;
+  if (qty <= 0) return;
+
+  for (const setItem of product.setItems) {
+    const component = setItem?.product;
+    if (!component) continue;
+    const componentId = component._id.toString();
+    const required = qty * (Number(setItem.quantity) || 1);
+    accumulateStockChange(stockChanges, componentId, required);
+  }
+};
+
+/**
+ * When stock was already deducted on the original paid sale, only apply deltas:
+ * - quantity change → adjust reservation
+ * - taken true→false → release reservation
+ * - taken false→true or status-only updates → no extra deduction
+ */
+const applySetStockDeltaWhenAlreadyDeducted = (
+  stockChanges,
+  product,
+  oldItem,
+  newQuantity,
+  newSetComponents
+) => {
+  if (!product?.isSet || !product.setItems?.length) return;
+
+  const oldQty = oldItem ? Number(oldItem.quantity) || 0 : 0;
+  const newQty = Number(newQuantity) || 0;
+  const qtyDelta = newQty - oldQty;
+
+  const oldCompMap = new Map();
+  (oldItem?.setComponents || []).forEach((comp) => {
+    const id = toComponentId(comp);
+    if (id) oldCompMap.set(id, comp);
+  });
+
+  const newCompMap = new Map();
+  (newSetComponents || []).forEach((comp) => {
+    const id = toComponentId(comp);
+    if (id) newCompMap.set(id, comp);
+  });
+
+  for (const setItem of product.setItems) {
+    const component = setItem?.product;
+    if (!component) continue;
+    const componentId = component._id.toString();
+    const perSet = Number(setItem.quantity) || 1;
+    const oldRequired = oldQty * perSet;
+    const newRequired = newQty * perSet;
+
+    const oldComp = oldCompMap.get(componentId);
+    const newComp = newCompMap.get(componentId);
+    const oldTaken = oldComp ? Boolean(oldComp.taken) : false;
+    const hasNewTakenFlag =
+      newComp && Object.prototype.hasOwnProperty.call(newComp, 'taken');
+    const newTaken = hasNewTakenFlag ? Boolean(newComp.taken) : oldTaken;
+
+    if (qtyDelta !== 0) {
+      accumulateStockChange(stockChanges, componentId, -(newRequired - oldRequired));
+    }
+    if (oldTaken && !newTaken) {
+      accumulateStockChange(stockChanges, componentId, newRequired);
+    }
+  }
+};
+
 /**
  * @desc    Create a new transaction
  * @route   POST /api/transactions
@@ -608,55 +704,20 @@ const updateTransaction = asyncHandler(async (req, res) => {
 
   // If items are being updated, recalculate total and handle stock
   if (items && Array.isArray(items) && items.length > 0) {
-    // Use targetIsPaid to determine if we should deduct stock for NEW items
     const targetIsPaid = isPaid !== undefined ? isPaid : transaction.isPaid;
+    const wasStockDeducted = Boolean(transaction.stockDeducted);
+    const oldItems = transaction.items || [];
 
-    // First, restore stock from old transaction items ONLY if it was deducted
-    if (transaction.stockDeducted && transaction.items && transaction.items.length > 0) {
-      const restoreIds = new Set(transaction.items.map((oldItem) => oldItem.productId));
-      const { productMap: restoreProductMap } = await loadProductsWithComponents(restoreIds);
-      const restoreChanges = new Map();
-
-      for (const oldItem of transaction.items) {
-        const productId = oldItem.productId.toString();
-        const product = restoreProductMap.get(productId);
-        if (!product) continue;
-
-        if (
-          product.isSet &&
-          Array.isArray(oldItem.setComponents) &&
-          oldItem.setComponents.length > 0
-        ) {
-          oldItem.setComponents.forEach((component) => {
-            if (!component?.taken) return;
-            if (!component?.productId) return;
-            const qty = Number(component.quantity) || 0;
-            if (qty > 0) {
-              accumulateStockChange(restoreChanges, component.productId, qty);
-            }
-          });
-        } else if (product.isSet && product.setItems?.length) {
-          for (const setItem of product.setItems) {
-            const component = setItem?.product;
-            if (!component) continue;
-            const componentId = component._id.toString();
-            const restoredQty = oldItem.quantity * (Number(setItem.quantity) || 1);
-            accumulateStockChange(restoreChanges, componentId, restoredQty);
-          }
-        } else {
-          accumulateStockChange(restoreChanges, productId, oldItem.quantity);
-        }
-      }
-
-      // Check if transaction has collegeId, if not fallback to transaction.branchId
-      const colId = transaction.collegeId || transaction.branchId;
-      await applyStockChanges(restoreChanges, colId);
-    }
-
-    const newProductIds = new Set(items.map((item) => item.productId));
-    const { productMap: newProductMap } = await loadProductsWithComponents(newProductIds);
+    const allProductIds = new Set([
+      ...items.map((item) => item.productId),
+      ...oldItems.map((item) => item.productId),
+    ]);
+    const { productMap: newProductMap } = await loadProductsWithComponents(allProductIds);
     const txCollegeId = transaction.collegeId || transaction.branchId;
-    const newCollegeStockMap = await loadCollegeStock(txCollegeId, newProductIds);
+    const newCollegeStockMap = await loadCollegeStock(txCollegeId, allProductIds);
+
+    const findOldItem = (productId) =>
+      oldItems.find((o) => o.productId.toString() === productId.toString());
 
     let totalAmount = 0;
     const validatedItems = [];
@@ -677,9 +738,9 @@ const updateTransaction = asyncHandler(async (req, res) => {
       }
 
       const requestedQuantity = Number(item.quantity);
-
+      const oldItem = findOldItem(productId);
       const explicitStatus = item.status;
-      let itemStatus = 'fulfilled'; // optimistic default
+      let itemStatus = 'fulfilled';
       let componentDetails = [];
       let anyComponentNotTaken = false;
 
@@ -692,14 +753,7 @@ const updateTransaction = asyncHandler(async (req, res) => {
         const desiredComponents = new Map();
         (Array.isArray(item.setComponents) ? item.setComponents : []).forEach((comp) => {
           if (!comp) return;
-          const id =
-            (comp.productId && comp.productId.toString) ? comp.productId.toString() :
-            comp.productId ? String(comp.productId) :
-            comp.product && comp.product._id && comp.product._id.toString
-              ? comp.product._id.toString()
-              : comp.product && comp.product._id
-              ? String(comp.product._id)
-              : undefined;
+          const id = toComponentId(comp);
           if (!id) return;
           desiredComponents.set(id, comp);
         });
@@ -721,14 +775,17 @@ const updateTransaction = asyncHandler(async (req, res) => {
           let taken = desiredTaken;
           let reason = desiredComponent?.reason;
 
-          if (taken) {
-            if (targetIsPaid) {
-              accumulateStockChange(stockChanges, componentId, -required);
-            }
-          } else {
+          if (!taken) {
             anyComponentNotTaken = true;
             if (!reason) {
               reason = hasTakenFlag ? 'Marked as not taken' : 'Insufficient stock at issuance';
+            }
+          } else if (targetIsPaid && !wasStockDeducted) {
+            const available = getProjectedStock(componentId, newCollegeStockMap, stockChanges);
+            if (available < required && explicitStatus !== 'fulfilled') {
+              taken = false;
+              anyComponentNotTaken = true;
+              reason = `Insufficient stock at college (required ${required}, available ${Math.max(available, 0)})`;
             }
           }
 
@@ -740,8 +797,7 @@ const updateTransaction = asyncHandler(async (req, res) => {
             reason: taken ? undefined : reason,
           });
         }
-        
-        // Auto-upgrade logic for sets
+
         if (explicitStatus === 'fulfilled') {
           itemStatus = 'fulfilled';
         } else if (anyComponentNotTaken) {
@@ -749,12 +805,40 @@ const updateTransaction = asyncHandler(async (req, res) => {
         } else {
           itemStatus = 'fulfilled';
         }
+
+        if (wasStockDeducted && !targetIsPaid) {
+          if (oldItem) restoreSetComponentsFully(stockChanges, product, oldItem);
+        } else if (!wasStockDeducted && targetIsPaid) {
+          reserveSetComponents(stockChanges, product, requestedQuantity);
+        } else if (wasStockDeducted && targetIsPaid) {
+          if (!oldItem) {
+            reserveSetComponents(stockChanges, product, requestedQuantity);
+          } else {
+            applySetStockDeltaWhenAlreadyDeducted(
+              stockChanges,
+              product,
+              oldItem,
+              requestedQuantity,
+              componentDetails
+            );
+          }
+        }
       } else {
-        if (targetIsPaid) {
+        if (targetIsPaid && !wasStockDeducted) {
           const available = getProjectedStock(productId, newCollegeStockMap, stockChanges);
           accumulateStockChange(stockChanges, productId, -requestedQuantity);
-          if (available < requestedQuantity) {
-            if (explicitStatus !== 'fulfilled') itemStatus = 'partial';
+          if (available < requestedQuantity && explicitStatus !== 'fulfilled') {
+            itemStatus = 'partial';
+          }
+        } else if (wasStockDeducted && !targetIsPaid && oldItem) {
+          accumulateStockChange(stockChanges, productId, Number(oldItem.quantity) || 0);
+        } else if (wasStockDeducted && targetIsPaid) {
+          const oldQty = oldItem ? Number(oldItem.quantity) || 0 : 0;
+          const qtyDelta = requestedQuantity - oldQty;
+          if (!oldItem) {
+            accumulateStockChange(stockChanges, productId, -requestedQuantity);
+          } else if (qtyDelta !== 0) {
+            accumulateStockChange(stockChanges, productId, -qtyDelta);
           }
         }
       }
@@ -778,14 +862,32 @@ const updateTransaction = asyncHandler(async (req, res) => {
       validatedItems.push(transactionItem);
     }
 
+    const newProductIdSet = new Set(items.map((item) => item.productId.toString()));
+    for (const oldItem of oldItems) {
+      const pid = oldItem.productId.toString();
+      if (newProductIdSet.has(pid)) continue;
+      if (!wasStockDeducted || !targetIsPaid) continue;
+      const product = newProductMap.get(pid);
+      if (!product) continue;
+      if (product.isSet) {
+        restoreSetComponentsFully(stockChanges, product, oldItem);
+      } else {
+        accumulateStockChange(stockChanges, pid, Number(oldItem.quantity) || 0);
+      }
+    }
+
     const colId = transaction.collegeId || transaction.branchId;
-    if (targetIsPaid && stockChanges.size > 0) {
+    if (stockChanges.size > 0) {
       await applyStockChanges(stockChanges, colId);
     }
-    transaction.stockDeducted = Boolean(targetIsPaid && stockChanges.size > 0);
 
-    transaction.items = validatedItems;
-    transaction.totalAmount = totalAmount;
+    if (!targetIsPaid) {
+      transaction.stockDeducted = false;
+    } else if (wasStockDeducted) {
+      transaction.stockDeducted = true;
+    } else {
+      transaction.stockDeducted = stockChanges.size > 0;
+    }
 
     transaction.items = validatedItems;
     transaction.totalAmount = totalAmount;
@@ -821,21 +923,9 @@ const updateTransaction = asyncHandler(async (req, res) => {
           const product = productMap.get(productId);
           if (!product) continue;
 
-          if (product.isSet && item.setComponents?.length) {
-            for (const comp of item.setComponents) {
-              if (!comp.taken) continue;
-              const compId = comp.productId.toString();
-              const req = Number(comp.quantity) || 0;
-              
-              // Always deduct even if insufficient
-              if (getProjectedStock(compId, stockMap, stockChanges) < req) {
-                 // Note: we can't easily change item status here without more logic, 
-                 // but the stock deduction is the priority
-              }
-              accumulateStockChange(stockChanges, compId, -req);
-            }
+          if (product.isSet) {
+            reserveSetComponents(stockChanges, product, item.quantity);
           } else {
-            // Always deduct even if insufficient
             accumulateStockChange(stockChanges, productId, -item.quantity);
           }
         }
@@ -856,11 +946,8 @@ const updateTransaction = asyncHandler(async (req, res) => {
           const product = productMap.get(productId);
           if (!product) continue;
 
-          if (product.isSet && item.setComponents?.length) {
-            for (const comp of item.setComponents) {
-              if (!comp.taken) continue;
-              accumulateStockChange(restoreChanges, comp.productId.toString(), Number(comp.quantity) || 0);
-            }
+          if (product.isSet) {
+            restoreSetComponentsFully(stockChanges, product, item);
           } else {
             accumulateStockChange(restoreChanges, productId, item.quantity);
           }
@@ -927,27 +1014,8 @@ const deleteTransaction = asyncHandler(async (req, res) => {
       const product = restoreProductMap.get(productId);
       if (!product) continue;
 
-      if (
-        product.isSet &&
-        Array.isArray(item.setComponents) &&
-        item.setComponents.length > 0
-      ) {
-        item.setComponents.forEach((component) => {
-          if (!component?.taken) return;
-          if (!component?.productId) return;
-          const qty = Number(component.quantity) || 0;
-          if (qty > 0) {
-            accumulateStockChange(restoreChanges, component.productId, qty);
-          }
-        });
-      } else if (product.isSet && product.setItems?.length) {
-        for (const setItem of product.setItems) {
-          const component = setItem?.product;
-          if (!component) continue;
-          const componentId = component._id.toString();
-          const restoredQty = item.quantity * (Number(setItem.quantity) || 1);
-          accumulateStockChange(restoreChanges, componentId, restoredQty);
-        }
+      if (product.isSet) {
+        restoreSetComponentsFully(restoreChanges, product, item);
       } else {
         accumulateStockChange(restoreChanges, productId, item.quantity);
       }
