@@ -443,7 +443,7 @@ const getDistributionById = asyncHandler(async (req, res) => {
 });
 
 /**
- * @desc    Update a distribution
+ * @desc    Update a distribution (all fields + item quantities with stock adjustment)
  * @route   PUT /api/general-distributions/:id
  * @access  Public
  */
@@ -455,9 +455,82 @@ const updateDistribution = asyncHandler(async (req, res) => {
     throw new Error('Distribution not found');
   }
 
-  const { remarks } = req.body;
+  const { recipientName, department, authorizedBy, contactNumber, distributionDate, remarks, items } = req.body;
 
+  // Update scalar fields if provided
+  if (recipientName !== undefined && recipientName.trim()) distribution.recipientName = recipientName.trim();
+  if (department !== undefined && department.trim()) distribution.department = department.trim();
+  if (authorizedBy !== undefined && authorizedBy.trim()) distribution.authorizedBy = authorizedBy.trim();
+  if (contactNumber !== undefined) distribution.contactNumber = contactNumber.trim();
+  if (distributionDate !== undefined) distribution.distributionDate = new Date(distributionDate);
   if (remarks !== undefined) distribution.remarks = remarks;
+
+  // If items array is provided, update quantities and adjust stock
+  if (items && Array.isArray(items) && items.length > 0) {
+    const college = await College.findById(distribution.collegeId);
+    if (!college) {
+      res.status(404);
+      throw new Error('College not found for this distribution');
+    }
+
+    // Step 1: Restore the old stock quantities (reverse the old deductions)
+    for (const oldItem of distribution.items) {
+      const stockIndex = college.generalStock.findIndex(
+        s => s.product.toString() === oldItem.productId.toString()
+      );
+      if (stockIndex >= 0) {
+        college.generalStock[stockIndex].quantity += oldItem.quantity;
+      } else {
+        // If stock entry doesn't exist, create it (edge case)
+        college.generalStock.push({ product: oldItem.productId, quantity: oldItem.quantity });
+      }
+    }
+
+    // Step 2: Build a map of new quantities by productId
+    // NOTE: productId from frontend may be a populated object {_id, name,...} or a raw ObjectId string
+    const newItemsMap = {};
+    for (const newItem of items) {
+      const productId = (newItem.productId?._id || newItem.productId)?.toString();
+      if (!productId) continue;
+      newItemsMap[productId] = Number(newItem.quantity);
+    }
+
+    // Step 3: Validate new quantities against (restored) stock and apply deductions
+    const updatedItems = [];
+    for (const oldItem of distribution.items) {
+      const productId = oldItem.productId.toString();
+      const newQty = newItemsMap[productId] !== undefined ? newItemsMap[productId] : oldItem.quantity;
+
+      if (newQty < 1) {
+        res.status(400);
+        throw new Error(`Quantity must be at least 1 for item: ${oldItem.name}`);
+      }
+
+      // Check stock availability after restoration
+      const stockIndex = college.generalStock.findIndex(
+        s => s.product.toString() === productId
+      );
+      const availableStock = stockIndex >= 0 ? college.generalStock[stockIndex].quantity : 0;
+
+      if (availableStock < newQty) {
+        res.status(400);
+        throw new Error(
+          `Insufficient stock for ${oldItem.name}. Available: ${availableStock}, Requested: ${newQty}`
+        );
+      }
+
+      // Deduct new quantity from stock
+      if (stockIndex >= 0) {
+        college.generalStock[stockIndex].quantity -= newQty;
+      }
+
+      updatedItems.push({ ...oldItem.toObject(), quantity: newQty });
+    }
+
+    // Step 4: Save updated stock and distribution items
+    await college.save();
+    distribution.items = updatedItems;
+  }
 
   const updatedDistribution = await distribution.save();
   res.status(200).json(updatedDistribution);

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import { useReactToPrint } from 'react-to-print';
-import { Package, Search, Plus, Trash2, Eye, Save, FileText, UserPlus, Building2, ShoppingCart, Minus, X, Printer, LayoutGrid, List, History, Calendar, DollarSign, BarChart3, ChevronDown, ChevronRight } from 'lucide-react';
+import { Package, Search, Plus, Trash2, Eye, Save, FileText, UserPlus, Building2, ShoppingCart, Minus, X, Printer, LayoutGrid, List, History, Calendar, DollarSign, BarChart3, ChevronDown, ChevronRight, Pencil } from 'lucide-react';
 import { apiUrl } from '../utils/api';
 
 const emptyReportSummary = () => ({
@@ -95,6 +95,7 @@ const GeneralStock = ({ currentUser }) => {
         isPaid: '',
     });
     const [selectedTransaction, setSelectedTransaction] = useState(null);
+    const [editingTransaction, setEditingTransaction] = useState(null); // {type, data}
 
     const [loading, setLoading] = useState(false);
     const [isFetching, setIsFetching] = useState(false);
@@ -667,6 +668,70 @@ const GeneralStock = ({ currentUser }) => {
         }
     };
 
+    // Edit distribution: update all fields + quantities (stock adjusted on backend)
+    const handleEditDistributionSave = async (id, updatedItems, formData) => {
+        setLoading(true);
+        try {
+            const res = await fetch(apiUrl(`/api/general-distributions/${id}`), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    items: updatedItems,
+                    recipientName: formData.recipientName,
+                    department: formData.department,
+                    authorizedBy: formData.authorizedBy,
+                    contactNumber: formData.contactNumber,
+                    distributionDate: formData.distributionDate,
+                    remarks: formData.remarks,
+                }),
+            });
+            if (res.ok) {
+                setMessage({ type: 'success', text: 'Distribution updated and stock adjusted successfully' });
+                setEditingTransaction(null);
+                fetchProducts();
+                fetchTransactions();
+            } else {
+                const error = await res.json();
+                setMessage({ type: 'error', text: error.message || 'Failed to update distribution' });
+            }
+        } catch (error) {
+            setMessage({ type: 'error', text: 'Error updating distribution' });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Edit purchase: update all fields + quantities (stock adjusted on backend)
+    const handleEditPurchaseSave = async (id, updatedItems, formData) => {
+        setLoading(true);
+        try {
+            const res = await fetch(apiUrl(`/api/general-purchases/${id}`), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    items: updatedItems,
+                    vendor: formData.vendor,
+                    invoiceNumber: formData.invoiceNumber,
+                    invoiceDate: formData.invoiceDate,
+                    remarks: formData.remarks,
+                }),
+            });
+            if (res.ok) {
+                setMessage({ type: 'success', text: 'Purchase updated and stock adjusted successfully' });
+                setEditingTransaction(null);
+                fetchProducts();
+                fetchTransactions();
+            } else {
+                const error = await res.json();
+                setMessage({ type: 'error', text: error.message || 'Failed to update purchase' });
+            }
+        } catch (error) {
+            setMessage({ type: 'error', text: 'Error updating purchase' });
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleQuantityChange = (productId, delta) => {
         setSelectedItems(prev => {
             const current = prev[productId] || 0;
@@ -875,6 +940,12 @@ const GeneralStock = ({ currentUser }) => {
                                     selectedCollegeName={selectedCollegeName}
                                     handleDeleteDistribution={handleDeleteDistribution}
                                     handleDeletePurchase={handleDeletePurchase}
+                                    editingTransaction={editingTransaction}
+                                    setEditingTransaction={setEditingTransaction}
+                                    handleEditDistributionSave={handleEditDistributionSave}
+                                    handleEditPurchaseSave={handleEditPurchaseSave}
+                                    loading={loading}
+                                    vendors={vendors}
                                 />
                             )}
 
@@ -1785,7 +1856,7 @@ const ThermalReceiptTemplate = ({ transaction }) => {
                             {transaction.type !== 'distribution' && (
                                 <>
                                     <td style={{ padding: '2px 0', textAlign: 'right', verticalAlign: 'top' }}>
-                                        {Number(item.purchasePrice || 0).toFixed(0)}{item.gstPercent > 0 ? ` (+${item.gstPercent}%)` : ''}
+                                        ₹{Number(item.purchasePrice || 0).toFixed(2)}
                                     </td>
                                     <td style={{ padding: '2px 0', textAlign: 'right', verticalAlign: 'top' }}>
                                         {Number(item.total || (item.quantity * (item.purchasePrice || 0) * (1 + (item.gstPercent || 0) / 100))).toFixed(0)}
@@ -2670,10 +2741,65 @@ const HistoryTab = ({
     setSelectedTransaction,
     selectedCollegeName,
     handleDeleteDistribution,
-    handleDeletePurchase
+    handleDeletePurchase,
+    editingTransaction,
+    setEditingTransaction,
+    handleEditDistributionSave,
+    handleEditPurchaseSave,
+    loading,
+    vendors,
 }) => {
+    // Local state for edit modal item quantities
+    const [editItems, setEditItems] = useState([]);
+    // editForm holds all editable header fields
+    const [editForm, setEditForm] = useState({});
     // Separate state for purchase modal (vendor) vs distribution modal (recipient)
     // For simplicity, we can use the same modal structure but populate different data, or use selectedTransaction
+
+    // Open edit modal and clone items + form for editing
+    const openEditModal = (type, data) => {
+        const itemsCopy = (data.items || []).map(item => ({ ...item, quantity: item.quantity }));
+        setEditItems(itemsCopy);
+        if (type === 'distribution') {
+            setEditForm({
+                recipientName: data.recipientName || '',
+                department: data.department || '',
+                authorizedBy: data.authorizedBy || '',
+                contactNumber: data.contactNumber || '',
+                distributionDate: data.distributionDate
+                    ? new Date(data.distributionDate).toISOString().split('T')[0]
+                    : '',
+                remarks: data.remarks || '',
+            });
+        } else {
+            setEditForm({
+                vendor: data.vendor?._id || data.vendor || '',
+                invoiceNumber: data.invoiceNumber || '',
+                invoiceDate: data.invoiceDate
+                    ? new Date(data.invoiceDate).toISOString().split('T')[0]
+                    : '',
+                remarks: data.remarks || '',
+            });
+        }
+        setEditingTransaction({ type, data });
+    };
+
+    const handleEditQtyChange = (idx, value) => {
+        setEditItems(prev => {
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx], quantity: Math.max(1, Number(value) || 1) };
+            return updated;
+        });
+    };
+
+    const handleSaveEdit = () => {
+        if (!editingTransaction) return;
+        if (editingTransaction.type === 'distribution') {
+            handleEditDistributionSave(editingTransaction.data._id, editItems, editForm);
+        } else {
+            handleEditPurchaseSave(editingTransaction.data._id, editItems, editForm);
+        }
+    };
 
     return (
         <div className="space-y-6">
@@ -2754,6 +2880,13 @@ const HistoryTab = ({
                                                     <Eye size={16} />
                                                 </button>
                                                 <button
+                                                    onClick={() => openEditModal('distribution', dist)}
+                                                    className="p-1 text-amber-500 hover:bg-amber-50 rounded"
+                                                    title="Edit Distribution"
+                                                >
+                                                    <Pencil size={16} />
+                                                </button>
+                                                <button
                                                     onClick={() => handleDeleteDistribution(dist._id)}
                                                     className="p-1 text-red-500 hover:bg-red-50 rounded"
                                                     title="Delete Distribution"
@@ -2814,6 +2947,13 @@ const HistoryTab = ({
                                                     title="View Details"
                                                 >
                                                     <Eye size={16} />
+                                                </button>
+                                                <button
+                                                    onClick={() => openEditModal('purchase', purchase)}
+                                                    className="p-1 text-amber-500 hover:bg-amber-50 rounded"
+                                                    title="Edit Purchase"
+                                                >
+                                                    <Pencil size={16} />
                                                 </button>
                                                 <button
                                                     onClick={() => handleDeletePurchase(purchase._id)}
@@ -2957,6 +3097,311 @@ const HistoryTab = ({
 
                             {/* Thermal Receipt Template - Hidden unless printing */}
                             <ThermalReceiptTemplate transaction={selectedTransaction} collegeName={selectedCollegeName} />
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Edit Transaction Modal */}
+            {editingTransaction && (
+                <div
+                    className="fixed inset-0 backdrop-blur-sm bg-black/30 flex items-center justify-center z-50 p-4"
+                    onClick={() => setEditingTransaction(null)}
+                >
+                    <div
+                        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Modal Header */}
+                        <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-amber-500 to-amber-600 shrink-0">
+                            <div>
+                                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                    <Pencil size={18} />
+                                    Edit {editingTransaction.type === 'distribution' ? 'Distribution' : 'Purchase'}
+                                </h3>
+                                <p className="text-amber-100 text-sm mt-0.5">
+                                    {editingTransaction.type === 'distribution'
+                                        ? `${editingTransaction.data.distributionId}`
+                                        : `${editingTransaction.data.purchaseId || 'Purchase Record'}`
+                                    }
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setEditingTransaction(null)}
+                                className="p-1.5 rounded-full hover:bg-amber-700/40 text-white transition-colors"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* Scrollable Body */}
+                        <div className="overflow-y-auto flex-1">
+                            {/* Editable Transaction Details Section */}
+                            <div className="px-6 pt-5 pb-4 border-b border-gray-100">
+                                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">
+                                    {editingTransaction.type === 'distribution' ? 'Distribution Details' : 'Purchase Details'}
+                                </h4>
+
+                                {editingTransaction.type === 'distribution' ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {/* Distribution ID — read-only */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-500 mb-1">Distribution ID</label>
+                                            <p className="text-sm font-semibold text-gray-400 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
+                                                {editingTransaction.data.distributionId}
+                                            </p>
+                                        </div>
+
+                                        {/* Date */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">Distribution Date *</label>
+                                            <input
+                                                type="date"
+                                                value={editForm.distributionDate || ''}
+                                                onChange={(e) => setEditForm(f => ({ ...f, distributionDate: e.target.value }))}
+                                                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-400 focus:border-transparent"
+                                            />
+                                        </div>
+
+                                        {/* Recipient Name */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">Recipient Name *</label>
+                                            <input
+                                                type="text"
+                                                value={editForm.recipientName || ''}
+                                                onChange={(e) => setEditForm(f => ({ ...f, recipientName: e.target.value }))}
+                                                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-400 focus:border-transparent"
+                                            />
+                                        </div>
+
+                                        {/* Department */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">Department *</label>
+                                            <input
+                                                type="text"
+                                                value={editForm.department || ''}
+                                                onChange={(e) => setEditForm(f => ({ ...f, department: e.target.value }))}
+                                                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-400 focus:border-transparent"
+                                            />
+                                        </div>
+
+                                        {/* Authorized By */}
+                                        <div className="md:col-span-2">
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">Authorized By *</label>
+                                            <select
+                                                value={editForm.authorizedBy || ''}
+                                                onChange={(e) => setEditForm(f => ({ ...f, authorizedBy: e.target.value }))}
+                                                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-400 focus:border-transparent bg-white"
+                                            >
+                                                <option value="">Select Authority</option>
+                                                {AUTHORITIES.map((auth, idx) => (
+                                                    <option key={idx} value={auth}>{auth}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        {/* Contact Number */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">Contact Number</label>
+                                            <input
+                                                type="text"
+                                                value={editForm.contactNumber || ''}
+                                                onChange={(e) => setEditForm(f => ({ ...f, contactNumber: e.target.value }))}
+                                                placeholder="Optional"
+                                                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-400 focus:border-transparent"
+                                            />
+                                        </div>
+
+                                        {/* College — read-only */}
+                                        {editingTransaction.data.collegeId && (
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-500 mb-1">College</label>
+                                                <p className="text-sm font-semibold text-gray-400 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
+                                                    {editingTransaction.data.collegeId?.name || selectedCollegeName}
+                                                </p>
+                                            </div>
+                                        )}
+
+                                        {/* Remarks */}
+                                        <div className="md:col-span-2">
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">Remarks</label>
+                                            <textarea
+                                                value={editForm.remarks || ''}
+                                                onChange={(e) => setEditForm(f => ({ ...f, remarks: e.target.value }))}
+                                                rows="2"
+                                                placeholder="Optional remarks..."
+                                                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-400 focus:border-transparent resize-none"
+                                            />
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {/* Purchase ID — read-only */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-500 mb-1">Purchase ID</label>
+                                            <p className="text-sm font-semibold text-gray-400 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
+                                                {editingTransaction.data.purchaseId || '—'}
+                                            </p>
+                                        </div>
+
+                                        {/* Invoice Date */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">Invoice Date</label>
+                                            <input
+                                                type="date"
+                                                value={editForm.invoiceDate || ''}
+                                                onChange={(e) => setEditForm(f => ({ ...f, invoiceDate: e.target.value }))}
+                                                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-400 focus:border-transparent"
+                                            />
+                                        </div>
+
+                                        {/* Invoice Number */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">Vendor</label>
+                                            <select
+                                                value={editForm.vendor || ''}
+                                                onChange={(e) => setEditForm(f => ({ ...f, vendor: e.target.value }))}
+                                                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-400 focus:border-transparent bg-white"
+                                            >
+                                                <option value="">Select vendor</option>
+                                                {(vendors || []).map(v => (
+                                                    <option key={v._id} value={v._id}>{v.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        {/* Invoice Number */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">Invoice Number</label>
+                                            <input
+                                                type="text"
+                                                value={editForm.invoiceNumber || ''}
+                                                onChange={(e) => setEditForm(f => ({ ...f, invoiceNumber: e.target.value }))}
+                                                placeholder="e.g. INV-001"
+                                                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-400 focus:border-transparent"
+                                            />
+                                        </div>
+
+                                        {/* College — read-only */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-500 mb-1">College</label>
+                                            <p className="text-sm font-semibold text-gray-400 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
+                                                {editingTransaction.data.college?.name || selectedCollegeName}
+                                            </p>
+                                        </div>
+
+                                        {/* Created By — read-only */}
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-500 mb-1">Created By</label>
+                                            <p className="text-sm font-semibold text-gray-400 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
+                                                {editingTransaction.data.createdBy || '—'}
+                                            </p>
+                                        </div>
+
+                                        {/* Remarks */}
+                                        <div className="md:col-span-2">
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">Remarks</label>
+                                            <textarea
+                                                value={editForm.remarks || ''}
+                                                onChange={(e) => setEditForm(f => ({ ...f, remarks: e.target.value }))}
+                                                rows="2"
+                                                placeholder="Optional remarks..."
+                                                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-400 focus:border-transparent resize-none"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Info Banner */}
+                            <div className="px-6 py-2.5 bg-amber-50 border-b border-amber-100">
+                                <p className="text-xs text-amber-700 font-medium">
+                                    ⚠️ Quantity changes will automatically adjust the relevant product stock.
+                                    {editingTransaction.type === 'distribution'
+                                        ? ' Reducing returns stock; increasing deducts more.'
+                                        : ' Reducing removes stock; increasing adds more.'
+                                    }
+                                </p>
+                            </div>
+
+                            {/* Editable Items Section */}
+                            <div className="px-6 pt-4 pb-4">
+                                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                                    Items — Edit Quantities
+                                </h4>
+                                <div className="space-y-2">
+                                    {editItems.map((item, idx) => (
+                                        <div key={idx} className="flex items-center gap-4 p-3 bg-gray-50 rounded-xl border border-gray-200">
+                                            <div className="flex-1 min-w-0">
+                                                <p className="font-semibold text-gray-900 text-sm">
+                                                    {editingTransaction.type === 'distribution'
+                                                        ? (item.name || item.product?.name || 'Item')
+                                                        : (item.product?.name || 'Item')
+                                                    }
+                                                </p>
+                                                {editingTransaction.type === 'purchase' && (
+                                                    <p className="text-xs text-gray-500 mt-0.5">
+                                                        ₹{item.purchasePrice} / unit
+                                                        {item.gstPercent > 0 ? ` + ${item.gstPercent}% GST` : ''}
+                                                        {' · '}
+                                                        <span className="text-blue-600 font-medium">
+                                                            Subtotal: ₹{(item.quantity * (item.purchasePrice || 0) * (1 + (item.gstPercent || 0) / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </span>
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleEditQtyChange(idx, (item.quantity || 1) - 1)}
+                                                    disabled={(item.quantity || 1) <= 1}
+                                                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                                >
+                                                    <Minus size={14} />
+                                                </button>
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    value={item.quantity || 1}
+                                                    onChange={(e) => handleEditQtyChange(idx, e.target.value)}
+                                                    className="w-16 text-center px-2 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-400 focus:border-transparent text-sm font-semibold"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleEditQtyChange(idx, (item.quantity || 1) + 1)}
+                                                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-300 bg-white hover:bg-gray-100 transition-colors"
+                                                >
+                                                    <Plus size={14} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-3 shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => setEditingTransaction(null)}
+                                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleSaveEdit}
+                                disabled={loading}
+                                className={`px-5 py-2 text-sm font-semibold text-white rounded-lg flex items-center gap-2 transition-all ${
+                                    loading
+                                        ? 'bg-amber-300 cursor-not-allowed'
+                                        : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 shadow-sm'
+                                }`}
+                            >
+                                <Save size={15} />
+                                {loading ? 'Saving...' : 'Save Changes'}
+                            </button>
                         </div>
                     </div>
                 </div>

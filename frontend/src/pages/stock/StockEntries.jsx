@@ -190,7 +190,7 @@ const StockEntries = ({ currentUser, viewContext = 'central' }) => {
                       <td>${index + 1}</td>
                       <td>${safe(item.product?.name || 'Unknown Product')}</td>
                       <td>${safe(item.quantity)}</td>
-                      <td>₹${Number(item.purchasePrice || 0).toFixed(2)}${Number(item.gstPercent) > 0 ? ` (+${item.gstPercent}%)` : ''}</td>
+                      <td>₹${Number(item.purchasePrice || 0).toFixed(2)}</td>
                       <td>${Number(item.gstPercent) || 0}%</td>
                       <td>₹${Number(item.totalCost || calcLineTotal(item.quantity, item.purchasePrice, item.gstPercent)).toFixed(2)}</td>
                     </tr>
