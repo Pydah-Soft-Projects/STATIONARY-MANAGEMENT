@@ -69,7 +69,7 @@ const getStudentDues = asyncHandler(async (req, res) => {
     const params = [];
 
     if (course && course !== 'all') {
-        conditions.push(`LOWER(course) = LOWER(?)`);
+        conditions.push(`course = ?`);
         params.push(course);
     }
     if (branch && branch !== 'all') {
@@ -91,7 +91,7 @@ const getStudentDues = asyncHandler(async (req, res) => {
         }
 
         const placeholders = branchOptions.map(() => '?').join(',');
-        conditions.push(`(LOWER(branch) IN (${placeholders}) OR LOWER(branch) LIKE ? OR ? LIKE CONCAT('%', LOWER(branch), '%'))`);
+        conditions.push(`(branch IN (${placeholders}) OR branch LIKE ? OR ? LIKE CONCAT('%', branch, '%'))`);
         params.push(...branchOptions, `%${bLower}%`, bLower);
     }
     if (year && year !== 'all') {
@@ -104,7 +104,7 @@ const getStudentDues = asyncHandler(async (req, res) => {
         else if (yStr === '4') yearOptions.push('IV');
         
         const placeholders = yearOptions.map(() => '?').join(',');
-        conditions.push(`CAST(current_year AS CHAR) IN (${placeholders})`);
+        conditions.push(`current_year IN (${placeholders})`);
         params.push(...yearOptions);
     }
     if (semester && semester !== 'all') {
@@ -117,7 +117,7 @@ const getStudentDues = asyncHandler(async (req, res) => {
         else if (sStr === '4') semOptions.push('IV');
         
         const placeholders = semOptions.map(() => '?').join(',');
-        conditions.push(`CAST(current_semester AS CHAR) IN (${placeholders})`);
+        conditions.push(`current_semester IN (${placeholders})`);
         params.push(...semOptions);
     }
     if (search) {
@@ -141,7 +141,9 @@ const getStudentDues = asyncHandler(async (req, res) => {
 
     // 2. Prepare Product Query (Mongo)
     const productQuery = {};
-    if (course) productQuery.forCourse = { $regex: new RegExp(`^${course}$`, 'i') }; // Case insensitive match
+    if (course) {
+        productQuery.forCourse = { $in: [course, course.toLowerCase().trim(), course.toUpperCase().trim()] };
+    }
 
     try {
         // Execute SQL and Product Fetch in Parallel
@@ -191,34 +193,19 @@ const getStudentDues = asyncHandler(async (req, res) => {
         }
 
         // 3. Fetch Transactions (Paid + Credit)
-        const CHUNK_SIZE = 500;
-        const transactionPromises = [];
-
-        for (let i = 0; i < allStudents.length; i += CHUNK_SIZE) {
-            const chunk = allStudents.slice(i, i + CHUNK_SIZE);
-            const chunkSqlIds = chunk.map(s => String(s.id));
-            const chunkAdmNos = chunk.map(s => String(s.studentId));
-
-            // Combine IDs to query 'student.sqlId' effectively
-            const distinctIds = [...new Set([...chunkSqlIds, ...chunkAdmNos])];
-
-            transactionPromises.push(
-                Transaction.find({
-                    // Logic update: Include all transactions regardless of isPaid status
-                    // Valid items are determined by their status later
-                    $or: [
-                        { 'student.sqlId': { $in: distinctIds } },
-                        { 'student.studentId': { $in: chunkAdmNos } }
-                    ]
-                })
-                    .select('student items isPaid createdAt') 
-                    .lean()
-            );
-        }
+        const sqlIds = allStudents.map(s => String(s.id));
+        const admNos = allStudents.map(s => String(s.studentId));
+        const distinctIds = [...new Set([...sqlIds, ...admNos])];
 
         console.time('FetchTransactions');
-        const transactionResults = await Promise.all(transactionPromises);
-        const transactions = transactionResults.flat();
+        const transactions = await Transaction.find({
+            $or: [
+                { 'student.sqlId': { $in: distinctIds } },
+                { 'student.studentId': { $in: distinctIds } }
+            ]
+        })
+            .select('student items isPaid createdAt') 
+            .lean();
         console.timeEnd('FetchTransactions');
 
         // Pre-calculate Kit Component Map for Implicit Kit Satisfaction
@@ -363,7 +350,6 @@ const getStudentDues = asyncHandler(async (req, res) => {
 
         }).filter(Boolean); // Remove nulls
         console.timeEnd('CalculateDues');
-        console.timeEnd('TotalDuration'); // This was mismatching.
         console.timeEnd(timerLabel);
 
         // 5. Calculate Stats (Global and Branch-wise)

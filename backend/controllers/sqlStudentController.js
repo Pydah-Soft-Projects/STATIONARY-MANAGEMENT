@@ -130,7 +130,7 @@ const getSqlStudents = asyncHandler(async (req, res) => {
   }
 
   if (course && course !== 'all') {
-    conditions.push(`LOWER(course) = LOWER(?)`);
+    conditions.push(`course = ?`);
     params.push(course);
 
     // Strict Filtering: If courseId is provided, restrict to allowed branches for that specific course ID
@@ -178,7 +178,7 @@ const getSqlStudents = asyncHandler(async (req, res) => {
     }
 
     const placeholders = branchOptions.map(() => '?').join(',');
-    conditions.push(`(LOWER(branch) IN (${placeholders}) OR LOWER(branch) LIKE ? OR ? LIKE CONCAT('%', LOWER(branch), '%'))`);
+    conditions.push(`(branch IN (${placeholders}) OR branch LIKE ? OR ? LIKE CONCAT('%', branch, '%'))`);
     params.push(...branchOptions, `%${bLower}%`, bLower);
   }
 
@@ -192,7 +192,7 @@ const getSqlStudents = asyncHandler(async (req, res) => {
     else if (yStr === '4') yearOptions.push('IV');
     
     const placeholders = yearOptions.map(() => '?').join(',');
-    conditions.push(`CAST(current_year AS CHAR) IN (${placeholders})`);
+    conditions.push(`current_year IN (${placeholders})`);
     params.push(...yearOptions);
   }
 
@@ -206,7 +206,7 @@ const getSqlStudents = asyncHandler(async (req, res) => {
     else if (sStr === '4') semOptions.push('IV');
     
     const placeholders = semOptions.map(() => '?').join(',');
-    conditions.push(`CAST(current_semester AS CHAR) IN (${placeholders})`);
+    conditions.push(`current_semester IN (${placeholders})`);
     params.push(...semOptions);
   }
 
