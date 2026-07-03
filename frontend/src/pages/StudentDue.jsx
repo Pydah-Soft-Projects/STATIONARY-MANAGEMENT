@@ -515,6 +515,7 @@ const StudentDue = ({ currentUser }) => {
     setReportFilters({
       course: dueFilters.course || '',
       branch: dueFilters.branch || '',
+      year: dueFilters.year || '',
       semester: dueFilters.semester || '',
       kit: dueFilters.kit || '', // Keep for sync, but we use selectedKits mostly now
       selectedKits: dueFilters.kit ? [dueFilters.kit] : [],

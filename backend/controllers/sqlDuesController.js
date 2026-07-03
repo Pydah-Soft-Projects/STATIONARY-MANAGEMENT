@@ -68,21 +68,57 @@ const getStudentDues = asyncHandler(async (req, res) => {
     const conditions = [];
     const params = [];
 
-    if (course) {
+    if (course && course !== 'all') {
         conditions.push(`LOWER(course) = LOWER(?)`);
         params.push(course);
     }
-    if (branch) {
-        conditions.push(`LOWER(branch) = LOWER(?)`);
-        params.push(branch);
+    if (branch && branch !== 'all') {
+        const bLower = branch.toLowerCase().trim();
+        let branchOptions = [bLower];
+        
+        if (bLower === 'cse' || bLower.includes('computer science')) {
+            branchOptions = ['cse', 'computer science', 'computer science engineering', 'computer science and engineering'];
+        } else if (bLower === 'ece' || bLower.includes('electronics')) {
+            branchOptions = ['ece', 'electronics', 'electronics & communication engineering', 'electronics and communication engineering', 'electronics and communications engineering'];
+        } else if (bLower === 'eee' || bLower.includes('electrical')) {
+            branchOptions = ['eee', 'electrical', 'electrical and electronics engineering', 'electrical & electronics engineering', 'electrical & electronics', 'electrical and electronics'];
+        } else if (bLower === 'mech' || bLower.includes('mechanical')) {
+            branchOptions = ['mech', 'mechanical', 'mechanical engineering'];
+        } else if (bLower === 'civil') {
+            branchOptions = ['civil', 'civil engineering'];
+        } else if (bLower === 'it' || bLower.includes('information technology')) {
+            branchOptions = ['it', 'information technology'];
+        }
+
+        const placeholders = branchOptions.map(() => '?').join(',');
+        conditions.push(`(LOWER(branch) IN (${placeholders}) OR LOWER(branch) LIKE ? OR ? LIKE CONCAT('%', LOWER(branch), '%'))`);
+        params.push(...branchOptions, `%${bLower}%`, bLower);
     }
-    if (year) {
-        conditions.push(`CAST(current_year AS CHAR) = ?`);
-        params.push(String(year));
+    if (year && year !== 'all') {
+        const yStr = String(year).trim();
+        let yearOptions = [yStr];
+        
+        if (yStr === '1') yearOptions.push('I');
+        else if (yStr === '2') yearOptions.push('II');
+        else if (yStr === '3') yearOptions.push('III');
+        else if (yStr === '4') yearOptions.push('IV');
+        
+        const placeholders = yearOptions.map(() => '?').join(',');
+        conditions.push(`CAST(current_year AS CHAR) IN (${placeholders})`);
+        params.push(...yearOptions);
     }
-    if (semester) {
-        conditions.push(`CAST(current_semester AS CHAR) = ?`);
-        params.push(String(semester));
+    if (semester && semester !== 'all') {
+        const sStr = String(semester).trim();
+        let semOptions = [sStr];
+        
+        if (sStr === '1') semOptions.push('I');
+        else if (sStr === '2') semOptions.push('II');
+        else if (sStr === '3') semOptions.push('III');
+        else if (sStr === '4') semOptions.push('IV');
+        
+        const placeholders = semOptions.map(() => '?').join(',');
+        conditions.push(`CAST(current_semester AS CHAR) IN (${placeholders})`);
+        params.push(...semOptions);
     }
     if (search) {
         const searchPattern = `%${search}%`;
@@ -91,7 +127,7 @@ const getStudentDues = asyncHandler(async (req, res) => {
     }
 
     // Filter out cancelled/withdrawn students in memory since 'status' column might not exist in SQL
-    // conditions.push(\`(status IS NULL OR LOWER(status) NOT LIKE '%cancel%' AND LOWER(status) NOT LIKE '%withdrawn%')\`);
+    // conditions.push(`(status IS NULL OR LOWER(status) NOT LIKE '%cancel%' AND LOWER(status) NOT LIKE '%withdrawn%')`);
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -100,8 +136,7 @@ const getStudentDues = asyncHandler(async (req, res) => {
     // process their dues, and THEN paginate the resulting list.
 
     // 1. Fetch ALL matching students (No Limit/Offset in SQL)
-    // Optimization: Select only necessary columns
-    const sql = `SELECT id, admission_number, pin_no, student_name, course, course_id, branch, branch_id, batch, current_year, current_semester, student_mobile, student_status FROM \`${tableName}\` ${whereClause} ORDER BY admission_number DESC`;
+    const sql = `SELECT * FROM \`${tableName}\` ${whereClause} ORDER BY admission_number DESC`;
     const sqlParams = [...params];
 
     // 2. Prepare Product Query (Mongo)

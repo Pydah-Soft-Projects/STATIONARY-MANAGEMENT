@@ -160,18 +160,54 @@ const getSqlStudents = asyncHandler(async (req, res) => {
   }
 
   if (branch && branch !== 'all') {
-    conditions.push(`LOWER(branch) = LOWER(?)`);
-    params.push(branch);
+    const bLower = branch.toLowerCase().trim();
+    let branchOptions = [bLower];
+    
+    if (bLower === 'cse' || bLower.includes('computer science')) {
+        branchOptions = ['cse', 'computer science', 'computer science engineering', 'computer science and engineering'];
+    } else if (bLower === 'ece' || bLower.includes('electronics')) {
+        branchOptions = ['ece', 'electronics', 'electronics & communication engineering', 'electronics and communication engineering', 'electronics and communications engineering'];
+    } else if (bLower === 'eee' || bLower.includes('electrical')) {
+        branchOptions = ['eee', 'electrical', 'electrical and electronics engineering', 'electrical & electronics engineering', 'electrical & electronics', 'electrical and electronics'];
+    } else if (bLower === 'mech' || bLower.includes('mechanical')) {
+        branchOptions = ['mech', 'mechanical', 'mechanical engineering'];
+    } else if (bLower === 'civil') {
+        branchOptions = ['civil', 'civil engineering'];
+    } else if (bLower === 'it' || bLower.includes('information technology')) {
+        branchOptions = ['it', 'information technology'];
+    }
+
+    const placeholders = branchOptions.map(() => '?').join(',');
+    conditions.push(`(LOWER(branch) IN (${placeholders}) OR LOWER(branch) LIKE ? OR ? LIKE CONCAT('%', LOWER(branch), '%'))`);
+    params.push(...branchOptions, `%${bLower}%`, bLower);
   }
 
   if (year && year !== 'all') {
-    conditions.push(`CAST(current_year AS CHAR) = ?`);
-    params.push(String(year));
+    const yStr = String(year).trim();
+    let yearOptions = [yStr];
+    
+    if (yStr === '1') yearOptions.push('I');
+    else if (yStr === '2') yearOptions.push('II');
+    else if (yStr === '3') yearOptions.push('III');
+    else if (yStr === '4') yearOptions.push('IV');
+    
+    const placeholders = yearOptions.map(() => '?').join(',');
+    conditions.push(`CAST(current_year AS CHAR) IN (${placeholders})`);
+    params.push(...yearOptions);
   }
 
   if (semester && semester !== 'all') {
-    conditions.push(`CAST(current_semester AS CHAR) = ?`);
-    params.push(String(semester));
+    const sStr = String(semester).trim();
+    let semOptions = [sStr];
+    
+    if (sStr === '1') semOptions.push('I');
+    else if (sStr === '2') semOptions.push('II');
+    else if (sStr === '3') semOptions.push('III');
+    else if (sStr === '4') semOptions.push('IV');
+    
+    const placeholders = semOptions.map(() => '?').join(',');
+    conditions.push(`CAST(current_semester AS CHAR) IN (${placeholders})`);
+    params.push(...semOptions);
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
