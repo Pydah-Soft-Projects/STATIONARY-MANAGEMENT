@@ -13,9 +13,7 @@ const DEFAULT_STUDENT_TABLE = 'students';
  * optimized to perform heavy lifting on backend.
  */
 const getStudentDues = asyncHandler(async (req, res) => {
-    // Ensure unique label for concurrent requests or just use a simple time log
-    const timerLabel = `TotalDuration-${Date.now()}`;
-    console.time(timerLabel);
+    const startTime = Date.now();
     const pool = getMySqlPool();
     if (!pool) {
         res.status(500);
@@ -147,14 +145,14 @@ const getStudentDues = asyncHandler(async (req, res) => {
 
     try {
         // Execute SQL and Product Fetch in Parallel
-        console.time('FetchData');
+        const fetchStart = Date.now();
         const [sqlResult, allProducts] = await Promise.all([
             pool.query(sql, sqlParams),
             Product.find(productQuery)
                 .select('_id name price isSet setItems forCourse branch years year semesters applicabilityMode applicableStudents')
                 .lean()
         ]);
-        console.timeEnd('FetchData');
+        console.log(`[Dues] FetchData took ${Date.now() - fetchStart}ms`);
 
         const [rows] = sqlResult;
 
@@ -194,7 +192,7 @@ const getStudentDues = asyncHandler(async (req, res) => {
         const admNos = allStudents.map(s => String(s.studentId));
         const distinctIds = [...new Set([...sqlIds, ...admNos])];
 
-        console.time('FetchTransactions');
+        const txnStart = Date.now();
         const transactions = await Transaction.find({
             $or: [
                 { 'student.sqlId': { $in: distinctIds } },
@@ -203,7 +201,7 @@ const getStudentDues = asyncHandler(async (req, res) => {
         })
             .select('student.sqlId student.studentId items.name items.productId items.isSet items.status items.setComponents') 
             .lean();
-        console.timeEnd('FetchTransactions');
+        console.log(`[Dues] FetchTransactions took ${Date.now() - txnStart}ms`);
 
         // Pre-calculate Kit Component Map for Implicit Kit Satisfaction
         const kitMap = new Map();
@@ -261,7 +259,7 @@ const getStudentDues = asyncHandler(async (req, res) => {
             }
         });
 
-        console.time('CalculateDues');
+        const calcStart = Date.now();
         // 4. Calculate Dues for each student
         const dueReports = allStudents.map(student => {
             const sid1 = String(student.id);
@@ -346,8 +344,8 @@ const getStudentDues = asyncHandler(async (req, res) => {
             };
 
         }).filter(Boolean); // Remove nulls
-        console.timeEnd('CalculateDues');
-        console.timeEnd(timerLabel);
+        console.log(`[Dues] CalculateDues took ${Date.now() - calcStart}ms`);
+        console.log(`[Dues] TotalDuration: ${Date.now() - startTime}ms`);
 
         // 5. Calculate Stats (Global and Branch-wise)
         const totalStudentsWithDues = dueReports.length;
