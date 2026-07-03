@@ -150,16 +150,9 @@ const getStudentDues = asyncHandler(async (req, res) => {
         console.time('FetchData');
         const [sqlResult, allProducts] = await Promise.all([
             pool.query(sql, sqlParams),
-            Product.find(productQuery).lean().then(products => {
-                console.log(`[Dues] Debug: Found ${products.length} products matching query:`, JSON.stringify(productQuery));
-                products.forEach(p => {
-                    console.log(` - ${p.name} (${p._id})`);
-                    console.log(`   forCourse: '${p.forCourse}'`);
-                    console.log(`   Applicability: Years [${p.years?.join(',') || ''}], Batches [${p.academicYears?.join(',') || ''}], Sems [${p.semesters?.join(',') || ''}]`);
-                    console.log(`   Mode: ${p.applicabilityMode}`);
-                });
-                return products;
-            })
+            Product.find(productQuery)
+                .select('_id name price isSet setItems forCourse branch years year semesters applicabilityMode applicableStudents')
+                .lean()
         ]);
         console.timeEnd('FetchData');
 
@@ -167,7 +160,11 @@ const getStudentDues = asyncHandler(async (req, res) => {
 
         console.log(`[Dues] Debug: SQL Query returned ${rows?.length || 0} rows.`);
 
-        let allStudents = Array.isArray(rows) ? rows.map(normalizeStudentRow) : [];
+        let allStudents = Array.isArray(rows) ? rows.map(row => {
+            const student = normalizeStudentRow(row);
+            delete student._sourceRow;
+            return student;
+        }) : [];
 
         // Filter out withdrawn/cancelled students
         allStudents = allStudents.filter(student => {
@@ -204,7 +201,7 @@ const getStudentDues = asyncHandler(async (req, res) => {
                 { 'student.studentId': { $in: distinctIds } }
             ]
         })
-            .select('student items isPaid createdAt') 
+            .select('student.sqlId student.studentId items.name items.productId items.isSet items.status items.setComponents') 
             .lean();
         console.timeEnd('FetchTransactions');
 
