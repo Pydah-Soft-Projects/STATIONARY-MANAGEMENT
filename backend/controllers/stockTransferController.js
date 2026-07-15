@@ -43,9 +43,11 @@ const getCollegeStock = asyncHandler(async (req, res) => {
   }
 
   const { productId } = req.params;
-  const stockEntry = college.stock.find(
-    (s) => s.product._id.toString() === productId
-  );
+  const stockEntry = college.stock.find((s) => {
+    if (!s.product) return false;
+    const sProdId = s.product._id ? s.product._id.toString() : s.product.toString();
+    return sProdId === productId;
+  });
 
   res.json({
     college: college.name,
@@ -589,7 +591,7 @@ const completeStockTransfer = asyncHandler(async (req, res) => {
   const shouldIncludeInRevenue = stockTransfer.includeInRevenue !== false;
   
   // Re-fetch products to get latest stock values
-  const productIds = stockTransfer.items.map(item => item.product._id || item.product);
+  const productIds = stockTransfer.items.map(item => item.product?._id || item.product).filter(Boolean);
   const currentProducts = await Product.find({ _id: { $in: productIds } });
   const productMap = new Map(currentProducts.map(p => [p._id.toString(), p]));
   
@@ -678,13 +680,14 @@ const completeStockTransfer = asyncHandler(async (req, res) => {
     const failedUpdates = stockUpdates.length - (bulkResult.modifiedCount || 0);
     if (failedUpdates > 0) {
       // Re-fetch and throw specific error
-      const productIds = stockTransfer.items.map(item => item.product._id);
+      const productIds = stockTransfer.items.map(item => item.product?._id || item.product).filter(Boolean);
       const currentProducts = await Product.find({ _id: { $in: productIds } });
       const productMap = new Map(currentProducts.map(p => [p._id.toString(), p]));
       
       const insufficientStock = [];
       for (const item of stockTransfer.items) {
-        const product = productMap.get(item.product._id.toString());
+        const prodId = (item.product?._id || item.product)?.toString();
+        const product = prodId ? productMap.get(prodId) : null;
         if (product && product.stock < item.quantity) {
           insufficientStock.push(`${product.name} (Available: ${product.stock}, Required: ${item.quantity})`);
         }
