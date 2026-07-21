@@ -141,32 +141,30 @@ const StudentDetail = ({
   }, [setProducts, currentUser, student?.course]);
 
   // Fetch student details from SQL API
+  const fetchStudent = useCallback(async () => {
+    if (!id || !isOnline) return;
+
+    setLoadingStudent(true);
+    setError(null);
+    try {
+      const res = await fetch(apiUrl(`/api/sql/students/${id}`));
+      if (!res.ok) {
+        throw new Error('Student not found');
+      }
+      const data = await res.json();
+      setStudent(data);
+      setAvatarFailed(false);
+    } catch (err) {
+      console.error("Failed to fetch student details:", err);
+      setError(err.message);
+      setStudent(null);
+    } finally {
+      setLoadingStudent(false);
+    }
+  }, [id, isOnline]);
+
   useEffect(() => {
     if (!id) return;
-
-    // Check if we have the student in props first (optional optimization, but since we want SQL source of truth, better to fetch or verify)
-    // Actually, the prompt says "fetch the student details ... from the MySQL only".
-    // So we should prioritize the API fetch.
-
-    const fetchStudent = async () => {
-      setLoadingStudent(true);
-      setError(null);
-      try {
-        const res = await fetch(apiUrl(`/api/sql/students/${id}`));
-        if (!res.ok) {
-          throw new Error('Student not found');
-        }
-        const data = await res.json();
-        setStudent(data);
-        setAvatarFailed(false);
-      } catch (err) {
-        console.error("Failed to fetch student details:", err);
-        setError(err.message);
-        setStudent(null);
-      } finally {
-        setLoadingStudent(false);
-      }
-    };
 
     if (isOnline) {
       fetchStudent();
@@ -175,7 +173,8 @@ const StudentDetail = ({
       const s = students.find(s => String(s.id) === String(id) || String(s.studentId) === String(id));
       if (s) setStudent(s);
     }
-  }, [id, isOnline]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, isOnline, fetchStudent]);
 
   // Refresh products when student changes to get college-specific stock
   useEffect(() => {
@@ -522,6 +521,7 @@ const StudentDetail = ({
 
         await fetchStudentTransactions(true); // Force refresh after update
         await refreshProducts();
+        await fetchStudent(); // Fetch fresh student details to update Pending/Issued sections
         setComponentUpdateStatus({
           type: 'success',
           message: `${component.name} marked as taken successfully.`,
@@ -536,7 +536,7 @@ const StudentDetail = ({
         setComponentUpdating('');
       }
     },
-    [isOnline, fetchStudentTransactions, refreshProducts]
+    [isOnline, fetchStudentTransactions, refreshProducts, fetchStudent]
   );
 
   const handleMarkItemFulfilled = useCallback(
@@ -617,6 +617,7 @@ const StudentDetail = ({
 
         await fetchStudentTransactions(true); // Force refresh after update
         await refreshProducts();
+        await fetchStudent(); // Fetch fresh student details to update Pending/Issued sections
         setComponentUpdateStatus({
           type: 'success',
           message: `${item.name} marked as fulfilled successfully.`,
@@ -631,7 +632,7 @@ const StudentDetail = ({
         setComponentUpdating('');
       }
     },
-    [isOnline, fetchStudentTransactions, refreshProducts]
+    [isOnline, fetchStudentTransactions, refreshProducts, fetchStudent]
   );
 
   const transactions = useMemo(

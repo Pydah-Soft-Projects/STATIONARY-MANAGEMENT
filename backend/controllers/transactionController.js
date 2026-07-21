@@ -80,9 +80,11 @@ const loadCollegeStock = async (collegeId, productIds, session = null) => {
 };
 
 const loadProductsWithComponents = async (productIds) => {
-  const ids = Array.from(productIds || [])
-    .filter(Boolean)
-    .map((id) => id.toString());
+  const ids = Array.from(new Set(
+    Array.from(productIds || [])
+      .filter(Boolean)
+      .map((id) => id.toString())
+  ));
 
   if (ids.length === 0) {
     return {
@@ -824,6 +826,7 @@ const updateTransaction = asyncHandler(async (req, res) => {
           }
         }
       } else {
+        itemStatus = explicitStatus || 'fulfilled';
         if (targetIsPaid && !wasStockDeducted) {
           const available = getProjectedStock(productId, newCollegeStockMap, stockChanges);
           accumulateStockChange(stockChanges, productId, -requestedQuantity);
