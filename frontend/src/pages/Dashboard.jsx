@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Users, GraduationCap, Package, ShoppingCart, DollarSign,
   TrendingUp, AlertCircle, Activity, Calendar, ArrowRight,
-  CreditCard, Wallet, TrendingDown, FileText, BarChart3, Lock, X, Building2, PackageSearch
+  CreditCard, Wallet, TrendingDown, FileText, BarChart3, Lock, X, Building2, PackageSearch, Search
 } from 'lucide-react';
 import { apiUrl } from '../utils/api';
 
@@ -36,6 +36,7 @@ const Dashboard = () => {
   const [products, setProducts] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [activeModal, setActiveModal] = useState(null); // 'products', 'stockValue', 'lowStock', 'vendors', 'zeroStock'
+  const [zeroStockSearch, setZeroStockSearch] = useState('');
   const navigate = useNavigate();
 
   const [colleges, setColleges] = useState([]);
@@ -133,6 +134,13 @@ const Dashboard = () => {
     ...product,
     stockValue: (product.stock || 0) * (product.price || 0),
   })).sort((a, b) => b.stockValue - a.stockValue);
+
+  // Filter zero stock dues
+  const filteredZeroStockDues = zeroStockDuesData.filter(data => 
+    data.student?.name?.toLowerCase().includes(zeroStockSearch.toLowerCase()) ||
+    data.student?.studentId?.toLowerCase().includes(zeroStockSearch.toLowerCase()) ||
+    data.items?.some(item => item.toLowerCase().includes(zeroStockSearch.toLowerCase()))
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -559,7 +567,7 @@ const Dashboard = () => {
       {activeModal === 'zeroStock' && (
         <div className="fixed inset-0 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setActiveModal(null)}>
           <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white">
+            <div className="p-6 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4 sticky top-0 bg-white">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
                   <PackageSearch size={20} className="text-orange-600" />
@@ -569,22 +577,38 @@ const Dashboard = () => {
                   <p className="text-sm text-gray-500">{zeroStockDuesData.length} students waiting for items</p>
                 </div>
               </div>
-              <button
-                onClick={() => setActiveModal(null)}
-                className="w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center transition-colors"
-              >
-                <X size={18} className="text-gray-600" />
-              </button>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <div className="relative flex-1 sm:w-64">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Search className="h-4 w-4 text-gray-400" />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search by student or item..."
+                    value={zeroStockSearch}
+                    onChange={(e) => setZeroStockSearch(e.target.value)}
+                    className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-orange-500 focus:border-orange-500 sm:text-sm"
+                  />
+                </div>
+                <button
+                  onClick={() => setActiveModal(null)}
+                  className="w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center transition-colors flex-shrink-0"
+                >
+                  <X size={18} className="text-gray-600" />
+                </button>
+              </div>
             </div>
             <div className="p-6">
-              {zeroStockDuesData.length === 0 ? (
+              {filteredZeroStockDues.length === 0 ? (
                 <div className="text-center py-12">
-                  <PackageSearch className="w-16 h-16 text-green-300 mx-auto mb-4" />
-                  <p className="text-gray-500 font-medium">No pending dues due to zero stock!</p>
+                  <PackageSearch className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-500 font-medium">
+                    {zeroStockDuesData.length === 0 ? "No pending dues due to zero stock!" : "No matching results found!"}
+                  </p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-4">
-                  {zeroStockDuesData.map((data, idx) => (
+                  {filteredZeroStockDues.map((data, idx) => (
                     <div
                       key={idx}
                       className="p-4 border border-gray-200 rounded-lg hover:border-orange-300 transition-colors cursor-pointer"
