@@ -81,6 +81,7 @@ const Reports = ({ currentUser }) => {
   const [expandedDays, setExpandedDays] = useState(new Set()); // Track expanded days: "monthKey-dayKey"
   const [generatingPDF, setGeneratingPDF] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
+  const [showExcelExportModal, setShowExcelExportModal] = useState(false); // Modal for with/without counts
 
   useEffect(() => {
     fetchColleges();
@@ -1079,7 +1080,32 @@ const Reports = ({ currentUser }) => {
       handleDownloadMonthlySaleExcel();
       return;
     }
-    handleDownloadDailyBreakdownExcel();
+    // Show modal for daily breakdown to ask with/without counts
+    setShowExcelExportModal(true);
+  };
+
+  const handleConfirmExcelExport = async (withCounts) => {
+    setShowExcelExportModal(false);
+    if (!dailyBreakdownReport || dailyBreakdownReport.items.length === 0) {
+      alert('Please select a month with daily data to download.');
+      return;
+    }
+    setExportingExcel(true);
+    try {
+      await exportDailyBreakdownReportExcel({
+        report: dailyBreakdownReport,
+        formatCurrency,
+        getProductPrice,
+        warehouseName,
+        paymentFilter: dailyPaymentFilter,
+        withCounts, // Pass the user's choice
+      });
+    } catch (error) {
+      console.error('Failed to export daily breakdown report:', error);
+      alert('Failed to download Excel file. Please try again.');
+    } finally {
+      setExportingExcel(false);
+    }
   };
 
   const canDownloadReportExcel =
@@ -4492,6 +4518,58 @@ const Reports = ({ currentUser }) => {
             </div>
           </div>
         )}
+
+      {/* Excel Export Modal - With/Without Counts */}
+      {
+        showExcelExportModal && (
+          <div className="fixed inset-0 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowExcelExportModal(false)}>
+            <div className="bg-white rounded-xl shadow-xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+              <div className="p-6 border-b border-gray-200">
+                <h2 className="text-xl font-bold text-gray-900">Download Excel Options</h2>
+                <p className="text-sm text-gray-600 mt-1">Choose how you want to export the daily breakdown report</p>
+              </div>
+              <div className="p-6 space-y-4">
+                <button
+                  onClick={() => handleConfirmExcelExport(true)}
+                  className="w-full p-4 border-2 border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-left group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center group-hover:bg-blue-200 transition-colors">
+                      <FileText className="text-blue-600" size={20} />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-900">With Counts</h3>
+                      <p className="text-sm text-gray-600">Include C:3 O:2 breakdown for each item</p>
+                    </div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => handleConfirmExcelExport(false)}
+                  className="w-full p-4 border-2 border-gray-200 rounded-xl hover:border-green-500 hover:bg-green-50 transition-all text-left group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center group-hover:bg-green-200 transition-colors">
+                      <FileText className="text-green-600" size={20} />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-900">Without Counts</h3>
+                      <p className="text-sm text-gray-600">Show only total quantities (no C:3 O:2)</p>
+                    </div>
+                  </div>
+                </button>
+              </div>
+              <div className="p-6 border-t border-gray-200 flex justify-end">
+                <button
+                  onClick={() => setShowExcelExportModal(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
     </div>
   );
 };

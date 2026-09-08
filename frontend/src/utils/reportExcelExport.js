@@ -64,16 +64,16 @@ const styleQtyCell = (cell, fill, qty, bold = false) => {
   applyBorder(cell);
 };
 
-const styleQtyCellWithBreakdown = (cell, fill, qty, cashQty = 0, onlineQty = 0, bold = false) => {
+const styleQtyCellWithBreakdown = (cell, fill, qty, cashQty = 0, onlineQty = 0, bold = false, withCounts = true) => {
   cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
   cell.font = {
     bold,
-    size: qty > 0 && (cashQty > 0 || onlineQty > 0) ? 9 : 11,
+    size: qty > 0 && withCounts && (cashQty > 0 || onlineQty > 0) ? 9 : 11,
     color: { argb: qty > 0 ? COLORS.bodyFont : COLORS.mutedFont },
   };
   applyBorder(cell);
 
-  if (qty > 0 && (cashQty > 0 || onlineQty > 0)) {
+  if (withCounts && qty > 0 && (cashQty > 0 || onlineQty > 0)) {
     let text = `${qty}`;
     const parts = [];
     if (cashQty > 0) parts.push(`C:${cashQty}`);
@@ -241,6 +241,7 @@ export const exportDailyBreakdownReportExcel = async ({
   getProductPrice,
   warehouseName = '',
   paymentFilter = 'all',
+  withCounts = true, // Default to true for backward compatibility
 }) => {
   const {
     days,
@@ -354,11 +355,11 @@ export const exportDailyBreakdownReportExcel = async ({
       const onlineQty = itemSalesOnline.get(day.key) || 0;
       const displayQty = paymentFilter === 'cash' ? cashQty : (paymentFilter === 'online' ? onlineQty : qty);
       const cell = itemRow.getCell(3 + index);
-      styleQtyCellWithBreakdown(cell, rowFill, displayQty, paymentFilter === 'all' ? cashQty : 0, paymentFilter === 'all' ? onlineQty : 0);
+      styleQtyCellWithBreakdown(cell, rowFill, displayQty, paymentFilter === 'all' ? cashQty : 0, paymentFilter === 'all' ? onlineQty : 0, false, withCounts);
     });
     const displayRowTotal = paymentFilter === 'cash' ? rowCashTotal : (paymentFilter === 'online' ? rowOnlineTotal : rowTotal);
     const totalCell = itemRow.getCell(totalCols);
-    styleQtyCellWithBreakdown(totalCell, COLORS.totalColFill, displayRowTotal, paymentFilter === 'all' ? rowCashTotal : 0, paymentFilter === 'all' ? rowOnlineTotal : 0, true);
+    styleQtyCellWithBreakdown(totalCell, COLORS.totalColFill, displayRowTotal, paymentFilter === 'all' ? rowCashTotal : 0, paymentFilter === 'all' ? rowOnlineTotal : 0, true, withCounts);
     rowNum += 1;
   });
 
@@ -373,14 +374,14 @@ export const exportDailyBreakdownReportExcel = async ({
     const dayOnlineTotal = dailyTotalsOnline?.get(day.key) || 0;
     const displayDayTotal = paymentFilter === 'cash' ? dayCashTotal : (paymentFilter === 'online' ? dayOnlineTotal : dayTotal);
     const cell = grandTotalRow.getCell(3 + index);
-    styleQtyCellWithBreakdown(cell, COLORS.totalRowFill, displayDayTotal, paymentFilter === 'all' ? dayCashTotal : 0, paymentFilter === 'all' ? dayOnlineTotal : 0, true);
+    styleQtyCellWithBreakdown(cell, COLORS.totalRowFill, displayDayTotal, paymentFilter === 'all' ? dayCashTotal : 0, paymentFilter === 'all' ? dayOnlineTotal : 0, true, withCounts);
   });
   const grandTotal = Array.from(dailyTotals.values()).reduce((sum, total) => sum + total, 0);
   const grandCashTotal = Array.from(dailyTotalsCash?.values() || []).reduce((sum, total) => sum + total, 0);
   const grandOnlineTotal = Array.from(dailyTotalsOnline?.values() || []).reduce((sum, total) => sum + total, 0);
   const displayGrandTotal = paymentFilter === 'cash' ? grandCashTotal : (paymentFilter === 'online' ? grandOnlineTotal : grandTotal);
   const grandTotalCell = grandTotalRow.getCell(totalCols);
-  styleQtyCellWithBreakdown(grandTotalCell, COLORS.grandTotalColFill, displayGrandTotal, paymentFilter === 'all' ? grandCashTotal : 0, paymentFilter === 'all' ? grandOnlineTotal : 0, true);
+  styleQtyCellWithBreakdown(grandTotalCell, COLORS.grandTotalColFill, displayGrandTotal, paymentFilter === 'all' ? grandCashTotal : 0, paymentFilter === 'all' ? grandOnlineTotal : 0, true, withCounts);
 
   sheet.views = [{ state: 'frozen', ySplit: headerRowNum, activeCell: 'A1' }];
 
