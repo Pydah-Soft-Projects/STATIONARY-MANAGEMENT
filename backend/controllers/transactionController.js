@@ -673,15 +673,13 @@ const getAllTransactions = asyncHandler(async (req, res) => {
 
   if (startDate || endDate) {
     filter.transactionDate = {};
-    if (startDate) filter.transactionDate.$gte = new Date(startDate);
-    if (endDate) filter.transactionDate.$lte = new Date(endDate + 'T23:59:59');
+    if (startDate) filter.transactionDate.$gte = new Date(startDate.includes('T') ? startDate : `${startDate}T00:00:00.000Z`);
+    if (endDate) filter.transactionDate.$lte = new Date(endDate.includes('T') ? endDate : `${endDate}T23:59:59.999Z`);
   }
 
   const maxLimit = Math.min(parseInt(limit, 10) || 5000, 10000);
   const transactions = await Transaction.find(filter)
-    .populate('items.productId', 'name price imageUrl')
-    // removed populate('student.userId') as we are not using the ref for student data anymore
-    // data is embedded in student object inside transaction
+    // data is embedded in student & items objects inside transaction; populate only collegeTransfer
     .populate('collegeTransfer.collegeId', 'name location')
     .sort({ transactionDate: -1 })
     .limit(maxLimit)

@@ -83,6 +83,8 @@ const Reports = ({ currentUser }) => {
   const [exportingExcel, setExportingExcel] = useState(false);
   const [showExcelExportModal, setShowExcelExportModal] = useState(false); // Modal for with/without counts
 
+  const isInitialMount = useRef(true);
+
   useEffect(() => {
     fetchColleges();
     fetchTransactions();
@@ -109,11 +111,17 @@ const Reports = ({ currentUser }) => {
     } else {
       setSelectedCollegeData(null);
     }
-    // Refetch data when college changes
+
+    // Skip duplicate refetches on initial mount since global fetch ran
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+
+    // Refetch data when college selection changes
     fetchTransactions();
     fetchStockEntries();
     fetchProducts();
-    // fetchStudents will be filtered client-side based on courses, but we refetch to be sure
     fetchStudents();
   }, [selectedCollege, colleges]);
 
@@ -265,8 +273,14 @@ const Reports = ({ currentUser }) => {
         if (filters.startDate || filters.endDate) {
           filteredData = safeData.filter(transaction => {
             const transDate = new Date(transaction.transactionDate);
-            if (filters.startDate && transDate < new Date(filters.startDate)) return false;
-            if (filters.endDate && transDate > new Date(filters.endDate + 'T23:59:59')) return false;
+            if (filters.startDate) {
+              const start = new Date(filters.startDate.includes('T') ? filters.startDate : `${filters.startDate}T00:00:00`);
+              if (transDate < start) return false;
+            }
+            if (filters.endDate) {
+              const end = new Date(filters.endDate.includes('T') ? filters.endDate : `${filters.endDate}T23:59:59.999`);
+              if (transDate > end) return false;
+            }
             return true;
           });
         }
@@ -281,13 +295,14 @@ const Reports = ({ currentUser }) => {
 
   const fetchStudents = async () => {
     try {
-      const response = await fetch(apiUrl('/api/users'));
+      const response = await fetch(apiUrl('/api/sql/students'));
       if (response.ok) {
         const data = await response.json();
+        const studentsList = Array.isArray(data) ? data : (data.students || []);
         // Normalize courses: convert to lowercase and trim, then create a map to preserve original casing
         const courseMap = new Map();
-        data.forEach(student => {
-          if (student.course) {
+        studentsList.forEach(student => {
+          if (student && student.course) {
             const normalized = student.course.toLowerCase().trim();
             // Store the first occurrence with original casing
             if (!courseMap.has(normalized)) {
@@ -1157,8 +1172,14 @@ const Reports = ({ currentUser }) => {
     if (reportFilters.startDate || reportFilters.endDate) {
       filteredTransactions = transactions.filter(transaction => {
         const transDate = new Date(transaction.transactionDate);
-        if (reportFilters.startDate && transDate < new Date(reportFilters.startDate)) return false;
-        if (reportFilters.endDate && transDate > new Date(reportFilters.endDate + 'T23:59:59')) return false;
+        if (reportFilters.startDate) {
+          const start = new Date(reportFilters.startDate.includes('T') ? reportFilters.startDate : `${reportFilters.startDate}T00:00:00`);
+          if (transDate < start) return false;
+        }
+        if (reportFilters.endDate) {
+          const end = new Date(reportFilters.endDate.includes('T') ? reportFilters.endDate : `${reportFilters.endDate}T23:59:59.999`);
+          if (transDate > end) return false;
+        }
         return true;
       });
     }
@@ -2119,8 +2140,14 @@ const Reports = ({ currentUser }) => {
         if (reportFilters.startDate || reportFilters.endDate) {
           reportTransactions = reportTransactions.filter(transaction => {
             const transDate = new Date(transaction.distributionDate || transaction.transactionDate);
-            if (reportFilters.startDate && transDate < new Date(reportFilters.startDate)) return false;
-            if (reportFilters.endDate && transDate > new Date(reportFilters.endDate + 'T23:59:59')) return false;
+            if (reportFilters.startDate) {
+              const start = new Date(reportFilters.startDate.includes('T') ? reportFilters.startDate : `${reportFilters.startDate}T00:00:00`);
+              if (transDate < start) return false;
+            }
+            if (reportFilters.endDate) {
+              const end = new Date(reportFilters.endDate.includes('T') ? reportFilters.endDate : `${reportFilters.endDate}T23:59:59.999`);
+              if (transDate > end) return false;
+            }
             return true;
           });
         }
