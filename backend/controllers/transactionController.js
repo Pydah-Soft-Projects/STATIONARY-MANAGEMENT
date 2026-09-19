@@ -677,9 +677,9 @@ const getAllTransactions = asyncHandler(async (req, res) => {
     if (endDate) filter.transactionDate.$lte = new Date(endDate.includes('T') ? endDate : `${endDate}T23:59:59.999Z`);
   }
 
-  const maxLimit = Math.min(parseInt(limit, 10) || 5000, 10000);
+  const maxLimit = Math.min(parseInt(limit, 10) || 2000, 5000);
   const transactions = await Transaction.find(filter)
-    // data is embedded in student & items objects inside transaction; populate only collegeTransfer
+    .select('transactionId transactionType collegeId branchId student employee collegeTransfer branchTransfer items totalAmount paymentMethod cashAmount onlineAmount isPaid transactionDate transferDate createdAt')
     .populate('collegeTransfer.collegeId', 'name location')
     .sort({ transactionDate: -1 })
     .limit(maxLimit)

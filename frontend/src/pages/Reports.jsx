@@ -22,6 +22,7 @@ const Reports = ({ currentUser }) => {
   ].some((key) => hasFullAccess(currentUser?.permissions || [], key));
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filters, setFilters] = useState({
     course: '',
@@ -254,6 +255,7 @@ const Reports = ({ currentUser }) => {
   const fetchTransactions = async () => {
     try {
       setLoading(true);
+      setFetchError(null);
       const queryParams = new URLSearchParams();
       if (filters.course) queryParams.append('course', filters.course);
       if (filters.studentId) queryParams.append('studentId', filters.studentId);
@@ -285,9 +287,12 @@ const Reports = ({ currentUser }) => {
           });
         }
         setTransactions(filteredData);
+      } else {
+        throw new Error(`Server returned status ${response.status}`);
       }
     } catch (error) {
       console.error('Error fetching transactions:', error);
+      setFetchError(error.message || 'Failed to load transactions');
     } finally {
       setLoading(false);
     }
@@ -334,9 +339,19 @@ const Reports = ({ currentUser }) => {
         }
       }
     });
+    // Fallback: extract courses from loaded transactions as well
+    (transactions || []).forEach(t => {
+      const c = t.student?.course || t.employee?.department;
+      if (c) {
+        const normalized = c.toLowerCase().trim();
+        if (!normalizedMap.has(normalized)) {
+          normalizedMap.set(normalized, c.trim());
+        }
+      }
+    });
     return Array.from(normalizedMap.values())
       .sort((a, b) => a.localeCompare(b));
-  }, [courses, selectedCollege, selectedCollegeData]);
+  }, [courses, selectedCollege, selectedCollegeData, transactions]);
 
   useEffect(() => {
     fetchTransactions();
@@ -2554,6 +2569,18 @@ const Reports = ({ currentUser }) => {
                     <div className="flex flex-col items-center justify-center py-16">
                       <div className="w-8 h-8 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
                       <p className="text-gray-600">Loading transactions...</p>
+                    </div>
+                  ) : fetchError ? (
+                    <div className="p-8 text-center bg-red-50 rounded-lg m-6 border border-red-200">
+                      <AlertCircle className="w-10 h-10 text-red-500 mx-auto mb-2" />
+                      <h4 className="text-lg font-semibold text-red-800 mb-1">Failed to load transactions</h4>
+                      <p className="text-sm text-red-600 mb-4">{fetchError}</p>
+                      <button
+                        onClick={() => fetchTransactions()}
+                        className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors shadow-sm"
+                      >
+                        Retry Loading
+                      </button>
                     </div>
                   ) : (
                     <>
