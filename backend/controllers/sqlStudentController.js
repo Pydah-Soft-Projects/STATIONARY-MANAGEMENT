@@ -125,18 +125,19 @@ const getSqlStudents = asyncHandler(async (req, res) => {
 
   if (search) {
     const searchTrimmed = search.trim();
-    // If query has explicit wildcards use as-is; otherwise use prefix match or double-sided match
     const prefixPattern = `${searchTrimmed}%`;
     const containsPattern = `%${searchTrimmed}%`;
 
-    // For numeric/short queries (e.g. PINs, Admission numbers), prefix match triggers fast B-Tree index range scans
-    if (/^[a-zA-Z0-9]+$/.test(searchTrimmed)) {
-      conditions.push(`(pin_no LIKE ? OR student_name LIKE ? OR admission_number LIKE ? OR pin_no LIKE ?)`);
-      params.push(prefixPattern, prefixPattern, prefixPattern, containsPattern);
-    } else {
-      conditions.push(`(student_name LIKE ? OR pin_no LIKE ? OR admission_number LIKE ?)`);
-      params.push(containsPattern, containsPattern, containsPattern);
-    }
+    // Prioritize prefix matching for student_name, pin_no, admission_number, and admission_no
+    // to trigger fast MySQL B-Tree index range scans (idx_student_name, idx_pin_no, idx_admission, idx_admission_no)
+    conditions.push(`(
+      student_name LIKE ? 
+      OR pin_no LIKE ? 
+      OR admission_number LIKE ? 
+      OR admission_no LIKE ? 
+      OR student_name LIKE ?
+    )`);
+    params.push(prefixPattern, prefixPattern, prefixPattern, prefixPattern, containsPattern);
   }
 
   if (course && course !== 'all') {
