@@ -47,31 +47,33 @@ const StudentDashboard = ({ currentUser }) => {
   // Pagination & Meta
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [pagination, setPagination] = useState(() => getInitialState('pagination', {
-    page: 1,
-    limit: 100,
+  const [page, setPage] = useState(() => getInitialState('page', 1));
+  const limit = 100;
+  const [paginationMeta, setPaginationMeta] = useState({
     totalPages: 0,
     totalRecords: 0
-  }));
+  });
 
   const searchTimeoutRef = useRef(null);
   const hasInitialized = useRef(false);
+  const coursesRef = useRef(courses);
+  coursesRef.current = courses;
+  const branchesRef = useRef(branches);
+  branchesRef.current = branches;
 
-  // Persist state changes
+  // Lightweight session storage persistence (avoid serializing heavy data arrays on every render)
   useEffect(() => {
     try {
-      sessionStorage.setItem('dashboard_courses', JSON.stringify(courses));
-      sessionStorage.setItem('dashboard_branches', JSON.stringify(branches));
       sessionStorage.setItem('dashboard_selectedCourse', JSON.stringify(selectedCourse));
       sessionStorage.setItem('dashboard_selectedBranch', JSON.stringify(selectedBranch));
       sessionStorage.setItem('dashboard_selectedYear', JSON.stringify(selectedYear));
       sessionStorage.setItem('dashboard_selectedSemester', JSON.stringify(selectedSemester));
       sessionStorage.setItem('dashboard_searchTerm', JSON.stringify(searchTerm));
-      sessionStorage.setItem('dashboard_pagination', JSON.stringify(pagination));
+      sessionStorage.setItem('dashboard_page', JSON.stringify(page));
     } catch (e) {
       console.warn('Failed to save dashboard state to sessionStorage', e);
     }
-  }, [courses, branches, selectedCourse, selectedBranch, selectedYear, selectedSemester, searchTerm, pagination]);
+  }, [selectedCourse, selectedBranch, selectedYear, selectedSemester, searchTerm, page]);
 
   // -- Permissions --
   const isSuperAdmin = currentUser?.role === 'Administrator';
@@ -85,14 +87,12 @@ const StudentDashboard = ({ currentUser }) => {
       if (!currentUser?.assignedCollege) return;
 
       try {
-        // assignedCollege might be populated object or ID string
         const collegeId = typeof currentUser.assignedCollege === 'object'
           ? currentUser.assignedCollege._id
           : currentUser.assignedCollege;
 
         if (!collegeId) return;
 
-        // Use the stock endpoint which now returns courses
         const res = await fetch(apiUrl(`/api/stock-transfers/colleges/${collegeId}/stock`));
         if (res.ok) {
           const data = await res.json();
@@ -112,34 +112,24 @@ const StudentDashboard = ({ currentUser }) => {
 
   // Helper to extract allowed courses from permissions AND assigned college
   const allowedCourseNames = useMemo(() => {
-    if (isSuperAdmin) return null; // Access to all
+    if (isSuperAdmin) return null;
 
     const allowed = new Set();
 
-    // 1. Add courses from permissions
     if (hasViewAccess(userPermissions, 'course-dashboard')) {
       userPermissions.forEach(perm => {
         if (typeof perm === 'string' && perm.startsWith('course-dashboard-')) {
           const parts = perm.split(':');
-          // Extract course name (e.g. course-dashboard-btech -> btech)
           const courseName = parts[0].replace('course-dashboard-', '');
           allowed.add(courseName);
         }
       });
     }
 
-    // 2. Add courses from Assigned College (Automatic Access)
     collegeCourses.forEach(course => {
-      // These are likely Names (e.g. "B.Tech"), so we add them potentially raw or normalized?
-      // The filter logic checks BOTH ID and Normalized Name.
-      // So if "B.Tech" is here, we add "btech" (normalized) to match the check logic?
-      // Actually, the check logic in fetchCourses compares:
-      // normalizeCourseName(allowed) === normName
-      // So if we add "M.Tech" here, normalizing it later works.
       allowed.add(course);
     });
 
-    // If no permissions AND no college courses, return empty array to block access
     if (allowed.size === 0) return [];
 
     return Array.from(allowed);
@@ -154,21 +144,16 @@ const StudentDashboard = ({ currentUser }) => {
         const res = await fetch(apiUrl('/api/sql/academic/courses'));
         if (res.ok) {
           const data = await res.json();
-          // Filter courses based on permissions if not super admin
-          let availableCourses = Array.isArray(data) ? data : []; // Ensure array
+          let availableCourses = Array.isArray(data) ? data : [];
 
           if (availableCourses.length > 0 && allowedCourseNames !== null) {
             availableCourses = availableCourses.filter(c => {
-              // Check 1: Match by ID (New robust method)
               const idMatch = allowedCourseNames.includes(String(c.id));
-              // Check 2: Match by Normalized Name (Legacy method)
               const normName = normalizeCourseName(c.name);
               const nameMatch = allowedCourseNames.some(allowed => normalizeCourseName(allowed) === normName);
               return idMatch || nameMatch;
             });
           }
-          // Only update if changed to prevent re-fetching students
-          // Use a simple length check or ID comparison to avoid deep equality if possible, but JSON stringify is safe enough for small lists
           if (JSON.stringify(availableCourses) !== JSON.stringify(courses)) {
             setCourses(availableCourses);
           }
@@ -178,7 +163,7 @@ const StudentDashboard = ({ currentUser }) => {
       }
     };
     if (isOnline) fetchCourses();
-  }, [isOnline, allowedCourseNames]); // Removed 'courses' dependency to avoid loop if possible, but keeping logic consistent
+  }, [isOnline, allowedCourseNames]);
 
   // 2. Fetch Branches when Course changes
   useEffect(() => {
@@ -190,12 +175,7 @@ const StudentDashboard = ({ currentUser }) => {
 
     const fetchBranches = async () => {
       try {
-        // Find course ID from selected name/value if possible, currently using name match logic or passed value
-        // The API expects courseId if we have it. Let's find the course object.
         const courseObj = (courses || []).find(c => String(c.id) === selectedCourse || c.name === selectedCourse);
-        // Note: selectedCourse state holds the ID if using <select value={c.id}>, or name if logic requires.
-        // Let's use ID for cleanliness.
-
         if (!courseObj) return;
 
         const res = await fetch(apiUrl(`/api/sql/academic/branches?courseId=${courseObj.id}`));
@@ -219,21 +199,18 @@ const StudentDashboard = ({ currentUser }) => {
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     searchTimeoutRef.current = setTimeout(() => {
       setDebouncedSearchTerm(searchTerm);
-      if (searchTerm !== debouncedSearchTerm) {
-        setPagination(prev => ({ ...prev, page: 1 }));
-      }
-    }, 500);
+    }, 400);
     return () => clearTimeout(searchTimeoutRef.current);
   }, [searchTerm]);
 
-  // 4. Fetch Students (The Main Logic)
+  // Reset page to 1 on debounced search term change
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearchTerm]);
+
+  // 4. Fetch Students (The Main Logic - Fully Stabilized Callback)
   const fetchStudents = useCallback(async (isRefresh = false) => {
-    // REQUIREMENT: Must select Course and Branch first (unless searching globally? Logic says "select user filter... then render")
-    // Let's enforce Course selection at minimum. Branch might be optional if "All Branches" is allowed, but UI usually requires drill down.
-    // User request: "select that filter of the course and the branch. Then, we will render"
-    // REQUIREMENT: Must select Course OR have a search term
     if (!selectedCourse && !debouncedSearchTerm) {
-      // If not selected and no search, clear students
       if (!isRefresh) setStudents([]);
       return;
     }
@@ -242,40 +219,31 @@ const StudentDashboard = ({ currentUser }) => {
     else setLoading(true);
 
     try {
-      // Find course name for API if API expects name, or ID. 
-      // sqlStudentController expects 'course' and 'branch' names or IDs? 
-      // The controller uses `course` column string matching or ID?
-      // Let's check sqlStudentController.js... it builds query: `course = ?`. 
-      // If the `courses` table has names like "B.Tech", usually the student table has "B.Tech" too.
-      // Need to send the NAME if the student table stores names, or ID if it stores IDs.
-      // Migration doc says "Student details should be fetched dynamically from MySQL".
-      // Assuming existing table has text values.
-      const courseObj = (courses || []).find(c => String(c.id) === selectedCourse);
-      const branchObj = (branches || []).find(b => String(b.id) === selectedBranch);
+      const courseObj = (coursesRef.current || []).find(c => String(c.id) === String(selectedCourse));
+      const branchObj = (branchesRef.current || []).find(b => String(b.id) === String(selectedBranch));
 
       const courseParam = courseObj ? courseObj.name : '';
       const branchParam = branchObj ? branchObj.name : '';
 
       const query = new URLSearchParams({
-        page: pagination.page,
-        limit: pagination.limit,
+        page: String(page),
+        limit: String(limit),
         course: courseParam,
-        courseId: selectedCourse, // Pass ID for strict filtering
+        courseId: selectedCourse || '',
         branch: branchParam,
-        year: selectedYear,
-        semester: selectedSemester,
-        search: debouncedSearchTerm,
+        year: selectedYear || '',
+        semester: selectedSemester || '',
+        search: debouncedSearchTerm || '',
       });
 
       const res = await fetch(apiUrl(`/api/sql/students?${query.toString()}`));
       if (res.ok) {
         const data = await res.json();
         setStudents(Array.isArray(data.rows) ? data.rows : []);
-        setPagination(prev => ({
-          ...prev,
+        setPaginationMeta({
           totalRecords: data.count || 0,
           totalPages: data.pagination?.totalPages || 0
-        }));
+        });
       } else {
         setStudents([]);
       }
@@ -286,12 +254,10 @@ const StudentDashboard = ({ currentUser }) => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [selectedCourse, selectedBranch, selectedYear, selectedSemester, debouncedSearchTerm, pagination.page, pagination.limit, courses, branches]);
+  }, [selectedCourse, selectedBranch, selectedYear, selectedSemester, debouncedSearchTerm, page]);
 
   // Trigger fetch when mandatory filters change or pagination changes
   useEffect(() => {
-    // If this is the initialization phase and we have restored data, SKIP the fetch
-    // This prevents "reloading" when navigating back
     if (!hasInitialized.current) {
       hasInitialized.current = true;
       if (students.length > 0) return;
@@ -301,22 +267,19 @@ const StudentDashboard = ({ currentUser }) => {
 
   // Handlers
   const handlePageChange = (newPage) => {
-    if (newPage >= 1 && newPage <= pagination.totalPages) {
-      setPagination(prev => ({ ...prev, page: newPage }));
+    if (newPage >= 1 && newPage <= paginationMeta.totalPages) {
+      setPage(newPage);
     }
   };
 
   const handleDeleteStudent = async (student) => {
-    // confirm delete
     if (!window.confirm(`Are you sure you want to delete ${student.name}?`)) return;
-    // TODO: Add delete endpoint in sqlStudentController if needed or reuse existing
-    // For now, just logging as delete logic might need migration too
     console.log("Delete requested for", student.id);
   };
 
   // --- Render Helpers ---
-  const years = [1, 2, 3, 4]; // Static for now
-  const semesters = [1, 2, 3, 4, 5, 6, 7, 8]; // Static for now
+  const years = [1, 2, 3, 4];
+  const semesters = [1, 2, 3, 4, 5, 6, 7, 8];
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -334,15 +297,12 @@ const StudentDashboard = ({ currentUser }) => {
               </p>
             </div>
           </div>
-
-
         </div>
 
         {/* Filters Section */}
-        {/* Filters Section */}
         <div className="mb-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-            {/* Search - MOVED TO FIRST */}
+            {/* Search */}
             <div className="lg:col-span-1">
               <label className="block text-xs font-medium text-gray-500 mb-1 uppercase">Search</label>
               <div className="relative">
@@ -365,8 +325,8 @@ const StudentDashboard = ({ currentUser }) => {
                 value={selectedCourse}
                 onChange={(e) => {
                   setSelectedCourse(e.target.value);
-                  setSelectedBranch(''); // Reset branch
-                  setPagination(prev => ({ ...prev, page: 1 }));
+                  setSelectedBranch('');
+                  setPage(1);
                 }}
               >
                 <option value="">Select Course</option>
@@ -384,7 +344,7 @@ const StudentDashboard = ({ currentUser }) => {
                 value={selectedBranch}
                 onChange={(e) => {
                   setSelectedBranch(e.target.value);
-                  setPagination(prev => ({ ...prev, page: 1 }));
+                  setPage(1);
                 }}
                 disabled={!selectedCourse}
               >
@@ -401,7 +361,10 @@ const StudentDashboard = ({ currentUser }) => {
               <select
                 className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white/50 backdrop-blur-sm"
                 value={selectedYear}
-                onChange={(e) => setSelectedYear(e.target.value)}
+                onChange={(e) => {
+                  setSelectedYear(e.target.value);
+                  setPage(1);
+                }}
               >
                 <option value="">All Years</option>
                 {years.map(y => (
@@ -416,7 +379,10 @@ const StudentDashboard = ({ currentUser }) => {
               <select
                 className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white/50 backdrop-blur-sm"
                 value={selectedSemester}
-                onChange={(e) => setSelectedSemester(e.target.value)}
+                onChange={(e) => {
+                  setSelectedSemester(e.target.value);
+                  setPage(1);
+                }}
               >
                 <option value="">All Semesters</option>
                 {semesters.map(s => (
@@ -444,9 +410,9 @@ const StudentDashboard = ({ currentUser }) => {
             <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-gray-700">Student List</span>
-                {pagination.totalRecords > 0 && (
+                {paginationMeta.totalRecords > 0 && (
                   <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-md text-xs font-medium">
-                    {pagination.totalRecords} Found
+                    {paginationMeta.totalRecords} Found
                   </span>
                 )}
               </div>
@@ -519,21 +485,21 @@ const StudentDashboard = ({ currentUser }) => {
             </div>
 
             {/* Pagination Footer */}
-            {pagination.totalPages > 1 && (
+            {paginationMeta.totalPages > 1 && (
               <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between bg-gray-50">
                 <button
-                  onClick={() => handlePageChange(pagination.page - 1)}
-                  disabled={pagination.page === 1}
+                  onClick={() => handlePageChange(page - 1)}
+                  disabled={page === 1}
                   className="p-2 border rounded-lg hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <ChevronLeft size={16} />
                 </button>
                 <span className="text-sm text-gray-600">
-                  Page {pagination.page} of {pagination.totalPages}
+                  Page {page} of {paginationMeta.totalPages}
                 </span>
                 <button
-                  onClick={() => handlePageChange(pagination.page + 1)}
-                  disabled={pagination.page === pagination.totalPages}
+                  onClick={() => handlePageChange(page + 1)}
+                  disabled={page === paginationMeta.totalPages}
                   className="p-2 border rounded-lg hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <ChevronRight size={16} />

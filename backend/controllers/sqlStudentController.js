@@ -124,39 +124,24 @@ const getSqlStudents = asyncHandler(async (req, res) => {
   const params = [];
 
   if (search) {
-    const searchPattern = `%${search}%`;
-    conditions.push(`(student_name LIKE ? OR pin_no LIKE ?)`);
-    params.push(searchPattern, searchPattern);
+    const searchTrimmed = search.trim();
+    // If query has explicit wildcards use as-is; otherwise use prefix match or double-sided match
+    const prefixPattern = `${searchTrimmed}%`;
+    const containsPattern = `%${searchTrimmed}%`;
+
+    // For numeric/short queries (e.g. PINs, Admission numbers), prefix match triggers fast B-Tree index range scans
+    if (/^[a-zA-Z0-9]+$/.test(searchTrimmed)) {
+      conditions.push(`(pin_no LIKE ? OR student_name LIKE ? OR admission_number LIKE ? OR pin_no LIKE ?)`);
+      params.push(prefixPattern, prefixPattern, prefixPattern, containsPattern);
+    } else {
+      conditions.push(`(student_name LIKE ? OR pin_no LIKE ? OR admission_number LIKE ?)`);
+      params.push(containsPattern, containsPattern, containsPattern);
+    }
   }
 
   if (course && course !== 'all') {
     conditions.push(`course = ?`);
     params.push(course);
-
-    // Strict Filtering: If courseId is provided, restrict to allowed branches for that specific course ID
-    const { courseId } = req.query;
-    if (courseId) {
-      try {
-        // Use MySQL pool to find allowed branches for this course ID
-        const [branchRows] = await pool.query(
-          'SELECT name FROM course_branches WHERE course_id = ? AND is_active = 1',
-          [courseId]
-        );
-        
-        const allowedBranches = branchRows.map(b => b.name);
-
-        // Only apply strict filtering if specific branches are defined for the course
-        // AND the user hasn't already selected a specific branch (which handles itself)
-        if (allowedBranches.length > 0 && (!branch || branch === 'all')) {
-          const placeholders = allowedBranches.map(() => '?').join(',');
-          conditions.push(`branch IN (${placeholders})`);
-          params.push(...allowedBranches);
-        }
-      } catch (err) {
-        console.error('Error applying strict course filter (MySQL):', err);
-        // Fallback to name-only filtering if query fails
-      }
-    }
   }
 
   if (branch && branch !== 'all') {
