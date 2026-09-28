@@ -95,6 +95,7 @@ const StudentDashboard = ({ currentUser }) => {
   // Pagination & Meta
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [isFetching, setIsFetching] = useState(false);
   const [page, setPage] = useState(() => getInitialState('page', 1));
   const limit = 100;
   const [paginationMeta, setPaginationMeta] = useState({
@@ -296,6 +297,7 @@ const StudentDashboard = ({ currentUser }) => {
 
   // 4. Fetch Students (Main Logic with In-Memory Cache Populate)
   const fetchStudents = useCallback(async (isRefresh = false) => {
+    setIsFetching(true);
     if (isRefresh) setRefreshing(true);
     else if (allStudents.length === 0) setLoading(true);
 
@@ -346,6 +348,7 @@ const StudentDashboard = ({ currentUser }) => {
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setIsFetching(false);
     }
   }, [selectedCourse, selectedBranch, selectedYear, selectedSemester, debouncedSearchTerm, page]);
 
@@ -382,7 +385,7 @@ const StudentDashboard = ({ currentUser }) => {
   }, [students, filteredStudents, searchTerm]);
 
   // Combined active searching/loading state for instant visual feedback on typing
-  const isSearchingOrLoading = loading || refreshing || searchTerm !== debouncedSearchTerm;
+  const isSearchingOrLoading = isFetching || loading || refreshing || searchTerm !== debouncedSearchTerm;
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -563,7 +566,7 @@ const StudentDashboard = ({ currentUser }) => {
                     <th className="px-6 py-3 font-semibold">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className={`divide-y divide-gray-100 transition-opacity duration-200 ${isSearchingOrLoading ? 'opacity-60' : 'opacity-100'}`}>
                   {displayStudents.map((student) => (
                     <tr
                       key={student.id}
