@@ -125,19 +125,16 @@ const getSqlStudents = asyncHandler(async (req, res) => {
 
   if (search) {
     const searchTrimmed = search.trim();
-    const prefixPattern = `${searchTrimmed}%`;
-    const containsPattern = `%${searchTrimmed}%`;
+    const searchPattern = searchTrimmed.includes('%') ? searchTrimmed : `${searchTrimmed}%`;
 
-    // Prioritize prefix matching for student_name, pin_no, admission_number, and admission_no
-    // to trigger fast MySQL B-Tree index range scans (idx_student_name, idx_pin_no, idx_admission, idx_admission_no)
+    // Pure prefix match triggers fast B-Tree Index Range Scans (idx_student_name, idx_pin_no, idx_admission, idx_student_mobile)
     conditions.push(`(
       student_name LIKE ? 
       OR pin_no LIKE ? 
       OR admission_number LIKE ? 
-      OR admission_no LIKE ? 
-      OR student_name LIKE ?
+      OR student_mobile LIKE ?
     )`);
-    params.push(prefixPattern, prefixPattern, prefixPattern, prefixPattern, containsPattern);
+    params.push(searchPattern, searchPattern, searchPattern, searchPattern);
   }
 
   if (course && course !== 'all') {
@@ -164,8 +161,8 @@ const getSqlStudents = asyncHandler(async (req, res) => {
     }
 
     const placeholders = branchOptions.map(() => '?').join(',');
-    conditions.push(`(branch IN (${placeholders}) OR branch LIKE ? OR ? LIKE CONCAT('%', branch, '%'))`);
-    params.push(...branchOptions, `%${bLower}%`, bLower);
+    conditions.push(`(branch IN (${placeholders}) OR branch LIKE ?)`);
+    params.push(...branchOptions, `${bLower}%`);
   }
 
   if (year && year !== 'all') {
