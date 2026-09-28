@@ -125,16 +125,17 @@ const getSqlStudents = asyncHandler(async (req, res) => {
 
   if (search) {
     const searchTrimmed = search.trim();
-    const searchPattern = searchTrimmed.includes('%') ? searchTrimmed : `${searchTrimmed}%`;
+    const containsPattern = `%${searchTrimmed}%`;
+    const prefixPattern = `${searchTrimmed}%`;
 
-    // Pure prefix match triggers fast B-Tree Index Range Scans (idx_student_name, idx_pin_no, idx_admission, idx_student_mobile)
+    // Search across student_name (contains match for surname/firstname), pin_no, admission_number, and student_mobile
     conditions.push(`(
       student_name LIKE ? 
       OR pin_no LIKE ? 
       OR admission_number LIKE ? 
       OR student_mobile LIKE ?
     )`);
-    params.push(searchPattern, searchPattern, searchPattern, searchPattern);
+    params.push(containsPattern, prefixPattern, prefixPattern, prefixPattern);
   }
 
   if (course && course !== 'all') {

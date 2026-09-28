@@ -35,6 +35,7 @@ const StudentDashboard = ({ currentUser }) => {
     return Array.isArray(val) ? val : [];
   });
   const [students, setStudents] = useState([]);
+  const [allStudents, setAllStudents] = useState([]); // In-memory cache of all fetched students for 0ms instant client-side search
 
   // Filters
   const [selectedCourse, setSelectedCourse] = useState(() => getInitialState('selectedCourse', ''));
@@ -60,6 +61,44 @@ const StudentDashboard = ({ currentUser }) => {
   coursesRef.current = courses;
   const branchesRef = useRef(branches);
   branchesRef.current = branches;
+
+  // 0ms Instant Client-Side Search Filter (FeeCollection.jsx architecture)
+  const filteredStudents = useMemo(() => {
+    if (!searchTerm.trim()) {
+      return students;
+    }
+    const query = searchTerm.toLowerCase().trim();
+    const cleanQuery = query.replace(/[^a-z0-9]/g, '');
+
+    const poolToSearch = allStudents.length > 0 ? allStudents : students;
+
+    return poolToSearch.filter(s => {
+      const name = s.name ? String(s.name).toLowerCase() : '';
+      const studentId = s.studentId ? String(s.studentId).toLowerCase() : '';
+      const pin = s.pin ? String(s.pin).toLowerCase() : '';
+      const phone = s.phoneNumber ? String(s.phoneNumber) : '';
+      const course = s.course ? String(s.course).toLowerCase() : '';
+      const branch = s.branch ? String(s.branch).toLowerCase() : '';
+
+      const cleanName = name.replace(/[^a-z0-9]/g, '');
+      const cleanPin = pin.replace(/[^a-z0-9]/g, '');
+      const cleanId = studentId.replace(/[^a-z0-9]/g, '');
+
+      return (
+        name.includes(query) ||
+        studentId.includes(query) ||
+        pin.includes(query) ||
+        phone.includes(query) ||
+        course.includes(query) ||
+        branch.includes(query) ||
+        (cleanQuery.length > 1 && (
+          cleanName.includes(cleanQuery) ||
+          cleanPin.includes(cleanQuery) ||
+          cleanId.includes(cleanQuery)
+        ))
+      );
+    });
+  }, [students, allStudents, searchTerm]);
 
   // Lightweight session storage persistence (avoid serializing heavy data arrays on every render)
   useEffect(() => {
@@ -194,7 +233,7 @@ const StudentDashboard = ({ currentUser }) => {
     if (isOnline && (courses || []).length > 0) fetchBranches();
   }, [selectedCourse, isOnline, courses]);
 
-  // 3. Debounce Search
+  // 3. Debounce Search for server fallback fetch
   useEffect(() => {
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     searchTimeoutRef.current = setTimeout(() => {
@@ -208,15 +247,10 @@ const StudentDashboard = ({ currentUser }) => {
     setPage(1);
   }, [debouncedSearchTerm]);
 
-  // 4. Fetch Students (The Main Logic - Fully Stabilized Callback)
+  // 4. Fetch Students (Main Logic with In-Memory Cache Populate)
   const fetchStudents = useCallback(async (isRefresh = false) => {
-    if (!selectedCourse && !debouncedSearchTerm) {
-      if (!isRefresh) setStudents([]);
-      return;
-    }
-
     if (isRefresh) setRefreshing(true);
-    else setLoading(true);
+    else if (allStudents.length === 0) setLoading(true);
 
     try {
       const courseObj = (coursesRef.current || []).find(c => String(c.id) === String(selectedCourse));
@@ -225,9 +259,12 @@ const StudentDashboard = ({ currentUser }) => {
       const courseParam = courseObj ? courseObj.name : '';
       const branchParam = branchObj ? branchObj.name : '';
 
+      // High limit when fetching course dataset to populate in-memory search pool
+      const fetchLimit = selectedCourse ? 500 : limit;
+
       const query = new URLSearchParams({
         page: String(page),
-        limit: String(limit),
+        limit: String(fetchLimit),
         course: courseParam,
         courseId: selectedCourse || '',
         branch: branchParam,
@@ -239,10 +276,19 @@ const StudentDashboard = ({ currentUser }) => {
       const res = await fetch(apiUrl(`/api/sql/students?${query.toString()}`));
       if (res.ok) {
         const data = await res.json();
-        setStudents(Array.isArray(data.rows) ? data.rows : []);
+        const rows = Array.isArray(data.rows) ? data.rows : [];
+        setStudents(rows);
+
+        // Update allStudents cache pool
+        setAllStudents(prev => {
+          const map = new Map(prev.map(item => [item.id, item]));
+          rows.forEach(item => map.set(item.id, item));
+          return Array.from(map.values());
+        });
+
         setPaginationMeta({
-          totalRecords: data.count || 0,
-          totalPages: data.pagination?.totalPages || 0
+          totalRecords: data.count || rows.length,
+          totalPages: data.pagination?.totalPages || Math.ceil((data.count || rows.length) / limit)
         });
       } else {
         setStudents([]);
@@ -280,6 +326,13 @@ const StudentDashboard = ({ currentUser }) => {
   // --- Render Helpers ---
   const years = [1, 2, 3, 4];
   const semesters = [1, 2, 3, 4, 5, 6, 7, 8];
+
+  // Active student list for display (prefers backend MySQL search results when search term is active)
+  const displayStudents = useMemo(() => {
+    if (!searchTerm.trim()) return students;
+    if (students && students.length > 0) return students;
+    return filteredStudents;
+  }, [students, filteredStudents, searchTerm]);
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -326,10 +379,11 @@ const StudentDashboard = ({ currentUser }) => {
                 onChange={(e) => {
                   setSelectedCourse(e.target.value);
                   setSelectedBranch('');
+                  setAllStudents([]);
                   setPage(1);
                 }}
               >
-                <option value="">Select Course</option>
+                <option value="">All Courses</option>
                 {courses.map(c => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
@@ -394,120 +448,108 @@ const StudentDashboard = ({ currentUser }) => {
         </div>
 
         {/* Content Area */}
-        {(!selectedCourse && !debouncedSearchTerm) ? (
-          <div className="rounded-xl border-dashed border-2 border-gray-300 p-12 text-center bg-gray-50/50 min-h-[400px] flex flex-col items-center justify-center">
-            <div className="w-24 h-24 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
-              <GraduationCap size={48} />
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">Search or Select Course</h3>
-            <p className="text-gray-500 max-w-sm mx-auto">
-              Select a course from the filters above or use the search bar to find specific students.
-            </p>
-          </div>
-        ) : (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            {/* Table Header / Meta */}
-            <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-gray-700">Student List</span>
-                {paginationMeta.totalRecords > 0 && (
-                  <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-md text-xs font-medium">
-                    {paginationMeta.totalRecords} Found
-                  </span>
-                )}
-              </div>
-              {refreshing && <Loader2 className="animate-spin text-blue-600" size={18} />}
-            </div>
-
-            {/* Table */}
-            <div className="overflow-x-auto min-h-[300px]">
-              {loading ? (
-                <div className="flex flex-col items-center justify-center py-20">
-                  <Loader2 className="animate-spin text-blue-600 mb-2" size={32} />
-                  <p className="text-gray-500">Fetching students...</p>
-                </div>
-              ) : students.length === 0 ? (
-                <div className="text-center py-20 text-gray-500">
-                  No students found matching current filters.
-                </div>
-              ) : (
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200 text-xs uppercase text-gray-500 tracking-wider">
-                      <th className="px-6 py-3 font-semibold">Student Name</th>
-                      <th className="px-6 py-3 font-semibold">Admission No</th>
-                      <th className="px-6 py-3 font-semibold">PIN</th>
-                      <th className="px-6 py-3 font-semibold">Course</th>
-                      <th className="px-6 py-3 font-semibold">Year</th>
-                      <th className="px-6 py-3 font-semibold">Semester</th>
-                      <th className="px-6 py-3 font-semibold">Branch</th>
-                      <th className="px-6 py-3 font-semibold">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {students.map((student) => (
-                      <tr
-                        key={student.id}
-                        onClick={() => navigate(`/student/${student.id}`)}
-                        className="hover:bg-blue-50 transition-colors group cursor-pointer"
-                      >
-                        <td className="px-6 py-4 font-medium text-gray-900">{student.name}</td>
-                        <td className="px-6 py-4 text-gray-600">{student.studentId}</td>
-                        <td className="px-6 py-4 text-gray-600">{student.pin || '-'}</td>
-                        <td className="px-6 py-4">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
-                            {student.course}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-gray-600">{student.year}</td>
-                        <td className="px-6 py-4 text-gray-600">{student.semester || '-'}</td>
-                        <td className="px-6 py-4 text-gray-600">{student.branch}</td>
-                        <td className="px-6 py-4">
-                          {student.status ? (
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                              student.status?.toLowerCase() === 'active' ? 'bg-green-100 text-green-800' :
-                              student.status?.toLowerCase() === 'inactive' ? 'bg-gray-100 text-gray-800' :
-                              student.status?.toLowerCase() === 'graduated' ? 'bg-blue-100 text-blue-800' :
-                              student.status?.toLowerCase() === 'cancelled' ? 'bg-red-100 text-red-800' :
-                              'bg-yellow-100 text-yellow-800'
-                            }`}>
-                              {student.status}
-                            </span>
-                          ) : (
-                            <span className="text-gray-400">-</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          {/* Table Header / Meta */}
+          <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-gray-700">Student List</span>
+              {(searchTerm ? displayStudents.length : paginationMeta.totalRecords) > 0 && (
+                <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-md text-xs font-medium">
+                  {searchTerm ? displayStudents.length : paginationMeta.totalRecords} Found
+                </span>
               )}
             </div>
+            {refreshing && <Loader2 className="animate-spin text-blue-600" size={18} />}
+          </div>
 
-            {/* Pagination Footer */}
-            {paginationMeta.totalPages > 1 && (
-              <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between bg-gray-50">
-                <button
-                  onClick={() => handlePageChange(page - 1)}
-                  disabled={page === 1}
-                  className="p-2 border rounded-lg hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft size={16} />
-                </button>
-                <span className="text-sm text-gray-600">
-                  Page {page} of {paginationMeta.totalPages}
-                </span>
-                <button
-                  onClick={() => handlePageChange(page + 1)}
-                  disabled={page === paginationMeta.totalPages}
-                  className="p-2 border rounded-lg hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronRight size={16} />
-                </button>
+          {/* Table */}
+          <div className="overflow-x-auto min-h-[300px]">
+            {loading && displayStudents.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20">
+                <Loader2 className="animate-spin text-blue-600 mb-2" size={32} />
+                <p className="text-gray-500">Fetching students...</p>
               </div>
+            ) : displayStudents.length === 0 ? (
+              <div className="text-center py-20 text-gray-500">
+                No students found matching current filters.
+              </div>
+            ) : (
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200 text-xs uppercase text-gray-500 tracking-wider">
+                    <th className="px-6 py-3 font-semibold">Student Name</th>
+                    <th className="px-6 py-3 font-semibold">Admission No</th>
+                    <th className="px-6 py-3 font-semibold">PIN</th>
+                    <th className="px-6 py-3 font-semibold">Course</th>
+                    <th className="px-6 py-3 font-semibold">Year</th>
+                    <th className="px-6 py-3 font-semibold">Semester</th>
+                    <th className="px-6 py-3 font-semibold">Branch</th>
+                    <th className="px-6 py-3 font-semibold">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {displayStudents.map((student) => (
+                    <tr
+                      key={student.id}
+                      onClick={() => navigate(`/student/${student.id}`)}
+                      className="hover:bg-blue-50 transition-colors group cursor-pointer"
+                    >
+                      <td className="px-6 py-4 font-medium text-gray-900">{student.name}</td>
+                      <td className="px-6 py-4 text-gray-600">{student.studentId}</td>
+                      <td className="px-6 py-4 text-gray-600">{student.pin || '-'}</td>
+                      <td className="px-6 py-4">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                          {student.course}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-gray-600">{student.year}</td>
+                      <td className="px-6 py-4 text-gray-600">{student.semester || '-'}</td>
+                      <td className="px-6 py-4 text-gray-600">{student.branch}</td>
+                      <td className="px-6 py-4">
+                        {student.status ? (
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            student.status?.toLowerCase() === 'active' ? 'bg-green-100 text-green-800' :
+                            student.status?.toLowerCase() === 'inactive' ? 'bg-gray-100 text-gray-800' :
+                            student.status?.toLowerCase() === 'graduated' ? 'bg-blue-100 text-blue-800' :
+                            student.status?.toLowerCase() === 'cancelled' ? 'bg-red-100 text-red-800' :
+                            'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {student.status}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
           </div>
-        )}
+
+          {/* Pagination Footer */}
+          {!searchTerm && paginationMeta.totalPages > 1 && (
+            <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between bg-gray-50">
+              <button
+                onClick={() => handlePageChange(page - 1)}
+                disabled={page === 1}
+                className="p-2 border rounded-lg hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <span className="text-sm text-gray-600">
+                Page {page} of {paginationMeta.totalPages}
+              </span>
+              <button
+                onClick={() => handlePageChange(page + 1)}
+                disabled={page === paginationMeta.totalPages}
+                className="p-2 border rounded-lg hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
+        </div>
 
       </div>
     </div>
