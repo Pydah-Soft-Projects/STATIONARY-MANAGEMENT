@@ -10,6 +10,53 @@ const normalizeCourse = (value) => {
   return String(value).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
 };
 
+const TableSkeleton = () => (
+  <table className="w-full text-left border-collapse">
+    <thead>
+      <tr className="bg-gray-50 border-b border-gray-200 text-xs uppercase text-gray-500 tracking-wider">
+        <th className="px-6 py-3 font-semibold">Student Name</th>
+        <th className="px-6 py-3 font-semibold">Admission No</th>
+        <th className="px-6 py-3 font-semibold">PIN</th>
+        <th className="px-6 py-3 font-semibold">Course</th>
+        <th className="px-6 py-3 font-semibold">Year</th>
+        <th className="px-6 py-3 font-semibold">Semester</th>
+        <th className="px-6 py-3 font-semibold">Branch</th>
+        <th className="px-6 py-3 font-semibold">Status</th>
+      </tr>
+    </thead>
+    <tbody className="divide-y divide-gray-100 animate-pulse">
+      {[...Array(6)].map((_, i) => (
+        <tr key={i} className="hover:bg-gray-50">
+          <td className="px-6 py-4">
+            <div className="h-4 bg-gray-200 rounded w-36"></div>
+          </td>
+          <td className="px-6 py-4">
+            <div className="h-4 bg-gray-200 rounded w-24"></div>
+          </td>
+          <td className="px-6 py-4">
+            <div className="h-4 bg-gray-200 rounded w-20"></div>
+          </td>
+          <td className="px-6 py-4">
+            <div className="h-5 bg-indigo-100 rounded-full w-16"></div>
+          </td>
+          <td className="px-6 py-4">
+            <div className="h-4 bg-gray-200 rounded w-8"></div>
+          </td>
+          <td className="px-6 py-4">
+            <div className="h-4 bg-gray-200 rounded w-8"></div>
+          </td>
+          <td className="px-6 py-4">
+            <div className="h-4 bg-gray-200 rounded w-24"></div>
+          </td>
+          <td className="px-6 py-4">
+            <div className="h-5 bg-gray-200 rounded-full w-16"></div>
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+);
+
 const StudentDashboard = ({ currentUser }) => {
   const navigate = useNavigate();
   const isOnline = useOnlineStatus();
@@ -363,10 +410,13 @@ const StudentDashboard = ({ currentUser }) => {
                 <input
                   type="text"
                   placeholder="Name, PIN, or Admission No..."
-                  className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white/50 backdrop-blur-sm"
+                  className="w-full pl-8 pr-8 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white/50 backdrop-blur-sm"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
+                {loading && (
+                  <Loader2 className="absolute right-2.5 top-1/2 transform -translate-y-1/2 text-blue-500 animate-spin" size={14} />
+                )}
               </div>
             </div>
 
@@ -448,30 +498,39 @@ const StudentDashboard = ({ currentUser }) => {
         </div>
 
         {/* Content Area */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden relative">
+          {/* Animated Top Progress Line during fetch */}
+          {loading && (
+            <div className="h-0.5 w-full bg-gradient-to-r from-blue-500 via-indigo-500 to-blue-600 animate-pulse"></div>
+          )}
+
           {/* Table Header / Meta */}
           <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="font-semibold text-gray-700">Student List</span>
-              {(searchTerm ? displayStudents.length : paginationMeta.totalRecords) > 0 && (
+              {loading ? (
+                <span className="bg-amber-50 text-amber-700 border border-amber-200/60 px-2 py-0.5 rounded-md text-xs font-medium flex items-center gap-1.5 animate-pulse">
+                  <Loader2 className="animate-spin text-amber-600" size={11} />
+                  Updating list...
+                </span>
+              ) : (searchTerm ? displayStudents.length : paginationMeta.totalRecords) > 0 ? (
                 <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-md text-xs font-medium">
                   {searchTerm ? displayStudents.length : paginationMeta.totalRecords} Found
                 </span>
-              )}
+              ) : null}
             </div>
             {refreshing && <Loader2 className="animate-spin text-blue-600" size={18} />}
           </div>
 
           {/* Table */}
           <div className="overflow-x-auto min-h-[300px]">
-            {loading && displayStudents.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20">
-                <Loader2 className="animate-spin text-blue-600 mb-2" size={32} />
-                <p className="text-gray-500">Fetching students...</p>
-              </div>
+            {loading ? (
+              <TableSkeleton />
             ) : displayStudents.length === 0 ? (
-              <div className="text-center py-20 text-gray-500">
-                No students found matching current filters.
+              <div className="text-center py-20 text-gray-500 flex flex-col items-center justify-center">
+                <GraduationCap size={40} className="mb-3 text-gray-300" />
+                <p className="font-medium text-gray-700">No students found matching current filters.</p>
+                <p className="text-xs text-gray-400 mt-1">Try adjusting your search query or course filters.</p>
               </div>
             ) : (
               <table className="w-full text-left border-collapse">
