@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Plus, Trash2, GraduationCap, Users, Filter, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { Search, Plus, Trash2, GraduationCap, Users, Filter, ChevronLeft, ChevronRight, Loader2, X } from 'lucide-react';
 import { apiUrl } from '../utils/api';
 import useOnlineStatus from '../hooks/useOnlineStatus';
 import { normalizeCourseName, hasViewAccess } from '../utils/permissions';
@@ -381,6 +381,9 @@ const StudentDashboard = ({ currentUser }) => {
     return filteredStudents;
   }, [students, filteredStudents, searchTerm]);
 
+  // Combined active searching/loading state for instant visual feedback on typing
+  const isSearchingOrLoading = loading || refreshing || searchTerm !== debouncedSearchTerm;
+
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="mx-auto">
@@ -406,16 +409,30 @@ const StudentDashboard = ({ currentUser }) => {
             <div className="lg:col-span-1">
               <label className="block text-xs font-medium text-gray-500 mb-1 uppercase">Search</label>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={14} />
+                {isSearchingOrLoading ? (
+                  <Loader2 className="absolute left-3 top-1/2 transform -translate-y-1/2 text-blue-600 animate-spin" size={15} />
+                ) : (
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={15} />
+                )}
                 <input
                   type="text"
                   placeholder="Name, PIN, or Admission No..."
-                  className="w-full pl-8 pr-8 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white/50 backdrop-blur-sm"
+                  className="w-full pl-9 pr-8 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white/50 backdrop-blur-sm"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
-                {loading && (
-                  <Loader2 className="absolute right-2.5 top-1/2 transform -translate-y-1/2 text-blue-500 animate-spin" size={14} />
+                {searchTerm && (
+                  <button
+                    onClick={() => {
+                      setSearchTerm('');
+                      setDebouncedSearchTerm('');
+                      setPage(1);
+                    }}
+                    className="absolute right-2.5 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 rounded-full hover:bg-gray-100 transition-colors"
+                    title="Clear search"
+                  >
+                    <X size={14} />
+                  </button>
                 )}
               </div>
             </div>
@@ -500,16 +517,16 @@ const StudentDashboard = ({ currentUser }) => {
         {/* Content Area */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden relative">
           {/* Animated Top Progress Line during fetch */}
-          {loading && (
-            <div className="h-0.5 w-full bg-gradient-to-r from-blue-500 via-indigo-500 to-blue-600 animate-pulse"></div>
+          {isSearchingOrLoading && (
+            <div className="h-1 w-full bg-gradient-to-r from-blue-500 via-indigo-500 to-blue-600 animate-pulse"></div>
           )}
 
           {/* Table Header / Meta */}
           <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="font-semibold text-gray-700">Student List</span>
-              {loading ? (
-                <span className="bg-amber-50 text-amber-700 border border-amber-200/60 px-2 py-0.5 rounded-md text-xs font-medium flex items-center gap-1.5 animate-pulse">
+              {isSearchingOrLoading ? (
+                <span className="bg-amber-50 text-amber-700 border border-amber-200/80 px-2 py-0.5 rounded-md text-xs font-medium flex items-center gap-1.5 animate-pulse">
                   <Loader2 className="animate-spin text-amber-600" size={11} />
                   Updating list...
                 </span>
@@ -519,7 +536,7 @@ const StudentDashboard = ({ currentUser }) => {
                 </span>
               ) : null}
             </div>
-            {refreshing && <Loader2 className="animate-spin text-blue-600" size={18} />}
+            {isSearchingOrLoading && <Loader2 className="animate-spin text-blue-600" size={18} />}
           </div>
 
           {/* Table */}
