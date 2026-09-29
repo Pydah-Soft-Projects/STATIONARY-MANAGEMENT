@@ -104,6 +104,7 @@ const StudentDashboard = ({ currentUser }) => {
   });
 
   const searchTimeoutRef = useRef(null);
+  const abortControllerRef = useRef(null);
   const hasInitialized = useRef(false);
   const coursesRef = useRef(courses);
   coursesRef.current = courses;
@@ -295,8 +296,15 @@ const StudentDashboard = ({ currentUser }) => {
     setPage(1);
   }, [debouncedSearchTerm]);
 
-  // 4. Fetch Students (Main Logic with In-Memory Cache Populate)
+  // 4. Fetch Students (Main Logic with AbortController and In-Memory Cache Populate)
   const fetchStudents = useCallback(async (isRefresh = false) => {
+    // Abort previous in-flight request to eliminate race conditions and reduce server load
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsFetching(true);
     if (isRefresh) setRefreshing(true);
     else if (allStudents.length === 0) setLoading(true);
@@ -308,12 +316,9 @@ const StudentDashboard = ({ currentUser }) => {
       const courseParam = courseObj ? courseObj.name : '';
       const branchParam = branchObj ? branchObj.name : '';
 
-      // High limit when fetching course dataset to populate in-memory search pool
-      const fetchLimit = selectedCourse ? 500 : limit;
-
       const query = new URLSearchParams({
         page: String(page),
-        limit: String(fetchLimit),
+        limit: String(limit),
         course: courseParam,
         courseId: selectedCourse || '',
         branch: branchParam,
@@ -322,7 +327,10 @@ const StudentDashboard = ({ currentUser }) => {
         search: debouncedSearchTerm || '',
       });
 
-      const res = await fetch(apiUrl(`/api/sql/students?${query.toString()}`));
+      const res = await fetch(apiUrl(`/api/sql/students?${query.toString()}`), {
+        signal: controller.signal,
+      });
+
       if (res.ok) {
         const data = await res.json();
         const rows = Array.isArray(data.rows) ? data.rows : [];
@@ -343,12 +351,19 @@ const StudentDashboard = ({ currentUser }) => {
         setStudents([]);
       }
     } catch (err) {
+      if (err.name === 'AbortError') {
+        // Request was cancelled by a newer query; exit quietly without resetting state
+        return;
+      }
       console.error('Failed to fetch students:', err);
       setStudents([]);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
-      setIsFetching(false);
+      // Only clear loading flags if this controller is still the active one
+      if (abortControllerRef.current === controller) {
+        setLoading(false);
+        setRefreshing(false);
+        setIsFetching(false);
+      }
     }
   }, [selectedCourse, selectedBranch, selectedYear, selectedSemester, debouncedSearchTerm, page]);
 
@@ -377,12 +392,28 @@ const StudentDashboard = ({ currentUser }) => {
   const years = [1, 2, 3, 4];
   const semesters = [1, 2, 3, 4, 5, 6, 7, 8];
 
+  // Helper to immediately sync search term whenever a filter dropdown changes
+  const applyFilterChange = (setter, val, extraReset) => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    setDebouncedSearchTerm(searchTerm);
+    setter(val);
+    if (extraReset) extraReset();
+    setPage(1);
+  };
+
   // Active student list for display (prefers backend MySQL search results when search term is active)
   const displayStudents = useMemo(() => {
     if (!searchTerm.trim()) return students;
-    if (students && students.length > 0) return students;
-    return filteredStudents;
-  }, [students, filteredStudents, searchTerm]);
+    if (debouncedSearchTerm === searchTerm && students && students.length > 0) {
+      return students;
+    }
+    if (filteredStudents && filteredStudents.length > 0) {
+      return filteredStudents;
+    }
+    return students;
+  }, [students, filteredStudents, searchTerm, debouncedSearchTerm]);
 
   // Combined active searching/loading state for instant visual feedback on typing
   const isSearchingOrLoading = isFetching || loading || refreshing || searchTerm !== debouncedSearchTerm;
@@ -427,6 +458,7 @@ const StudentDashboard = ({ currentUser }) => {
                 {searchTerm && (
                   <button
                     onClick={() => {
+                      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
                       setSearchTerm('');
                       setDebouncedSearchTerm('');
                       setPage(1);
@@ -447,10 +479,10 @@ const StudentDashboard = ({ currentUser }) => {
                 className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white/50 backdrop-blur-sm"
                 value={selectedCourse}
                 onChange={(e) => {
-                  setSelectedCourse(e.target.value);
-                  setSelectedBranch('');
-                  setAllStudents([]);
-                  setPage(1);
+                  applyFilterChange(setSelectedCourse, e.target.value, () => {
+                    setSelectedBranch('');
+                    setAllStudents([]);
+                  });
                 }}
               >
                 <option value="">All Courses</option>
@@ -466,10 +498,7 @@ const StudentDashboard = ({ currentUser }) => {
               <select
                 className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none disabled:opacity-50 bg-white/50 backdrop-blur-sm"
                 value={selectedBranch}
-                onChange={(e) => {
-                  setSelectedBranch(e.target.value);
-                  setPage(1);
-                }}
+                onChange={(e) => applyFilterChange(setSelectedBranch, e.target.value)}
                 disabled={!selectedCourse}
               >
                 <option value="">Select Branch</option>
@@ -485,10 +514,7 @@ const StudentDashboard = ({ currentUser }) => {
               <select
                 className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white/50 backdrop-blur-sm"
                 value={selectedYear}
-                onChange={(e) => {
-                  setSelectedYear(e.target.value);
-                  setPage(1);
-                }}
+                onChange={(e) => applyFilterChange(setSelectedYear, e.target.value)}
               >
                 <option value="">All Years</option>
                 {years.map(y => (
@@ -503,10 +529,7 @@ const StudentDashboard = ({ currentUser }) => {
               <select
                 className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white/50 backdrop-blur-sm"
                 value={selectedSemester}
-                onChange={(e) => {
-                  setSelectedSemester(e.target.value);
-                  setPage(1);
-                }}
+                onChange={(e) => applyFilterChange(setSelectedSemester, e.target.value)}
               >
                 <option value="">All Semesters</option>
                 {semesters.map(s => (

@@ -677,13 +677,18 @@ const getAllTransactions = asyncHandler(async (req, res) => {
     if (endDate) filter.transactionDate.$lte = new Date(endDate.includes('T') ? endDate : `${endDate}T23:59:59.999Z`);
   }
 
-  const maxLimit = Math.min(parseInt(limit, 10) || 2000, 5000);
-  const transactions = await Transaction.find(filter)
+  const fetchAll = req.query.all === 'true' || req.query.limit === 'all';
+  let query = Transaction.find(filter)
     .select('transactionId transactionType collegeId branchId student employee collegeTransfer branchTransfer items totalAmount paymentMethod cashAmount onlineAmount isPaid transactionDate transferDate createdAt')
     .populate('collegeTransfer.collegeId', 'name location')
-    .sort({ transactionDate: -1 })
-    .limit(maxLimit)
-    .lean();
+    .sort({ transactionDate: -1 });
+
+  if (!fetchAll) {
+    const maxLimit = Math.min(parseInt(limit, 10) || 2000, 10000);
+    query = query.limit(maxLimit);
+  }
+
+  const transactions = await query.lean();
 
   // For college/branch transfers, attach transferDate from StockTransfer so reports group by transfer date, not completed-at
   const transferTxIds = transactions

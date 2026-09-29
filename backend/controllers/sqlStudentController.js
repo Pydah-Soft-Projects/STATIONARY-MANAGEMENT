@@ -205,17 +205,22 @@ const getSqlStudents = asyncHandler(async (req, res) => {
     : `SELECT * FROM \`${tableName}\` ${whereClause} ORDER BY admission_number DESC LIMIT ? OFFSET ?`;
 
   try {
-    // Get total count
-    const [countRows] = await pool.query(countSql, params);
-    const total = countRows[0]?.total || 0;
-
-    // Get paginated data
-    // Append Limit and Offset to params
+    // Get paginated data first
     const queryParams = [...params, limitNum, offset];
     const [rows] = await pool.query(dataSql, queryParams);
-
-    // Normalize rows
     const students = Array.isArray(rows) ? rows.map(normalizeStudentRow) : [];
+
+    // Calculate total count efficiently: if page 1 has fewer rows than limit, total is simply rows.length (no COUNT query needed!)
+    let total = students.length;
+    if (pageNum > 1 || students.length === limitNum) {
+      try {
+        const [countRows] = await pool.query(countSql, params);
+        total = countRows[0]?.total || students.length;
+      } catch (countErr) {
+        console.warn('[MySQL] Non-fatal count error, falling back to rows length:', countErr.message);
+        total = pageNum * limitNum;
+      }
+    }
 
     // Build result
     res.json({
@@ -224,7 +229,7 @@ const getSqlStudents = asyncHandler(async (req, res) => {
       pagination: {
         page: pageNum,
         limit: limitNum,
-        totalPages: Math.ceil(total / limitNum),
+        totalPages: Math.ceil(total / limitNum) || 1,
       },
       debug: {
         tableName,

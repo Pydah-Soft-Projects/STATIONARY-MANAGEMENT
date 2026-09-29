@@ -104,6 +104,8 @@ const Reports = ({ currentUser }) => {
     }
   }, [isSuperAdmin, currentUser]);
 
+  const [allTransactionsLoaded, setAllTransactionsLoaded] = useState(false);
+
   // Update selected college data when selection changes
   useEffect(() => {
     if (selectedCollege) {
@@ -113,13 +115,13 @@ const Reports = ({ currentUser }) => {
       setSelectedCollegeData(null);
     }
 
-    // Skip duplicate refetches on initial mount since global fetch ran
     if (isInitialMount.current) {
       isInitialMount.current = false;
       return;
     }
 
     // Refetch data when college selection changes
+    setAllTransactionsLoaded(false);
     fetchTransactions();
     fetchStockEntries();
     fetchProducts();
@@ -143,8 +145,11 @@ const Reports = ({ currentUser }) => {
       fetchStockEntries();
     } else if (activeTab === 'monthly') {
       fetchProducts();
+      if (!allTransactionsLoaded) {
+        fetchTransactions(true);
+      }
     }
-  }, [activeTab]);
+  }, [activeTab, allTransactionsLoaded]);
 
   // Get current month key in format YYYY-MM
   const getCurrentMonthKey = () => {
@@ -252,11 +257,14 @@ const Reports = ({ currentUser }) => {
     }
   };
 
-  const fetchTransactions = async () => {
+  const fetchTransactions = async (forceAll = true) => {
     try {
       setLoading(true);
       setFetchError(null);
       const queryParams = new URLSearchParams();
+      if (forceAll || activeTab === 'monthly' || !filters.startDate) {
+        queryParams.append('all', 'true');
+      }
       if (filters.course) queryParams.append('course', filters.course);
       if (filters.studentId) queryParams.append('studentId', filters.studentId);
       if (filters.transactionType) queryParams.append('transactionType', filters.transactionType);
@@ -287,6 +295,7 @@ const Reports = ({ currentUser }) => {
           });
         }
         setTransactions(filteredData);
+        setAllTransactionsLoaded(true);
       } else {
         throw new Error(`Server returned status ${response.status}`);
       }

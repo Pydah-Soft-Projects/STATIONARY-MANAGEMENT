@@ -613,11 +613,11 @@ const StudentReceiptModal = ({
       });
 
       // Fetch updated student data
-      const studentRes = await fetch(apiUrl(`/api/users/${student.course}/${studentId}`));
+      const studentRes = await fetch(apiUrl(`/api/sql/students/${studentId}`));
       if (studentRes.ok) {
         const updatedStudent = await studentRes.json();
         if (onTransactionSaved) {
-          onTransactionSaved({ ...updatedStudent, id: updatedStudent._id });
+          onTransactionSaved({ ...updatedStudent, id: updatedStudent.id || updatedStudent._id });
         }
       } else {
         if (onTransactionSaved) {
