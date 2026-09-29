@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Plus, Trash2, GraduationCap, Users, Filter, ChevronLeft, ChevronRight, Loader2, X } from 'lucide-react';
+import { Search, GraduationCap, Users, ChevronLeft, ChevronRight, Loader2, X, RefreshCw } from 'lucide-react';
 import { apiUrl } from '../utils/api';
 import useOnlineStatus from '../hooks/useOnlineStatus';
 import { normalizeCourseName, hasViewAccess } from '../utils/permissions';
@@ -81,8 +81,9 @@ const StudentDashboard = ({ currentUser }) => {
     const val = getInitialState('branches', []);
     return Array.isArray(val) ? val : [];
   });
-  const [students, setStudents] = useState([]);
-  const [allStudents, setAllStudents] = useState([]); // In-memory cache of all fetched students for 0ms instant client-side search
+  const [allStudents, setAllStudents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Filters
   const [selectedCourse, setSelectedCourse] = useState(() => getInitialState('selectedCourse', ''));
@@ -90,66 +91,12 @@ const StudentDashboard = ({ currentUser }) => {
   const [selectedYear, setSelectedYear] = useState(() => getInitialState('selectedYear', ''));
   const [selectedSemester, setSelectedSemester] = useState(() => getInitialState('selectedSemester', ''));
   const [searchTerm, setSearchTerm] = useState(() => getInitialState('searchTerm', ''));
-  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(() => getInitialState('searchTerm', ''));
 
-  // Pagination & Meta
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [isFetching, setIsFetching] = useState(false);
+  // Pagination
   const [page, setPage] = useState(() => getInitialState('page', 1));
-  const limit = 100;
-  const [paginationMeta, setPaginationMeta] = useState({
-    totalPages: 0,
-    totalRecords: 0
-  });
+  const limit = 50;
 
-  const searchTimeoutRef = useRef(null);
-  const abortControllerRef = useRef(null);
-  const hasInitialized = useRef(false);
-  const coursesRef = useRef(courses);
-  coursesRef.current = courses;
-  const branchesRef = useRef(branches);
-  branchesRef.current = branches;
-
-  // 0ms Instant Client-Side Search Filter (FeeCollection.jsx architecture)
-  const filteredStudents = useMemo(() => {
-    if (!searchTerm.trim()) {
-      return students;
-    }
-    const query = searchTerm.toLowerCase().trim();
-    const cleanQuery = query.replace(/[^a-z0-9]/g, '');
-
-    const poolToSearch = allStudents.length > 0 ? allStudents : students;
-
-    return poolToSearch.filter(s => {
-      const name = s.name ? String(s.name).toLowerCase() : '';
-      const studentId = s.studentId ? String(s.studentId).toLowerCase() : '';
-      const pin = s.pin ? String(s.pin).toLowerCase() : '';
-      const phone = s.phoneNumber ? String(s.phoneNumber) : '';
-      const course = s.course ? String(s.course).toLowerCase() : '';
-      const branch = s.branch ? String(s.branch).toLowerCase() : '';
-
-      const cleanName = name.replace(/[^a-z0-9]/g, '');
-      const cleanPin = pin.replace(/[^a-z0-9]/g, '');
-      const cleanId = studentId.replace(/[^a-z0-9]/g, '');
-
-      return (
-        name.includes(query) ||
-        studentId.includes(query) ||
-        pin.includes(query) ||
-        phone.includes(query) ||
-        course.includes(query) ||
-        branch.includes(query) ||
-        (cleanQuery.length > 1 && (
-          cleanName.includes(cleanQuery) ||
-          cleanPin.includes(cleanQuery) ||
-          cleanId.includes(cleanQuery)
-        ))
-      );
-    });
-  }, [students, allStudents, searchTerm]);
-
-  // Lightweight session storage persistence (avoid serializing heavy data arrays on every render)
+  // Lightweight session storage persistence
   useEffect(() => {
     try {
       sessionStorage.setItem('dashboard_selectedCourse', JSON.stringify(selectedCourse));
@@ -162,6 +109,11 @@ const StudentDashboard = ({ currentUser }) => {
       console.warn('Failed to save dashboard state to sessionStorage', e);
     }
   }, [selectedCourse, selectedBranch, selectedYear, selectedSemester, searchTerm, page]);
+
+  // Reset page to 1 on any filter or search change
+  useEffect(() => {
+    setPage(1);
+  }, [selectedCourse, selectedBranch, selectedYear, selectedSemester, searchTerm]);
 
   // -- Permissions --
   const isSuperAdmin = currentUser?.role === 'Administrator';
@@ -282,144 +234,125 @@ const StudentDashboard = ({ currentUser }) => {
     if (isOnline && (courses || []).length > 0) fetchBranches();
   }, [selectedCourse, isOnline, courses]);
 
-  // 3. Debounce Search for server fallback fetch
-  useEffect(() => {
-    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    searchTimeoutRef.current = setTimeout(() => {
-      setDebouncedSearchTerm(searchTerm);
-    }, 400);
-    return () => clearTimeout(searchTimeoutRef.current);
-  }, [searchTerm]);
-
-  // Reset page to 1 on debounced search term change
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedSearchTerm]);
-
-  // 4. Fetch Students (Main Logic with AbortController and In-Memory Cache Populate)
-  const fetchStudents = useCallback(async (isRefresh = false) => {
-    // If the user is searching and we ALREADY have matching students in memory, skip the redundant network call!
-    if (!isRefresh && debouncedSearchTerm.trim() && filteredStudents.length > 0) {
-      setIsFetching(false);
-      return;
-    }
-
-    // Abort previous in-flight request to eliminate race conditions and reduce server load
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    setIsFetching(true);
+  // 3. Fetch All Students into Memory on Mount
+  const fetchAllStudents = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
-    else if (allStudents.length === 0) setLoading(true);
+    else setLoading(true);
 
     try {
-      const courseObj = (coursesRef.current || []).find(c => String(c.id) === String(selectedCourse));
-      const branchObj = (branchesRef.current || []).find(b => String(b.id) === String(selectedBranch));
-
-      const courseParam = courseObj ? courseObj.name : '';
-      const branchParam = branchObj ? branchObj.name : '';
-
-      const query = new URLSearchParams({
-        page: String(page),
-        limit: String(limit),
-        course: courseParam,
-        courseId: selectedCourse || '',
-        branch: branchParam,
-        year: selectedYear || '',
-        semester: selectedSemester || '',
-        search: debouncedSearchTerm || '',
-      });
-
-      const res = await fetch(apiUrl(`/api/sql/students?${query.toString()}`), {
-        signal: controller.signal,
-      });
-
+      const res = await fetch(apiUrl('/api/sql/students?all=true'));
       if (res.ok) {
         const data = await res.json();
         const rows = Array.isArray(data.rows) ? data.rows : [];
-        setStudents(rows);
-
-        // Update allStudents cache pool
-        setAllStudents(prev => {
-          const map = new Map(prev.map(item => [item.id, item]));
-          rows.forEach(item => map.set(item.id, item));
-          return Array.from(map.values());
-        });
-
-        setPaginationMeta({
-          totalRecords: data.count || rows.length,
-          totalPages: data.pagination?.totalPages || Math.ceil((data.count || rows.length) / limit)
-        });
+        setAllStudents(rows);
       } else {
-        setStudents([]);
+        setAllStudents([]);
       }
     } catch (err) {
-      if (err.name === 'AbortError') {
-        // Request was cancelled by a newer query; exit quietly without resetting state
-        return;
-      }
-      console.error('Failed to fetch students:', err);
-      setStudents([]);
+      console.error('Failed to fetch students from MySQL:', err);
     } finally {
-      // Only clear loading flags if this controller is still the active one
-      if (abortControllerRef.current === controller) {
-        setLoading(false);
-        setRefreshing(false);
-        setIsFetching(false);
-      }
+      setLoading(false);
+      setRefreshing(false);
     }
-  }, [selectedCourse, selectedBranch, selectedYear, selectedSemester, debouncedSearchTerm, page, filteredStudents.length]);
+  }, []);
 
-  // Trigger fetch when mandatory filters change or pagination changes
   useEffect(() => {
-    if (!hasInitialized.current) {
-      hasInitialized.current = true;
-      if (students.length > 0) return;
+    if (isOnline) {
+      fetchAllStudents();
     }
-    fetchStudents();
-  }, [fetchStudents]);
+  }, [isOnline, fetchAllStudents]);
 
   // Handlers
   const handlePageChange = (newPage) => {
-    if (newPage >= 1 && newPage <= paginationMeta.totalPages) {
+    if (newPage >= 1 && newPage <= totalPages) {
       setPage(newPage);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
-  };
-
-  const handleDeleteStudent = async (student) => {
-    if (!window.confirm(`Are you sure you want to delete ${student.name}?`)) return;
-    console.log("Delete requested for", student.id);
   };
 
   // --- Render Helpers ---
   const years = [1, 2, 3, 4];
   const semesters = [1, 2, 3, 4, 5, 6, 7, 8];
 
-  // Helper to immediately sync search term whenever a filter dropdown changes
-  const applyFilterChange = (setter, val, extraReset) => {
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-    setDebouncedSearchTerm(searchTerm);
-    setter(val);
-    if (extraReset) extraReset();
-    setPage(1);
-  };
+  // 0ms Instant Client-Side In-Memory Filtering across all students
+  const filteredStudents = useMemo(() => {
+    if (!allStudents || allStudents.length === 0) return [];
 
-  // Active student list for display (uses instant in-memory filter when searching)
+    const query = searchTerm.trim().toLowerCase();
+    const cleanQuery = query.replace(/[^a-z0-9]/g, '');
+
+    const selectedCourseObj = selectedCourse ? (courses || []).find(c => String(c.id) === String(selectedCourse)) : null;
+    const courseNameTarget = selectedCourseObj ? selectedCourseObj.name.toLowerCase() : (selectedCourse ? String(selectedCourse).toLowerCase() : '');
+
+    const selectedBranchObj = selectedBranch ? (branches || []).find(b => String(b.id) === String(selectedBranch)) : null;
+    const branchNameTarget = selectedBranchObj ? selectedBranchObj.name.toLowerCase() : (selectedBranch ? String(selectedBranch).toLowerCase() : '');
+
+    return allStudents.filter(student => {
+      // Course filter
+      if (selectedCourse) {
+        const sCourse = (student.course || '').toLowerCase();
+        const cMatch = String(student.courseId) === String(selectedCourse) || 
+                       sCourse === courseNameTarget ||
+                       normalizeCourse(student.course) === normalizeCourse(courseNameTarget);
+        if (!cMatch) return false;
+      }
+
+      // Branch filter
+      if (selectedBranch) {
+        const sBranch = (student.branch || '').toLowerCase();
+        const bMatch = String(student.branchId) === String(selectedBranch) || 
+                       sBranch === branchNameTarget ||
+                       sBranch.startsWith(branchNameTarget);
+        if (!bMatch) return false;
+      }
+
+      // Year filter
+      if (selectedYear) {
+        if (String(student.year) !== String(selectedYear)) return false;
+      }
+
+      // Semester filter
+      if (selectedSemester) {
+        if (String(student.semester) !== String(selectedSemester)) return false;
+      }
+
+      // Search query (Name, PIN, Admission Number, Mobile)
+      if (query) {
+        const name = (student.name || '').toLowerCase();
+        const pin = (student.pin || '').toLowerCase();
+        const studentId = (student.studentId || '').toLowerCase();
+        const phone = String(student.phoneNumber || '');
+
+        const cleanName = name.replace(/[^a-z0-9]/g, '');
+        const cleanPin = pin.replace(/[^a-z0-9]/g, '');
+        const cleanId = studentId.replace(/[^a-z0-9]/g, '');
+
+        const matched = 
+          name.includes(query) ||
+          pin.includes(query) ||
+          studentId.includes(query) ||
+          phone.includes(query) ||
+          (cleanQuery.length > 1 && (
+            cleanName.includes(cleanQuery) ||
+            cleanPin.includes(cleanQuery) ||
+            cleanId.includes(cleanQuery)
+          ));
+
+        if (!matched) return false;
+      }
+
+      return true;
+    });
+  }, [allStudents, selectedCourse, selectedBranch, selectedYear, selectedSemester, searchTerm, courses, branches]);
+
+  // Paginated students for active page display
+  const totalRecords = filteredStudents.length;
+  const totalPages = Math.ceil(totalRecords / limit) || 1;
+
   const displayStudents = useMemo(() => {
-    if (!searchTerm.trim()) return students;
-    if (filteredStudents && filteredStudents.length > 0) {
-      return filteredStudents;
-    }
-    return students;
-  }, [students, filteredStudents, searchTerm]);
-
-  // Combined active searching/loading state (shows spinner only when active network fetch occurs)
-  const isSearchingOrLoading = isFetching || loading || refreshing;
+    const start = (page - 1) * limit;
+    return filteredStudents.slice(start, start + limit);
+  }, [filteredStudents, page, limit]);
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -446,7 +379,7 @@ const StudentDashboard = ({ currentUser }) => {
             <div className="lg:col-span-1">
               <label className="block text-xs font-medium text-gray-500 mb-1 uppercase">Search</label>
               <div className="relative">
-                {isSearchingOrLoading ? (
+                {loading ? (
                   <Loader2 className="absolute left-3 top-1/2 transform -translate-y-1/2 text-blue-600 animate-spin" size={15} />
                 ) : (
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={15} />
@@ -461,9 +394,7 @@ const StudentDashboard = ({ currentUser }) => {
                 {searchTerm && (
                   <button
                     onClick={() => {
-                      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
                       setSearchTerm('');
-                      setDebouncedSearchTerm('');
                       setPage(1);
                     }}
                     className="absolute right-2.5 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 rounded-full hover:bg-gray-100 transition-colors"
@@ -482,10 +413,8 @@ const StudentDashboard = ({ currentUser }) => {
                 className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white/50 backdrop-blur-sm"
                 value={selectedCourse}
                 onChange={(e) => {
-                  applyFilterChange(setSelectedCourse, e.target.value, () => {
-                    setSelectedBranch('');
-                    setAllStudents([]);
-                  });
+                  setSelectedCourse(e.target.value);
+                  setSelectedBranch('');
                 }}
               >
                 <option value="">All Courses</option>
@@ -501,7 +430,7 @@ const StudentDashboard = ({ currentUser }) => {
               <select
                 className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none disabled:opacity-50 bg-white/50 backdrop-blur-sm"
                 value={selectedBranch}
-                onChange={(e) => applyFilterChange(setSelectedBranch, e.target.value)}
+                onChange={(e) => setSelectedBranch(e.target.value)}
                 disabled={!selectedCourse}
               >
                 <option value="">Select Branch</option>
@@ -517,7 +446,7 @@ const StudentDashboard = ({ currentUser }) => {
               <select
                 className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white/50 backdrop-blur-sm"
                 value={selectedYear}
-                onChange={(e) => applyFilterChange(setSelectedYear, e.target.value)}
+                onChange={(e) => setSelectedYear(e.target.value)}
               >
                 <option value="">All Years</option>
                 {years.map(y => (
@@ -532,7 +461,7 @@ const StudentDashboard = ({ currentUser }) => {
               <select
                 className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white/50 backdrop-blur-sm"
                 value={selectedSemester}
-                onChange={(e) => applyFilterChange(setSelectedSemester, e.target.value)}
+                onChange={(e) => setSelectedSemester(e.target.value)}
               >
                 <option value="">All Semesters</option>
                 {semesters.map(s => (
@@ -546,7 +475,7 @@ const StudentDashboard = ({ currentUser }) => {
         {/* Content Area */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden relative">
           {/* Animated Top Progress Line during fetch */}
-          {isSearchingOrLoading && (
+          {refreshing && (
             <div className="h-1 w-full bg-gradient-to-r from-blue-500 via-indigo-500 to-blue-600 animate-pulse"></div>
           )}
 
@@ -554,18 +483,28 @@ const StudentDashboard = ({ currentUser }) => {
           <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="font-semibold text-gray-700">Student List</span>
-              {isSearchingOrLoading ? (
+              {refreshing ? (
                 <span className="bg-amber-50 text-amber-700 border border-amber-200/80 px-2 py-0.5 rounded-md text-xs font-medium flex items-center gap-1.5 animate-pulse">
                   <Loader2 className="animate-spin text-amber-600" size={11} />
-                  Updating list...
+                  Syncing records...
                 </span>
-              ) : (searchTerm ? displayStudents.length : paginationMeta.totalRecords) > 0 ? (
+              ) : (
                 <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-md text-xs font-medium">
-                  {searchTerm ? displayStudents.length : paginationMeta.totalRecords} Found
+                  {totalRecords} Found
                 </span>
-              ) : null}
+              )}
             </div>
-            {isSearchingOrLoading && <Loader2 className="animate-spin text-blue-600" size={18} />}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => fetchAllStudents(true)}
+                disabled={refreshing || loading}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors shadow-sm"
+                title="Refresh student records from MySQL"
+              >
+                <RefreshCw size={13} className={refreshing ? 'animate-spin text-blue-600' : 'text-gray-500'} />
+                <span>Refresh</span>
+              </button>
+            </div>
           </div>
 
           {/* Table */}
@@ -592,7 +531,7 @@ const StudentDashboard = ({ currentUser }) => {
                     <th className="px-6 py-3 font-semibold">Status</th>
                   </tr>
                 </thead>
-                <tbody className={`divide-y divide-gray-100 transition-opacity duration-200 ${isSearchingOrLoading ? 'opacity-60' : 'opacity-100'}`}>
+                <tbody className="divide-y divide-gray-100">
                   {displayStudents.map((student) => (
                     <tr
                       key={student.id}
@@ -633,25 +572,30 @@ const StudentDashboard = ({ currentUser }) => {
           </div>
 
           {/* Pagination Footer */}
-          {!searchTerm && paginationMeta.totalPages > 1 && (
+          {totalPages > 1 && (
             <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between bg-gray-50">
-              <button
-                onClick={() => handlePageChange(page - 1)}
-                disabled={page === 1}
-                className="p-2 border rounded-lg hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <span className="text-sm text-gray-600">
-                Page {page} of {paginationMeta.totalPages}
-              </span>
-              <button
-                onClick={() => handlePageChange(page + 1)}
-                disabled={page === paginationMeta.totalPages}
-                className="p-2 border rounded-lg hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ChevronRight size={16} />
-              </button>
+              <div className="text-xs text-gray-500">
+                Showing {totalRecords > 0 ? (page - 1) * limit + 1 : 0} to {Math.min(page * limit, totalRecords)} of {totalRecords} students
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handlePageChange(page - 1)}
+                  disabled={page === 1}
+                  className="p-2 border border-gray-300 rounded-lg bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <span className="text-sm font-medium text-gray-700 px-2">
+                  Page {page} of {totalPages}
+                </span>
+                <button
+                  onClick={() => handlePageChange(page + 1)}
+                  disabled={page === totalPages}
+                  className="p-2 border border-gray-300 rounded-lg bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
             </div>
           )}
         </div>

@@ -194,17 +194,27 @@ const getSqlStudents = asyncHandler(async (req, res) => {
     params.push(...semOptions);
   }
 
+  const fetchAll = req.query.all === 'true' || req.query.limit === 'all';
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-  // Count total records for pagination
+  const dataSql = `SELECT * FROM \`${tableName}\` ${whereClause} ORDER BY id ASC LIMIT ? OFFSET ?`;
   const countSql = `SELECT COUNT(*) as total FROM \`${tableName}\` ${whereClause}`;
 
-  // Fetch paginated records
-  const dataSql = forceRefresh
-    ? `SELECT SQL_NO_CACHE * FROM \`${tableName}\` ${whereClause} ORDER BY admission_number DESC LIMIT ? OFFSET ?`
-    : `SELECT * FROM \`${tableName}\` ${whereClause} ORDER BY admission_number DESC LIMIT ? OFFSET ?`;
-
   try {
+    if (fetchAll) {
+      const allSql = `SELECT id, student_name, admission_number, pin_no, course, branch, current_year, current_semester, student_status, student_mobile, batch FROM \`${tableName}\` ${whereClause} ORDER BY id ASC`;
+      const [rows] = await pool.query(allSql, params);
+      const students = Array.isArray(rows) ? rows.map(normalizeStudentRow) : [];
+      return res.json({
+        rows: students,
+        count: students.length,
+        pagination: {
+          page: 1,
+          limit: students.length,
+          totalPages: 1,
+        },
+      });
+    }
+
     // Get paginated data first
     const queryParams = [...params, limitNum, offset];
     const [rows] = await pool.query(dataSql, queryParams);
