@@ -298,6 +298,12 @@ const StudentDashboard = ({ currentUser }) => {
 
   // 4. Fetch Students (Main Logic with AbortController and In-Memory Cache Populate)
   const fetchStudents = useCallback(async (isRefresh = false) => {
+    // If the user is searching and we ALREADY have matching students in memory, skip the redundant network call!
+    if (!isRefresh && debouncedSearchTerm.trim() && filteredStudents.length > 0) {
+      setIsFetching(false);
+      return;
+    }
+
     // Abort previous in-flight request to eliminate race conditions and reduce server load
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -365,7 +371,7 @@ const StudentDashboard = ({ currentUser }) => {
         setIsFetching(false);
       }
     }
-  }, [selectedCourse, selectedBranch, selectedYear, selectedSemester, debouncedSearchTerm, page]);
+  }, [selectedCourse, selectedBranch, selectedYear, selectedSemester, debouncedSearchTerm, page, filteredStudents.length]);
 
   // Trigger fetch when mandatory filters change or pagination changes
   useEffect(() => {
@@ -403,20 +409,17 @@ const StudentDashboard = ({ currentUser }) => {
     setPage(1);
   };
 
-  // Active student list for display (prefers backend MySQL search results when search term is active)
+  // Active student list for display (uses instant in-memory filter when searching)
   const displayStudents = useMemo(() => {
     if (!searchTerm.trim()) return students;
-    if (debouncedSearchTerm === searchTerm && students && students.length > 0) {
-      return students;
-    }
     if (filteredStudents && filteredStudents.length > 0) {
       return filteredStudents;
     }
     return students;
-  }, [students, filteredStudents, searchTerm, debouncedSearchTerm]);
+  }, [students, filteredStudents, searchTerm]);
 
-  // Combined active searching/loading state for instant visual feedback on typing
-  const isSearchingOrLoading = isFetching || loading || refreshing || searchTerm !== debouncedSearchTerm;
+  // Combined active searching/loading state (shows spinner only when active network fetch occurs)
+  const isSearchingOrLoading = isFetching || loading || refreshing;
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
