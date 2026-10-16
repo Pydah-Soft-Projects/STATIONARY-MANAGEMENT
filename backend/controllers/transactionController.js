@@ -677,18 +677,29 @@ const getAllTransactions = asyncHandler(async (req, res) => {
     if (endDate) filter.transactionDate.$lte = new Date(endDate.includes('T') ? endDate : `${endDate}T23:59:59.999Z`);
   }
 
-  const fetchAll = req.query.all === 'true' || req.query.limit === 'all';
+  const isChunkedFormat = req.query.format === 'chunked' || req.query.chunked === 'true';
+  const hasExplicitLimit = req.query.limit !== undefined && req.query.limit !== 'all';
+  const hasExplicitSkip = req.query.skip !== undefined;
+  const fetchAll = (req.query.all === 'true' || req.query.limit === 'all') && !hasExplicitLimit && !hasExplicitSkip;
+
+  const skip = Math.max(0, parseInt(req.query.skip, 10) || 0);
+  const batchLimit = Math.min(Math.max(1, parseInt(limit, 10) || 2000), 10000);
+
   let query = Transaction.find(filter)
     .select('transactionId transactionType collegeId branchId student employee collegeTransfer branchTransfer items totalAmount paymentMethod cashAmount onlineAmount isPaid transactionDate transferDate createdAt')
     .populate('collegeTransfer.collegeId', 'name location')
     .sort({ transactionDate: -1 });
 
   if (!fetchAll) {
-    const maxLimit = Math.min(parseInt(limit, 10) || 2000, 10000);
-    query = query.limit(maxLimit);
+    query = query.skip(skip).limit(batchLimit);
   }
 
-  const transactions = await query.lean();
+  // Run query and total count in parallel
+  const shouldCount = isChunkedFormat || req.query.includeCount === 'true' || skip === 0;
+  const [transactions, totalCount] = await Promise.all([
+    query.lean(),
+    shouldCount ? Transaction.countDocuments(filter) : Promise.resolve(null),
+  ]);
 
   // For college/branch transfers, attach transferDate from StockTransfer so reports group by transfer date, not completed-at
   const transferTxIds = transactions
@@ -710,6 +721,25 @@ const getAllTransactions = asyncHandler(async (req, res) => {
           t.transferDate = txIdToTransferDate.get(txId);
         }
       }
+    });
+  }
+
+  const hasMore = totalCount !== null ? (skip + transactions.length < totalCount) : (transactions.length === batchLimit);
+
+  if (totalCount !== null) {
+    res.set('X-Total-Count', String(totalCount));
+  }
+  res.set('X-Has-More', String(hasMore));
+  res.set('X-Loaded-Count', String(transactions.length));
+
+  if (isChunkedFormat) {
+    return res.status(200).json({
+      transactions,
+      total: totalCount !== null ? totalCount : (skip + transactions.length),
+      hasMore,
+      skip,
+      limit: batchLimit,
+      count: transactions.length
     });
   }
 

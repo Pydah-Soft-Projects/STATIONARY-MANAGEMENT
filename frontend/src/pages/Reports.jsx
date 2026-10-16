@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Search, Trash2, Receipt, Download, Eye, X, FileText, Calendar, Package, Building2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Filter, Printer, DollarSign, TrendingUp, ShoppingCart, AlertCircle, Loader2 } from 'lucide-react';
+import { Search, Trash2, Receipt, Download, Eye, X, FileText, Calendar, Package, Building2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Filter, Printer, DollarSign, TrendingUp, ShoppingCart, AlertCircle, Loader2, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { apiUrl } from '../utils/api';
 import { hasFullAccess } from '../utils/permissions';
 import { exportMonthlySaleReportExcel, exportDailyBreakdownReportExcel } from '../utils/reportExcelExport';
@@ -76,10 +76,8 @@ const Reports = ({ currentUser }) => {
   const [branchTransferPage, setBranchTransferPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
-  const [itemsSoldExpanded, setItemsSoldExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState('daily'); // 'daily', 'monthly', 'stock'
   const [monthlyReportSubTab, setMonthlyReportSubTab] = useState('monthly-sale'); // 'monthly-sale', 'daily-breakdown'
-  const [expandedDays, setExpandedDays] = useState(new Set()); // Track expanded days: "monthKey-dayKey"
   const [generatingPDF, setGeneratingPDF] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [showExcelExportModal, setShowExcelExportModal] = useState(false); // Modal for with/without counts
@@ -94,6 +92,7 @@ const Reports = ({ currentUser }) => {
     fetchSettings();
     fetchStockEntries();
     fetchProducts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Set default college for sub-admins
@@ -105,6 +104,10 @@ const Reports = ({ currentUser }) => {
   }, [isSuperAdmin, currentUser]);
 
   const [allTransactionsLoaded, setAllTransactionsLoaded] = useState(false);
+  const [syncingInBackground, setSyncingInBackground] = useState(false);
+  const [totalTransactionsCount, setTotalTransactionsCount] = useState(0);
+  const [loadedTransactionsCount, setLoadedTransactionsCount] = useState(0);
+  const activeFetchIdRef = useRef(0);
 
   // Update selected college data when selection changes
   useEffect(() => {
@@ -126,6 +129,7 @@ const Reports = ({ currentUser }) => {
     fetchStockEntries();
     fetchProducts();
     fetchStudents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCollege, colleges]);
 
   const fetchColleges = async () => {
@@ -149,6 +153,7 @@ const Reports = ({ currentUser }) => {
         fetchTransactions(true);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, allTransactionsLoaded]);
 
   // Get current month key in format YYYY-MM
@@ -168,6 +173,7 @@ const Reports = ({ currentUser }) => {
     if (showReportModal && (reportType === 'stock' || reportType === 'day-end' || reportType === 'vendor-purchase')) {
       fetchProducts(reportFilters.stockType);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportFilters.stockType, reportType, showReportModal]);
 
   const fetchSettings = async () => {
@@ -257,53 +263,147 @@ const Reports = ({ currentUser }) => {
     }
   };
 
-  const fetchTransactions = async (forceAll = true) => {
+  const fetchTransactions = async () => {
+    const fetchId = ++activeFetchIdRef.current;
     try {
       setLoading(true);
       setFetchError(null);
-      const queryParams = new URLSearchParams();
-      if (forceAll || activeTab === 'monthly' || !filters.startDate) {
-        queryParams.append('all', 'true');
-      }
-      if (filters.course) queryParams.append('course', filters.course);
-      if (filters.studentId) queryParams.append('studentId', filters.studentId);
-      if (filters.transactionType) queryParams.append('transactionType', filters.transactionType);
-      if (filters.paymentMethod) queryParams.append('paymentMethod', filters.paymentMethod);
-      if (filters.isPaid !== '') queryParams.append('isPaid', filters.isPaid);
-      if (filters.startDate) queryParams.append('startDate', filters.startDate);
-      if (filters.endDate) queryParams.append('endDate', filters.endDate);
-      if (selectedCollege) queryParams.append('collegeId', selectedCollege);
+      setSyncingInBackground(false);
 
-      const response = await fetch(apiUrl(`/api/transactions?${queryParams.toString()}`));
-      if (response.ok) {
-        const data = await response.json();
-        const safeData = Array.isArray(data) ? data : [];
-        // Filter by date range on client side if needed
-        let filteredData = safeData;
-        if (filters.startDate || filters.endDate) {
-          filteredData = safeData.filter(transaction => {
-            const transDate = new Date(transaction.transactionDate);
-            if (filters.startDate) {
-              const start = new Date(filters.startDate.includes('T') ? filters.startDate : `${filters.startDate}T00:00:00`);
-              if (transDate < start) return false;
-            }
-            if (filters.endDate) {
-              const end = new Date(filters.endDate.includes('T') ? filters.endDate : `${filters.endDate}T23:59:59.999`);
-              if (transDate > end) return false;
-            }
-            return true;
-          });
-        }
-        setTransactions(filteredData);
-        setAllTransactionsLoaded(true);
-      } else {
+      const baseParams = new URLSearchParams();
+      if (filters.course) baseParams.append('course', filters.course);
+      if (filters.studentId) baseParams.append('studentId', filters.studentId);
+      if (filters.transactionType) baseParams.append('transactionType', filters.transactionType);
+      if (filters.paymentMethod) baseParams.append('paymentMethod', filters.paymentMethod);
+      if (filters.isPaid !== '') baseParams.append('isPaid', filters.isPaid);
+      if (filters.startDate) baseParams.append('startDate', filters.startDate);
+      if (filters.endDate) baseParams.append('endDate', filters.endDate);
+      if (selectedCollege) baseParams.append('collegeId', selectedCollege);
+
+      // Step 1: Immediately fetch the first 2,000 most recent transactions
+      const batch1Params = new URLSearchParams(baseParams);
+      batch1Params.append('chunked', 'true');
+      batch1Params.append('limit', '2000');
+      batch1Params.append('skip', '0');
+
+      const response = await fetch(apiUrl(`/api/transactions?${batch1Params.toString()}`));
+      if (!response.ok) {
         throw new Error(`Server returned status ${response.status}`);
       }
-    } catch (error) {
-      console.error('Error fetching transactions:', error);
-      setFetchError(error.message || 'Failed to load transactions');
-    } finally {
+
+      if (activeFetchIdRef.current !== fetchId) return;
+
+      const data = await response.json();
+      const firstBatch = Array.isArray(data) ? data : (data.transactions || []);
+      const totalCount = typeof data.total === 'number' ? data.total : firstBatch.length;
+      const hasMore = Boolean(data.hasMore);
+
+      // Client-side date check fallback
+      let filteredFirstBatch = firstBatch;
+      if (filters.startDate || filters.endDate) {
+        filteredFirstBatch = firstBatch.filter(transaction => {
+          const transDate = new Date(transaction.transactionDate);
+          if (filters.startDate) {
+            const start = new Date(filters.startDate.includes('T') ? filters.startDate : `${filters.startDate}T00:00:00`);
+            if (transDate < start) return false;
+          }
+          if (filters.endDate) {
+            const end = new Date(filters.endDate.includes('T') ? filters.endDate : `${filters.endDate}T23:59:59.999`);
+            if (transDate > end) return false;
+          }
+          return true;
+        });
+      }
+
+      // Immediately render the first batch without blocking!
+      setTransactions(filteredFirstBatch);
+      setLoadedTransactionsCount(firstBatch.length);
+      setTotalTransactionsCount(totalCount);
       setLoading(false);
+
+      if (!hasMore || firstBatch.length >= totalCount) {
+        setAllTransactionsLoaded(true);
+        setSyncingInBackground(false);
+        return;
+      }
+
+      // Step 2: Concurrently stream remaining 2000-sized chunks in background
+      setSyncingInBackground(true);
+
+      const remainingOffsets = [];
+      for (let offset = 2000; offset < totalCount; offset += 2000) {
+        remainingOffsets.push(offset);
+      }
+
+      let nextIndex = 0;
+      const CONCURRENCY = 2; // Stream 2 chunks simultaneously
+
+      const fetchWorker = async () => {
+        while (nextIndex < remainingOffsets.length) {
+          if (activeFetchIdRef.current !== fetchId) return;
+          const currentOffset = remainingOffsets[nextIndex++];
+
+          const chunkParams = new URLSearchParams(baseParams);
+          chunkParams.append('chunked', 'true');
+          chunkParams.append('limit', '2000');
+          chunkParams.append('skip', String(currentOffset));
+
+          try {
+            const chunkRes = await fetch(apiUrl(`/api/transactions?${chunkParams.toString()}`));
+            if (!chunkRes.ok) continue;
+            if (activeFetchIdRef.current !== fetchId) return;
+
+            const chunkData = await chunkRes.json();
+            const chunkList = Array.isArray(chunkData) ? chunkData : (chunkData.transactions || []);
+
+            let filteredChunk = chunkList;
+            if (filters.startDate || filters.endDate) {
+              filteredChunk = chunkList.filter(transaction => {
+                const transDate = new Date(transaction.transactionDate);
+                if (filters.startDate) {
+                  const start = new Date(filters.startDate.includes('T') ? filters.startDate : `${filters.startDate}T00:00:00`);
+                  if (transDate < start) return false;
+                }
+                if (filters.endDate) {
+                  const end = new Date(filters.endDate.includes('T') ? filters.endDate : `${filters.endDate}T23:59:59.999`);
+                  if (transDate > end) return false;
+                }
+                return true;
+              });
+            }
+
+            if (filteredChunk.length > 0) {
+              setTransactions(prev => {
+                const existingIds = new Set(prev.map(t => t._id));
+                const uniqueNew = filteredChunk.filter(t => !existingIds.has(t._id));
+                if (uniqueNew.length === 0) return prev;
+                const merged = [...prev, ...uniqueNew];
+                merged.sort((a, b) => new Date(b.transactionDate || b.createdAt) - new Date(a.transactionDate || a.createdAt));
+                return merged;
+              });
+            }
+
+            setLoadedTransactionsCount(prev => Math.min(totalCount, prev + chunkList.length));
+          } catch (chunkErr) {
+            console.warn(`Failed to fetch chunk at offset ${currentOffset}:`, chunkErr);
+          }
+        }
+      };
+
+      const workers = Array.from({ length: Math.min(CONCURRENCY, remainingOffsets.length) }, () => fetchWorker());
+      await Promise.all(workers);
+
+      if (activeFetchIdRef.current === fetchId) {
+        setSyncingInBackground(false);
+        setAllTransactionsLoaded(true);
+      }
+    } catch (error) {
+      if (activeFetchIdRef.current === fetchId) {
+        console.error('Error fetching transactions:', error);
+        setFetchError(error.message || 'Failed to load transactions');
+        setLoading(false);
+        setSyncingInBackground(false);
+      }
     }
   };
 
@@ -364,6 +464,7 @@ const Reports = ({ currentUser }) => {
 
   useEffect(() => {
     fetchTransactions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters]);
 
   const filteredTransactions = useMemo(() => {
@@ -811,7 +912,7 @@ const Reports = ({ currentUser }) => {
     });
 
     return Array.from(monthMap.values()).sort((a, b) => b.monthKey.localeCompare(a.monthKey));
-  }, [revenueEligibleTransactions, getReportDate]);
+  }, [revenueEligibleTransactions, getReportDate, getItemPaymentSplit]);
 
   // Set default to current month when switching to daily breakdown sub-tab or when monthlyStats is available
   useEffect(() => {
@@ -834,6 +935,7 @@ const Reports = ({ currentUser }) => {
         }
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, monthlyReportSubTab, monthlyStats]);
 
   // Enhanced Monthly Sales Report - Comprehensive table with all items and months
@@ -953,7 +1055,6 @@ const Reports = ({ currentUser }) => {
 
     selectedMonth.dayWiseBreakdown.forEach(day => {
       const dayKey = day.date; // Format: YYYY-MM-DD
-      const dayName = new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       allDays.add(dayKey);
       const txs = day.transactions || [];
       // Filter out transfers for dailyRevenue (DAILY INCOME row)
@@ -1092,28 +1193,6 @@ const Reports = ({ currentUser }) => {
     }
   };
 
-  const handleDownloadDailyBreakdownExcel = async () => {
-    if (!dailyBreakdownReport || dailyBreakdownReport.items.length === 0) {
-      alert('Please select a month with daily data to download.');
-      return;
-    }
-    setExportingExcel(true);
-    try {
-      await exportDailyBreakdownReportExcel({
-        report: dailyBreakdownReport,
-        formatCurrency,
-        getProductPrice,
-        warehouseName,
-        paymentFilter: dailyPaymentFilter,
-      });
-    } catch (error) {
-      console.error('Failed to export daily breakdown report:', error);
-      alert('Failed to download Excel file. Please try again.');
-    } finally {
-      setExportingExcel(false);
-    }
-  };
-
   const handleDownloadReportExcel = () => {
     if (monthlyReportSubTab === 'monthly-sale') {
       handleDownloadMonthlySaleExcel();
@@ -1152,45 +1231,7 @@ const Reports = ({ currentUser }) => {
       ? comprehensiveMonthlyReport.items.length > 0
       : Boolean(dailyBreakdownReport && dailyBreakdownReport.items.length > 0);
 
-  // Calculate day-wise breakdown (revenue includes paid college/branch transfers)
-  const dayWiseBreakdown = useMemo(() => {
-    const revenueTransactions = revenueEligibleTransactions;
-    const dayMap = new Map();
-
-    revenueTransactions.forEach(transaction => {
-      const date = getReportDate(transaction);
-      const dayKey = date.toISOString().split('T')[0];
-      const dayName = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-
-      if (!dayMap.has(dayKey)) {
-        dayMap.set(dayKey, {
-          date: dayKey,
-          dayName,
-          transactions: [],
-          totalAmount: 0,
-          paidAmount: 0,
-          unpaidAmount: 0,
-          paidCount: 0,
-          unpaidCount: 0,
-        });
-      }
-
-      const dayData = dayMap.get(dayKey);
-      dayData.transactions.push(transaction);
-      dayData.totalAmount += transaction.totalAmount || 0;
-      if (transaction.isPaid) {
-        dayData.paidAmount += transaction.totalAmount || 0;
-        dayData.paidCount++;
-      } else {
-        dayData.unpaidAmount += transaction.totalAmount || 0;
-        dayData.unpaidCount++;
-      }
-    });
-
-    return Array.from(dayMap.values()).sort((a, b) => b.date.localeCompare(a.date));
-  }, [revenueEligibleTransactions, getReportDate]);
-
-  const generateDayEndReport = async (transactions, collegeId = null) => {
+  const generateDayEndReport = async (transactions) => {
     // Filter transactions by date range if specified
     let filteredTransactions = transactions;
     if (reportFilters.startDate || reportFilters.endDate) {
@@ -1301,8 +1342,6 @@ const Reports = ({ currentUser }) => {
 
     if (showStats) {
       const totalAmount = revenueTransactions.reduce((sum, t) => sum + (t.totalAmount || 0), 0);
-      const paidCount = revenueTransactions.filter(t => t.isPaid).length;
-      const paidAmount = revenueTransactions.filter(t => t.isPaid).reduce((sum, t) => sum + (t.totalAmount || 0), 0);
 
       // Cash/Online statistics for filtered range (Handling Split Payments)
       const totalCash = revenueTransactions.filter(t => t.isPaid).reduce((sum, t) => {
@@ -1365,7 +1404,7 @@ const Reports = ({ currentUser }) => {
         yPos += 4;
 
         pdf.setFont(undefined, 'normal');
-        dayWiseData.forEach((day, idx) => {
+        dayWiseData.forEach((day) => {
           if (yPos > 180) {
             pdf.addPage();
             yPos = 14;
@@ -1518,7 +1557,7 @@ const Reports = ({ currentUser }) => {
         pdf.text('Item Details', 14, yPos);
         yPos += 6;
 
-        filteredTransactions.forEach((transaction, transIndex) => {
+        filteredTransactions.forEach((transaction) => {
           if (transaction.items && transaction.items.length > 0) {
             // Check if we need a new page
             if (yPos > 180) {
@@ -2435,6 +2474,40 @@ const Reports = ({ currentUser }) => {
                 </div>
               </div>
 
+              {/* Live Syncing Progress Banner */}
+              {syncingInBackground && (
+                <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 border border-blue-200/80 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm animate-fadeIn">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                      <RefreshCw className="w-5 h-5 animate-spin" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-semibold text-gray-900">Streaming Live Transactions</h4>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-100 text-blue-800">
+                          Live Progressive Sync
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-600 mt-0.5">
+                        Showing <span className="font-semibold text-gray-800">{loadedTransactionsCount.toLocaleString()}</span> transactions • Streaming older records in background ({loadedTransactionsCount.toLocaleString()} of {totalTransactionsCount.toLocaleString()})
+                      </p>
+                    </div>
+                  </div>
+                  <div className="w-full sm:w-56 flex flex-col gap-1.5 items-end">
+                    <div className="w-full bg-blue-200/70 rounded-full h-2.5 overflow-hidden">
+                      <div
+                        className="bg-blue-600 h-2.5 rounded-full transition-all duration-300 ease-out"
+                        style={{ width: `${Math.min(100, Math.max(5, Math.round((loadedTransactionsCount / (totalTransactionsCount || 1)) * 100)))}%` }}
+                      />
+                    </div>
+                    <div className="w-full flex justify-between text-[11px] text-gray-500 font-medium">
+                      <span>{Math.min(100, Math.round((loadedTransactionsCount / (totalTransactionsCount || 1)) * 100))}% loaded</span>
+                      <span>{totalTransactionsCount.toLocaleString()} total</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Statistics Section */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white">
@@ -2551,9 +2624,20 @@ const Reports = ({ currentUser }) => {
                       <h3 className="text-lg font-semibold text-gray-900">Transaction Details</h3>
                       <p className="text-sm text-gray-500">Review student transactions and manage receipts</p>
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3">
+                      {syncingInBackground ? (
+                        <div className="flex items-center gap-1.5 px-3 py-1 bg-blue-50 border border-blue-200 text-blue-700 text-xs font-medium rounded-full shadow-xs animate-pulse">
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                          <span>Syncing ({loadedTransactionsCount.toLocaleString()} / {totalTransactionsCount.toLocaleString()})</span>
+                        </div>
+                      ) : allTransactionsLoaded && totalTransactionsCount > 0 ? (
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium rounded-full">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>All {totalTransactionsCount.toLocaleString()} loaded</span>
+                        </div>
+                      ) : null}
                       <span className="text-sm text-gray-600 bg-gray-100 px-3 py-1 rounded-full">
-                        {studentTransactions.length} transactions
+                        {studentTransactions.length.toLocaleString()} transactions
                       </span>
                       <div className="flex items-center gap-2">
                         <label className="text-sm text-gray-600">Show:</label>
@@ -2768,9 +2852,15 @@ const Reports = ({ currentUser }) => {
                       <h3 className="text-lg font-semibold text-gray-900">College Transfers</h3>
                       <p className="text-sm text-gray-500">Review stock transfers to colleges</p>
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3">
+                      {syncingInBackground ? (
+                        <div className="flex items-center gap-1.5 px-3 py-1 bg-blue-50 border border-blue-200 text-blue-700 text-xs font-medium rounded-full shadow-xs animate-pulse">
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                          <span>Syncing...</span>
+                        </div>
+                      ) : null}
                       <span className="text-sm text-gray-600 bg-gray-100 px-3 py-1 rounded-full">
-                        {branchTransfers.length} transfers
+                        {branchTransfers.length.toLocaleString()} transfers
                       </span>
                       <div className="flex items-center gap-2">
                         <label className="text-sm text-gray-600">Show:</label>
@@ -2950,6 +3040,40 @@ const Reports = ({ currentUser }) => {
           {/* Monthly Report Tab - Enhanced Comprehensive View */}
           {activeTab === 'monthly' && (
             <div className="space-y-6">
+              {/* Live Syncing Progress Banner (Monthly View) */}
+              {syncingInBackground && (
+                <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 border border-blue-200/80 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm animate-fadeIn">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                      <RefreshCw className="w-5 h-5 animate-spin" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-semibold text-gray-900">Updating Monthly Calculations</h4>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-100 text-blue-800">
+                          Live Progressive Sync
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-600 mt-0.5">
+                        Compiling report from <span className="font-semibold text-gray-800">{loadedTransactionsCount.toLocaleString()}</span> transactions • Streaming older records ({loadedTransactionsCount.toLocaleString()} / {totalTransactionsCount.toLocaleString()})
+                      </p>
+                    </div>
+                  </div>
+                  <div className="w-full sm:w-56 flex flex-col gap-1.5 items-end">
+                    <div className="w-full bg-blue-200/70 rounded-full h-2.5 overflow-hidden">
+                      <div
+                        className="bg-blue-600 h-2.5 rounded-full transition-all duration-300 ease-out"
+                        style={{ width: `${Math.min(100, Math.max(5, Math.round((loadedTransactionsCount / (totalTransactionsCount || 1)) * 100)))}%` }}
+                      />
+                    </div>
+                    <div className="w-full flex justify-between text-[11px] text-gray-500 font-medium">
+                      <span>{Math.min(100, Math.round((loadedTransactionsCount / (totalTransactionsCount || 1)) * 100))}% loaded</span>
+                      <span>{totalTransactionsCount.toLocaleString()} total</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Summary Statistics */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white">
