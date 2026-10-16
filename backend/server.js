@@ -81,7 +81,7 @@ const corsOptions = {
     "Accept",
     "X-Requested-With",
   ],
-  exposedHeaders: ["Authorization"],
+  exposedHeaders: ["Authorization", "X-Total-Count", "X-Has-More", "X-Loaded-Count"],
   credentials: true,
   preflightContinue: false,
   optionsSuccessStatus: 204,
@@ -105,6 +105,7 @@ app.use((req, res, next) => {
       res.header('Access-Control-Allow-Credentials', 'true');
       res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
       res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-auth-token, Origin, Accept, X-Requested-With');
+      res.header('Access-Control-Expose-Headers', 'Authorization, X-Total-Count, X-Has-More, X-Loaded-Count');
     } else {
       // Log for debugging CORS issues
       if (req.path.includes('/api/sql')) {
